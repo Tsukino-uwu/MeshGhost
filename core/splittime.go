@@ -1,16 +1,10 @@
 package core
 
-// Split times: "you are 1.2s behind your ghost", on the ghost's nametag
-// (ADR 0047). Game-agnostic by construction: the core has the replay's
-// samples and the player's live samples, both position streams in the same
-// opaque units, and asks one question -- when did the recording pass the spot
-// the player is at now? -- with an equality test on area_id and a Euclidean
-// distance over the shared position components. The delta rides the existing
-// remote_name message, so every adapter with nametags shows it with no change.
-//
-// Routes revisit places, so the search never scans the whole clip: it looks
-// a window of samples either side of the last match, which also makes the
-// match monotone on a straight run and cheap at frame rate.
+// Split times: "you are 1.2s behind your ghost", on the ghost's nametag. The core asks when the recording passed the
+// spot the player is at now, with an equality test on area_id and a Euclidean distance over the shared position
+// components, and the delta rides the existing remote_name message. Routes revisit places, so the search looks only a
+// window of samples either side of the last match, which keeps the match monotone on a straight run and cheap at frame
+// rate.
 
 import (
 	"fmt"
@@ -21,16 +15,14 @@ import (
 )
 
 const (
-	// splitWindow is how many samples either side of the last match are
-	// searched for the player's current position.
+	// splitWindow is how many samples either side of the last match are searched.
 	splitWindow = 60
 	// splitPublishMs bounds how often a nametag can change for a split.
 	splitPublishMs = 250
 	// splitNameMax keeps room for the suffix under the 24-char nametag cap
 	// (one space and up to seven characters, e.g. " +12.3s").
 	splitNameMax = 16
-	// splitMaxDistance: farther than this from every sample in the window,
-	// and the player is simply not on the ghost's path here -- no update.
+	// splitMaxDistance: farther than this from every sample in the window, the player is not on the ghost's path here.
 	splitMaxDistance = 3.0
 )
 
@@ -79,11 +71,8 @@ func (c *Core) updateSplits(local *protocol.State) {
 		return
 	}
 	now := c.nowMs()
-	// How far behind its own schedule the ghost is DRAWN (remoteStatesAt). Read
-	// once, out here beside now, rather than inside the p.split.mu section
-	// below -- that would invent a split.mu -> c.mu lock order this file has
-	// nowhere else, for a value that cannot change between two players in one
-	// call.
+	// How far behind its schedule the ghost is drawn, read once here: inside p.split.mu it would add a split.mu -> c.mu
+	// lock order found nowhere else.
 	c.mu.Lock()
 	localDelayMs := c.LocalInterpolationDelay.Milliseconds()
 	c.mu.Unlock()
@@ -100,8 +89,7 @@ func (c *Core) updateSplits(local *protocol.State) {
 			continue
 		}
 		clip := p.clip
-		// Search around the last split match (kept on the player's split
-		// state), seeded from the playback index the first time.
+		// Search around the last match, seeded from the playback index the first time.
 		p.split.mu.Lock()
 		center := p.split.matchIdx
 		if center == 0 {
@@ -129,19 +117,8 @@ func (c *Core) updateSplits(local *protocol.State) {
 			continue
 		}
 		p.split.matchIdx = best
-		// The ghost was HERE at ghostElapsed into its run; the player is here
-		// at localElapsed into theirs. Positive = the player is behind.
-		//
-		// MEASURED AGAINST THE GHOST YOU CAN SEE, which is localDelayMs behind
-		// the schedule this clip was fed on -- so it visibly reaches every spot
-		// that much later and the player is that much LESS behind. Without the
-		// term the tag read 0.0s while the ghost was still short of the spot,
-		// which is exactly the case racing it is for.
-		//
-		// SUBTRACTED RAW: not divided by clip.speed, not multiplied by it.
-		// speed converts CLIP time to wall time (which is why line below
-		// divides by it); the render delay is already wall time, a lag
-		// downstream of playback, and playback's speed does not change it.
+		// Positive means the player is behind. Measured against the ghost on screen, drawn localDelayMs behind its
+		// feed, and subtracted raw: speed converts clip time to wall time, and the render delay is already wall time.
 		ghostElapsed := float64(clip.samples[best].Timestamp-clip.t0) / clip.speed
 		localElapsed := float64(now - startedAt)
 		delta := (localElapsed - ghostElapsed - float64(localDelayMs)) / 1000
@@ -169,8 +146,7 @@ func (c *Core) updateSplits(local *protocol.State) {
 	}
 }
 
-// splitOff clears a player's split state (on seek or restart), so the next
-// match is searched from the playback index again.
+// splitReset clears a player's split state on seek or restart, so the next match is searched from the playback index.
 func (p *replayPlayer) splitReset() {
 	p.split.mu.Lock()
 	p.split.matchIdx = 0

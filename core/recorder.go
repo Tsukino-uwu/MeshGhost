@@ -1,26 +1,9 @@
 package core
 
-// The recorder: the adapter's own state stream, written to a file (ADR 0047).
-//
-// A recording is what this core's adapter reports about the player, one
-// protocol.State per line, taken at the TOP of forwardLocalState -- before the
-// send-rate limit and before the relay-or-not check -- so it is the densest
-// copy that exists and it works with no relay at all. The first line is a
-// header (replayHeader); the rest are samples with Timestamp stamped in this
-// core's nowMs domain and a recorder-local Seq, PlayerID left empty.
-//
-// WHAT A RECORDING IS, the user's line (2026-09-03): 1:1 with the GAMEPLAY,
-// from the moment the player is in the world to the moment they quit. The
-// file's first state is the first non-nil sample -- the adapter already sends
-// nothing in the main menu -- and after that nothing is trimmed: a watched
-// cutscene is a standstill of the same length, a pause is a pause. The one
-// thing dropped is an IDENTICAL consecutive sample inside the keepalive window,
-// which playback cannot distinguish (a receiver holds the last sample anyway)
-// and which is what keeps standing still at 100Hz from being 50MB an hour.
-//
-// The same tap feeds a time-bounded ring of recent samples, which is what
-// "save the last N seconds" drains and what the chaser reads. The ring and the
-// file are independent: either may be on without the other.
+// The recorder: the adapter's own state stream written to a file, tapped at the top of forwardLocalState, before the
+// send-rate limit and the relay check, so it is the densest copy and works offline. A recording is 1:1 with the
+// gameplay: nothing is trimmed but an identical consecutive sample inside the keepalive window, which playback cannot
+// tell apart. The same tap feeds the ring save-last drains and the chaser pack's history, each independent.
 
 import (
 	"bufio"
@@ -40,15 +23,12 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// replayFormatVersion is the value of the header's meshghost_replay key. Bumped
-// only if a reader could not make sense of an older file at all; adding keys
-// does not bump it (an older file simply lacks them and gets the defaults).
+// replayFormatVersion is the header's meshghost_replay value, bumped only when a reader could not make sense of an
+// older file at all; an added key does not bump it.
 const replayFormatVersion = 1
 
-// replayHeader is the first line of a replay file. The first group is what a
-// player may edit; the second is what the recorder wrote and playback reads for
-// a warning only (compatibility is "latest version assumed, older files play
-// with what they have").
+// replayHeader is the first line of a replay file. The first group is what a player may edit; the last is what the
+// recorder wrote, which playback reads only for a warning.
 type replayHeader struct {
 	Format       int     `json:"meshghost_replay"`
 	Name         string  `json:"name"`
@@ -61,14 +41,9 @@ type replayHeader struct {
 	TrimStart    string  `json:"trim_start"`
 	TrimEnd      string  `json:"trim_end"`
 	SkipGaps     string  `json:"skip_gaps"`
-	// Delta says the sample lines carry only the extras that CHANGED since
-	// the line before, with everything else carried forward at load time.
-	// Written by the recorder; a file without it is read as it always was.
+	// Delta says sample lines carry only the extras that changed since the line before.
 	Delta bool `json:"delta,omitempty"`
-	// RecordingID is this recording's own base filename, and it appears in the
-	// INPUT track's header too (ADR 0056) -- the one value tying the two
-	// artefacts of a single run together. Absent on every file written before
-	// that, which reads as "no input track was taken".
+	// RecordingID is this recording's base filename, also in its input track's header; absent means no track.
 	RecordingID string `json:"recording_id,omitempty"`
 
 	Game            string `json:"game"`
@@ -77,9 +52,8 @@ type replayHeader struct {
 	Recorded        string `json:"recorded"`
 }
 
-// defaultReplayHeader is what a fresh recording carries: every player-editable
-// key at its default, spelled out so a player opening the file sees what can
-// be changed without reading a doc.
+// defaultReplayHeader spells out every player-editable key at its default, so a player opening the file sees what can
+// change.
 func defaultReplayHeader(game, version string, recorded time.Time) replayHeader {
 	return replayHeader{
 		Format:          replayFormatVersion,
@@ -97,16 +71,8 @@ func defaultReplayHeader(game, version string, recorded time.Time) replayHeader 
 	}
 }
 
-// replayHeaderFor is defaultReplayHeader with this Core's own labelling
-// applied, so a recording is BORN NAMED rather than needing its header edited
-// afterwards. That matters more since recordings ship gzipped (ReplayGzip): the
-// header is the one line anyone hand-edits, and editing it inside a .gz means
-// decompressing and recompressing a file just to give a clip a name.
-//
-// ReplayName/ReplayColor win; with neither set it falls back to the player's
-// own display name and colour, since a recording of your own run labelled with
-// your own name is what you would have typed anyway. Both empty stays empty,
-// which is the previous behaviour and renders no tag at all.
+// replayHeaderFor names a recording at birth, since editing a header inside a .gz means recompressing the file.
+// ReplayName and ReplayColor win, then the player's own display name and colour.
 func (c *Core) replayHeaderFor(game, version string, at time.Time) replayHeader {
 	h := defaultReplayHeader(game, version, at)
 	h.Name, h.Color = c.replayNameColor()
@@ -116,64 +82,23 @@ func (c *Core) replayHeaderFor(game, version string, at time.Time) replayHeader 
 	return h
 }
 
-// sampleRing keeps the last `span` milliseconds of stamped samples. Trimmed by
-// the newest sample's own timestamp rather than by wall clock, so a game that
-// stops sending (a menu) freezes the ring rather than draining it.
+// sampleRing keeps the last span of stamped samples, trimmed by the newest sample's stamp, so a game that stops
+// sending (a menu) freezes the ring rather than draining it.
 type sampleRing struct {
 	mu   sync.Mutex
 	span int64
 	buf  []protocol.State
 }
 
-// maxRingSpan caps how much recent play the ring keeps, for the same reason
-// maxHistoryMs caps remote history and maxChaserBehind caps chaser depth: a
-// hostile or fat-fingered setting must not turn a buffer into unbounded memory.
-// replay.save_last was the one duration in the config with no ceiling at all
-// until 2026-09-08 (review G8) -- setSpan took whatever arrived and only asked
-// whether it was positive.
-//
-// The cost of the missing ceiling, at the 100Hz the tap is fed at: "save_last":
-// "6h" asks the ring to hold 2.16 million protocol.State values for the whole
-// session -- ~280MB by the chaser history's own per-sample figure (7.7MB for 10
-// minutes, chaser.go), and that figure counts the struct only, not the Position
-// slice and Extras map each sample points at. Pseudoregalia's adapter sends
-// ~180Hz, so nearly double there. It is the player's own config file rather
-// than anything an attacker reaches, which is why this is the low-severity one
-// of the three, but the player who typed it gets a core that grows all evening
-// and no line anywhere saying why.
-//
-// Ten minutes matches maxChaserBehind deliberately: both bound the same
-// question -- how far back this core keeps the player's own past -- and one
-// number for both is one number to remember. Save-last is the "do a trick, then
-// press the key" mode; a clip older than that is a clip from a different
-// session.
+// maxRingSpan caps how much recent play the ring keeps, so a fat-fingered save_last cannot become unbounded memory.
+// Ten minutes, like maxChaserBehind: both bound how far back this core keeps the player's own past.
 const maxRingSpan = 10 * time.Minute
 
-// maxRingSamples bounds the ring by COUNT as well as by span, and it is the half
-// that was missing until 2026-09-12.
-//
-// maxInputRingEdges, the same bound on the ring beside this one, states the
-// lesson and names this very buffer as the one that only got half of it: "span
-// alone is not a bound -- a time-bounded buffer fed at an uncapped rate is an
-// unbounded buffer". G8 gave this ring a span ceiling and stopped there. The
-// span answers a fat-fingered `save_last`; it answers nothing at all about the
-// RATE, and the rate is a local process's to choose -- the bridge applies no
-// limit on inbound frames, and its line cap is transport's 64 KiB rather than
-// the relay's 4096. Found by the third adversarial review (P4a-1).
-//
-// 200,000 matches maxInputRingEdges, and lands above the fastest real feed at
-// the largest span this ring will hold: Pseudoregalia's adapter sends ~180Hz,
-// which is 108,000 samples over the ten-minute ceiling. At the ~128 bytes a
-// plain sample costs that is ~26MB; a sample carrying a large extras map costs
-// more, which is the reason to have the bound rather than a reason to raise it.
-//
-// Dropping the OLDEST, exactly as the span cutoff does: the ring's whole purpose
-// is "the last N of play", so the newest sample is never the one to refuse.
+// maxRingSamples bounds the ring by count as well: a span bounds nothing about the rate, which a local process
+// chooses. It sits above the fastest real feed over maxRingSpan; the oldest go, as with the span cutoff.
 const maxRingSamples = 200_000
 
-// setSpan is the raw setter and clamps SILENTLY: armRing is the config path and
-// says out loud what it asked for and what took effect, and repeating that here
-// would log once per adapter attach for a setting that has not changed.
+// setSpan clamps silently: armRing, the config path, says what was asked for and what took effect.
 func (r *sampleRing) setSpan(span time.Duration) {
 	if span > maxRingSpan {
 		span = maxRingSpan
@@ -198,29 +123,16 @@ func (r *sampleRing) add(st protocol.State) {
 	for drop < len(r.buf)-1 && r.buf[drop].Timestamp < cutoff {
 		drop++
 	}
-	// The COUNT bound, applied after the span one so the two agree on which end
-	// they take from. See maxRingSamples.
 	if over := len(r.buf) - drop - maxRingSamples; over > 0 {
 		drop += over
 	}
 	if drop > 0 {
-		// Reslice, never copy down. A full ring drops about one sample per
-		// add, and copying the live ones down a slot each time is O(n) per
-		// sample: at the cap that is 200,000 samples moved per add, which is
-		// what put the core's tests at Go's ten-minute limit under the race
-		// detector (2026-09-15), and in a game it is the whole buffer memmoved
-		// once per frame. The reslice is O(1). The dead prefix it leaves is
-		// bounded, not leaked: append grows a slice from its LENGTH, so the
-		// next time the shrunk capacity runs out it allocates fresh and the
-		// old array, prefix included, is garbage -- about one copy of the
-		// live samples per quarter-ring of adds, amortised to a few slots
-		// per add. The earlier "copy down rather than reslice forever"
-		// reasoning assumed the prefix accumulated; it does not.
+		// Reslice, never copy down: copying is O(n) per sample at the cap. The dead prefix is not leaked: once the
+		// shrunk capacity runs out, append allocates fresh from the length.
 		r.buf = r.buf[drop:]
 	}
 }
 
-// snapshot copies what the ring holds, oldest first.
 func (r *sampleRing) snapshot() []protocol.State {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -232,14 +144,11 @@ func (r *sampleRing) snapshot() []protocol.State {
 	return out
 }
 
-// recorder is the file half of the tap. The file is opened lazily at the first
-// sample, so a recording armed in the main menu leaves nothing behind if the
-// game is quit before play starts, and `recorded` is the first sample's time.
+// recorder is the file half of the tap. The file opens at the first sample, so a recording armed in the main menu
+// leaves nothing if the game quits before play.
 type recorder struct {
-	// Wall-clock start of the current recording, in unix milliseconds, for the
-	// adapter's on-screen elapsed time (bridge.RecordingState). Wall clock and
-	// not the core's own timeSrc: the adapter is a separate process that has no
-	// access to that clock, and both are on this machine by construction.
+	// startedUnixMs is the recording's wall-clock start, for the adapter's elapsed time: the adapter is another
+	// process on this machine and cannot see the core's clock.
 	startedUnixMs int64
 
 	mu          sync.Mutex
@@ -260,20 +169,12 @@ type recorder struct {
 	lastFlush   time.Time
 	on          bool
 
-	// clk is the clock lastFlush is measured against. Set alongside the rest of
-	// the recorder in StartRecording; nil means the wall clock, so a recorder
-	// built by a test literal still behaves.
-	//
-	// It covers lastFlush ONLY. The filename and the header's Recorded stamp
-	// stay on the wall clock deliberately -- both end up in a file somebody
-	// reads, and replayFileName deduplicates against the real filesystem at
-	// second granularity, so a virtual clock would write a fabricated time into
-	// an artefact and collide every recording in a test onto one name.
+	// clk is the clock lastFlush is measured against, nil meaning the wall clock. The filename and Recorded stay on
+	// the wall clock: they end up in a file someone reads, and names are deduplicated against the real filesystem.
 	clk coreClock
 }
 
-// flushClock is the recorder's clock, or the wall clock when none was set. Same
-// pure-read rule as Core.clk, and for the same reason: this runs under rec.mu.
+// flushClock never assigns, like Core.clk: it runs under rec.mu.
 func (r *recorder) flushClock() coreClock {
 	if r.clk == nil {
 		return wallClock{}
@@ -281,9 +182,8 @@ func (r *recorder) flushClock() coreClock {
 	return r.clk
 }
 
-// recordLocal is the tap: called with every non-nil frame the adapter offers,
-// before anything else happens to it. One atomic load when nothing is armed,
-// which is the shipped state.
+// recordLocal is the tap, called with every non-nil frame the adapter offers before anything else happens to it; one
+// atomic load when nothing is armed.
 func (c *Core) recordLocal(state *protocol.State) {
 	if atomic.LoadUint32(&c.tapArmed) == 0 {
 		return
@@ -308,46 +208,19 @@ func (c *Core) recordLocal(state *protocol.State) {
 	}
 	c.rec.mu.Unlock()
 
-	// A write that FAILED is a recording that stopped, and every other stop
-	// tells the adapter (StopRecording, and the attach path in bridgeserve.go).
-	// Until 2026-09-08 this one did not: a full disk or a pulled USB stick
-	// closed the file, logged one line into a console that ships hidden, and
-	// left the on-screen REC indicator lit for the rest of the session -- so
-	// the player kept playing a run that was no longer being written, and the
-	// stop hotkey then answered "no in-game samples, nothing written" because
-	// `on` was already false.
-	//
-	// AFTER the unlock, on a flag captured inside it, and never inside: c.rec.mu
-	// is held above, pushRecordingState asks Recording() for the flag and Go
-	// mutexes are not reentrant (the 2026-09-04 hang that split
-	// pushRecordingStateValues out), and that function takes c.mu, which the
-	// same comment pins as never held under c.rec.mu. rearmTap takes c.rec.mu
-	// too, for the same reason.
+	// A failed write stopped the recording, so the adapter is told, as on every other stop, or its indicator stays
+	// lit. After the unlock: both calls take c.rec.mu, and pushRecordingState takes c.mu, never held under it.
 	if writeFailed {
 		c.rearmTap()
 		c.pushRecordingState()
 	}
 
-	// The ring stamps its own seq: what it drains becomes a file of its own,
-	// numbered from 1 there, and the chaser never looks at seq at all.
+	// A drained ring is renumbered from 1 in its own file; the chaser never reads seq.
 	c.ring.add(st)
-	// The chaser alone runs on GAMEPLAY time (ADR 0053): a frame taken while
-	// the adapter says the player is frozen is recorded above, as it always
-	// was, and never offered here -- the chaser's clock is stopped, so the
-	// sample would only pile up to be replayed all at once on resume. What IS
-	// offered carries a gameplay stamp, so a freeze between two samples is no
-	// gap to the chaser's seam check.
+	// The chaser runs on gameplay time: a frame taken while frozen is recorded but never offered, and what is offered
+	// carries a gameplay stamp, so a freeze is no gap to its seam check.
 	if gs, ok := c.gameplayStamp(ts); ok {
-		// **At most one sample per chaserOfferIntervalMs (2026-09-05).** Each chaser's
-		// queue is sized for 100 samples a second of its delay; Pseudoregalia's adapter
-		// sends ~180 (one per frame). A queue that fills drops the NEWEST samples until
-		// its oldest fall due, which cut a hole of ~0.44*delay-1.1s into every chaser's
-		// trail -- under the seam threshold at 3s and 5s, over it from 7s up -- so
-		// chasers 3..8 despawned and respawned on the player with a period of exactly
-		// delay+spawn, watched live and read off the log to the second. Thinning here
-		// makes the sizing an invariant: the queue cannot fill from rate alone. The
-		// recorder and the ring above still take every frame; a chaser renders through
-		// interpolation and never needed more than this.
+		// At most one sample per chaserOfferIntervalMs, so the history's sizing holds whatever rate the adapter sends.
 		if gs-c.lastChaserOfferMs >= chaserOfferIntervalMs {
 			c.lastChaserOfferMs = gs
 			st.Timestamp = gs
@@ -356,8 +229,7 @@ func (c *Core) recordLocal(state *protocol.State) {
 	}
 }
 
-// writeLocked appends one sample, opening the file (and writing the header)
-// on the first. Caller holds rec.mu.
+// writeLocked appends one sample, opening the file and writing the header on the first. Caller holds rec.mu.
 func (r *recorder) writeLocked(st protocol.State) error {
 	if r.f == nil {
 		if err := os.MkdirAll(r.dir, 0o755); err != nil {
@@ -368,9 +240,7 @@ func (r *recorder) writeLocked(st protocol.State) error {
 			return fmt.Errorf("create %s: %w", r.path, err)
 		}
 		r.f = f
-		// bufio ON TOP of gzip, not under it: lines are batched before they
-		// reach the compressor, so deflate sees 64KiB at a time rather than
-		// ~1KiB per frame. Flushing means both, innermost last.
+		// bufio on top of gzip, so deflate sees 64KiB at a time rather than a line per frame.
 		var sink io.Writer = f
 		if r.gzip {
 			r.gz = gzip.NewWriter(f)
@@ -398,8 +268,7 @@ func (r *recorder) writeLocked(st protocol.State) error {
 	r.last = &kept
 	r.lastTs = st.Timestamp
 	r.written++
-	// Flushed on a clock rather than per line: a crash loses at most a second,
-	// and the game's frame never waits on the disk.
+	// Flushed on a clock, not per line: a crash loses at most a second, and the game's frame never waits on the disk.
 	if r.flushClock().Since(r.lastFlush) >= time.Second {
 		r.lastFlush = r.flushClock().Now()
 		return r.flushLocked()
@@ -407,9 +276,8 @@ func (r *recorder) writeLocked(st protocol.State) error {
 	return nil
 }
 
-// flushLocked pushes everything buffered out to the file. gzip.Writer.Flush
-// emits a sync point, so a crashed recording stays a decodable prefix rather
-// than an unreadable stream -- the same promise the plain writer already made.
+// flushLocked pushes everything buffered to the file. gzip.Writer.Flush emits a sync point, so a crashed recording
+// stays a decodable prefix.
 func (r *recorder) flushLocked() error {
 	if err := r.w.Flush(); err != nil {
 		return err
@@ -426,8 +294,7 @@ func (r *recorder) closeLocked() (path string, written int, err error) {
 		if ferr := r.w.Flush(); ferr != nil {
 			err = ferr
 		}
-		// Close, not Flush: the gzip footer (CRC and length) is written here,
-		// and a stream without it is what makes `gzip -t` call a file corrupt.
+		// Close, not Flush: the gzip footer (CRC and length) is written here; without it the file is corrupt.
 		if r.gz != nil {
 			if gerr := r.gz.Close(); gerr != nil && err == nil {
 				err = gerr
@@ -443,15 +310,9 @@ func (r *recorder) closeLocked() (path string, written int, err error) {
 	return path, written, err
 }
 
-// Rounding applied to every sample on its way into a file. The 17-digit tails
-// json.Marshal prints for a float64 -- "550.0000000000016", "-492.6911072143106"
-// -- are an artefact of binary floating point, not information: 3 decimals of a
-// position unit is 10 micrometres in the one 3D game here, and 1e-6 radians is
-// about a fifth of an arcsecond. Measured on a real 3-minute Pseudoregalia clip
-// (scaling.md): 7% smaller before compression, and it strips the highest-entropy
-// bytes in the file, so gzip does better on top.
-//
-// NOT applied to timestamp or seq, which are integers and carry the schedule.
+// Rounding applied to every float on its way into a file: json.Marshal's 17-digit tails are binary noise, not
+// information. 3 decimals of a position unit is 10 micrometres in the one 3D game here, and 1e-6 radians is a fifth
+// of an arcsecond.
 const (
 	replayPosDigits    = 3
 	replayOrientDigits = 6
@@ -466,10 +327,8 @@ func roundTo(v float64, digits int) float64 {
 	return math.Round(v*p) / p
 }
 
-// roundedForFile returns st with its floats trimmed for writing. It COPIES the
-// position slice and the extras map rather than rounding in place: the same
-// State goes to the ring and to every chaser, and rounding what they hold would
-// make the recorder change what a live ghost renders.
+// roundedForFile returns st with its floats trimmed for writing. It copies the position and extras: the same State
+// goes to the ring and the chasers, and rounding in place would change what a live ghost renders.
 func roundedForFile(st protocol.State) protocol.State {
 	if len(st.Position) > 0 {
 		pos := make([]float64, len(st.Position))
@@ -479,9 +338,7 @@ func roundedForFile(st protocol.State) protocol.State {
 		st.Position = pos
 	}
 	if len(st.Orientation) > 0 {
-		// Opaque by contract (scalar, vector or quaternion), so this decodes
-		// it as generic JSON and re-encodes; anything that is not numeric is
-		// left exactly as it arrived.
+		// Opaque by contract, so decoded as generic JSON and re-encoded; anything not numeric is left as it arrived.
 		var v any
 		if err := json.Unmarshal(st.Orientation, &v); err == nil {
 			if b, err := json.Marshal(roundValue(v, replayOrientDigits)); err == nil {
@@ -499,8 +356,6 @@ func roundedForFile(st protocol.State) protocol.State {
 	return st
 }
 
-// roundValue rounds every float inside a decoded JSON value, leaving strings,
-// bools and nulls alone.
 func roundValue(v any, digits int) any {
 	switch t := v.(type) {
 	case float64:
@@ -521,20 +376,8 @@ func roundValue(v any, digits int) any {
 	return v
 }
 
-// extrasDelta returns the extras of st with every key whose value is UNCHANGED
-// since prev removed, and reports whether anything was dropped.
-//
-// WHY PER KEY AND NOT PER LINE, which is the intuitive version and is worth
-// almost nothing: on a real 3-minute Pseudoregalia recording only 274 of 15,761
-// lines carried an extras block identical to the one before it, because
-// h_speed, v_speed and slide_t jitter every single frame -- while every OTHER
-// one of the 40 keys changed on 117 lines or fewer. Dropping unchanged KEYS is
-// 4.4x; dropping unchanged LINES is 2%. Measured, agent_docs/scaling.md.
-//
-// A key that DISAPPEARS between two samples is kept as an explicit JSON null,
-// because "absent" already means "unchanged" and the two must not collide --
-// an adapter that stops reporting a field would otherwise have its last value
-// carried forward forever.
+// extrasDelta returns cur without the keys unchanged since prev. Per key, not per line: a few keys jitter every frame,
+// so whole lines almost never repeat. A key that disappears is kept as an explicit null, since absent means unchanged.
 func extrasDelta(prev, cur map[string]any) map[string]any {
 	if len(prev) == 0 {
 		return cur
@@ -553,10 +396,8 @@ func extrasDelta(prev, cur map[string]any) map[string]any {
 	return out
 }
 
-// sameExtra compares two decoded JSON values. Deliberately structural rather
-// than reflect.DeepEqual: the values here come from json.Unmarshal (floats,
-// strings, bools, nil, and arrays/maps of those), and a cheap switch over
-// exactly those shapes runs on every recorded frame.
+// sameExtra compares two decoded JSON values with a switch over the shapes json.Unmarshal produces, cheaper than
+// reflect.DeepEqual on every recorded frame.
 func sameExtra(a, b any) bool {
 	switch x := a.(type) {
 	case float64:
@@ -607,28 +448,17 @@ func writeReplayLine(w *bufio.Writer, v any) error {
 	return w.WriteByte('\n')
 }
 
-// replayStat is the os.Stat replayFileName probes candidate names with, as a
-// variable so a test can make it fail the way a disconnected network share or a
-// permission-denied replay folder does -- neither of which any test can produce
-// on demand on Windows, and both of which used to hang the core (see below).
+// replayStat is os.Stat as a variable, so a test can fail it as a disconnected share or a denied folder does, which no
+// test can produce on demand on Windows.
 var replayStat = os.Stat
 
-// replayNameAttempts bounds the suffix search. A same-second collision is the
-// only thing the suffix exists for, and one core writes one recording at a time,
-// so anything past a handful means the answers are not to be believed.
+// replayNameAttempts bounds the suffix search: one core writes one recording at a time, so past a handful of
+// same-second collisions the answers are not to be believed.
 const replayNameAttempts = 100
 
-// replayFileName is rec-YYYYMMDD-HHMMSS.ndjson, or last-... for a save-last
-// file; a same-second collision gets a -2, -3 suffix rather than O_EXCL failing.
-//
-// EVERY Stat error that is not "does not exist" ends the search (2026-09-08).
-// The loop used to exit only on os.ErrNotExist, so a permission denial, a
-// disconnected network share or a replay folder that is really a file answered
-// every candidate with the same non-nil error and n counted up forever -- while
-// holding c.rec.mu, which StartRecording takes for its whole body. recordLocal
-// wants that mutex on every frame the adapter sends, so the bridge reader
-// goroutine wedged behind a spinning loop and the game stopped being visible to
-// the room at all. A player sees "the record key froze my ghosts".
+// replayFileName is rec-YYYYMMDD-HHMMSS.ndjson, or last-... for a save-last file; a same-second collision gets a -2,
+// -3 suffix. Any Stat error but not-exist ends the search: this runs under c.rec.mu, which recordLocal takes on every
+// frame.
 func replayFileName(dir, prefix string, at time.Time, gz bool) (string, error) {
 	ext := ".ndjson"
 	if gz {
@@ -649,38 +479,25 @@ func replayFileName(dir, prefix string, at time.Time, gz bool) (string, error) {
 	return "", fmt.Errorf("no free name for a recording in %s after %d tries", dir, replayNameAttempts)
 }
 
-// StartRecording arms the file tap. The path is decided now and returned, but
-// the file is created at the first sample (see recorder). ReplayDir must be
-// set; an empty one is refused so nothing is ever written "beside the exe" by
-// accident.
-// StartRecording arms the state recording and, when ReplayInputs is on, the
-// input track beside it, both carrying the same recording_id.
-//
-// TWO CALLS AND NOT ONE BODY, because of a lock ordering rule this file has
-// paid for twice: startStateRecording holds c.rec.mu for its whole body, and
-// the input side takes c.mu (for the game labels) and its own mutexes. Taking
-// those under c.rec.mu is the shape of the 2026-09-04 hang and the 2026-09-06
-// re-entrancy deadlock. So the state half finishes and releases first, and the
-// input half starts afterwards on the id it minted.
+// StartRecording arms the state recording and, when ReplayInputs is on, the input track beside it, both carrying the
+// same recording_id. The path is decided now; the file appears at the first sample. Two calls, not one body: the
+// state half holds c.rec.mu throughout, and the input half takes c.mu, which must never be taken under it.
 func (c *Core) StartRecording() (string, error) {
 	path, err := c.startStateRecording()
 	if err != nil {
 		return path, err
 	}
 	if ipath, ierr := c.StartInputRecording(recordingIDFor(path)); ierr != nil {
-		// The state recording is already running and is the artefact the player
-		// asked for; losing the input track is worth a line, not a failure.
+		// The state recording is the artefact the player asked for; a lost input track is a line, not a failure.
 		log.Printf("core: input track could not start: %v", ierr)
 	} else if ipath != "" {
-		// The launch path's only feedback (the hotkey path has describeStart's
-		// sentence): the first live run on 2026-09-08 logged "recording to" and
-		// nothing about the track, and the reader could not tell an off feature
-		// from a broken one.
+		// The launch path's only sign the track is on; the hotkey path has describeStart.
 		log.Printf("core: input track to %s (the file appears at the first input edge)", ipath)
 	}
 	return path, nil
 }
 
+// startStateRecording refuses an empty ReplayDir, so nothing is ever written beside the exe by accident.
 func (c *Core) startStateRecording() (string, error) {
 	if c.replayDir() == "" {
 		return "", errors.New("no replay folder configured")
@@ -705,40 +522,29 @@ func (c *Core) startStateRecording() (string, error) {
 	c.rec.gzip = c.replayGzip()
 	c.rec.delta = c.replayDelta()
 	c.rec.prevExtras = nil
-	// A name this cannot answer is a recording that never starts, reported to
-	// the caller: the folder is unreachable, and arming the tap would only fail
-	// again at the first sample with the indicator already lit.
-	path, err := replayFileName(c.replayDir(), "rec", time.Now(), c.rec.gzip) // wall-clock: a filename, deduplicated against the real filesystem
+	// An unanswerable name is refused now, not at the first sample with the indicator already lit.
+	path, err := replayFileName(c.replayDir(), "rec", time.Now(), c.rec.gzip) // wall-clock: a filename, checked on disk
 	if err != nil {
 		return "", err
 	}
 	c.rec.path = path
 	c.rec.header = c.replayHeaderFor(game, version, time.Now()) // wall-clock: an artefact timestamp
-	// After the header is built, not before: replayHeaderFor returns a fresh
-	// one and would otherwise wipe this.
+	// After the header is built: replayHeaderFor returns a fresh one.
 	c.rec.header.Delta = c.replayDelta()
 	c.rec.header.RecordingID = recordingIDFor(path)
 	c.rec.keepaliveMs = keepalive.Milliseconds()
 	c.rec.clk = c.timeSrc
 	c.rec.on = true
 	atomic.StoreUint32(&c.tapArmed, 1)
-	// The adapter compares this against its OWN clock in another process, which cannot see
-	// c.clk(); the bridge is loopback-only, so the two are on one machine and a wall clock is
-	// the only shared one. Nothing inside the core reads it.
 	c.rec.startedUnixMs = time.Now().UnixMilli() // wall-clock: read by the adapter, not by the core
 	log.Printf("core: recording to %s (the file appears at the first in-game sample)", c.rec.path)
-	// The adapter draws the indicator, so it has to be told the moment this
-	// flips -- see pushRecordingState for why a console line was not enough.
-	//
-	// The VALUES variant, because c.rec.mu is held here by the defer above and
-	// the plain one would ask the recorder for state it cannot answer for while
-	// locked. That deadlock is what the first version of this line caused.
+	// The adapter draws the indicator, so it is told the moment this flips. The values variant, because c.rec.mu is
+	// held here and the plain one asks the recorder for its state.
 	c.pushRecordingStateValues(true, c.rec.startedUnixMs)
 	return c.rec.path, nil
 }
 
-// StopRecording closes the file. written is 0 when no sample ever arrived, in
-// which case no file exists and path is "".
+// StopRecording closes the file. written is 0 when no sample ever arrived, and then no file exists and path is "".
 func (c *Core) StopRecording() (path string, written int, err error) {
 	c.rec.mu.Lock()
 	on := c.rec.on
@@ -770,9 +576,7 @@ func (c *Core) Recording() bool {
 	return c.rec.on
 }
 
-// SetRingSpan turns the recent-sample ring on (span > 0) or off. The ring is
-// what SaveLast drains and what the chaser reads; each caller asks for the span
-// it needs and the ring keeps the longest.
+// SetRingSpan turns the recent-sample ring that SaveLast drains on (span > 0) or off.
 func (c *Core) SetRingSpan(span time.Duration) {
 	c.ring.setSpan(span)
 	c.rearmTap()
@@ -796,21 +600,15 @@ func (c *Core) rearmTap() {
 	}
 }
 
-// SaveLast writes what the ring holds -- the last SaveLastSpan of play -- to
-// replay/last-YYYYMMDD-HHMMSS.ndjson with the same header a recording gets.
-// Independent of a running recording: the ring is fed by the same tap either
-// way. The "do a trick, then press the key" mode: nothing is ever armed from
-// the player's point of view, and the file is written after the fact.
+// SaveLast writes what the ring holds, the last SaveLastSpan of play, to replay/last-YYYYMMDD-HHMMSS.ndjson with a
+// recording's header: the "do a trick, then press the key" mode, independent of a running recording.
 func (c *Core) SaveLast() (string, int, error) {
 	if c.replayDir() == "" {
 		return "", 0, errors.New("no replay folder configured")
 	}
 	samples := c.ring.snapshot()
 	if len(samples) == 0 {
-		// The span the ring ACTUALLY kept, not the one asked for: a config of
-		// "6h" is clamped to maxRingSpan, and naming the unclamped number here
-		// would tell the player nothing arrived in six hours of play when the
-		// window looked at was ten minutes (2026-09-08, review G8).
+		// The span the ring kept, not the one asked for, which may have been clamped.
 		kept := c.saveLastSpan()
 		if kept > maxRingSpan {
 			kept = maxRingSpan
@@ -838,15 +636,8 @@ func (c *Core) SaveLast() (string, int, error) {
 	if err != nil {
 		return "", 0, fmt.Errorf("create %s: %w", path, err)
 	}
-	// abandon closes the half-written file AND removes it (2026-09-08). Every
-	// error path below used to close and leave the corpse: the file was created
-	// O_EXCL, so a disk-full or a gzip failure left a truncated
-	// last-<stamp>.ndjson(.gz) in the replay folder -- and replayLast picks the
-	// NEWEST file in that folder by mod time (core/replaycontrol.go), so the
-	// player's very next replay_last selects it in preference to every real
-	// recording. A .gz cut before gz.Close() has no CRC footer and is refused
-	// WHOLE rather than as a prefix, which is exactly the ADR 0051 failure the
-	// recorder's own closeLocked comment exists to avoid.
+	// abandon closes and removes the half-written file: replayLast picks the newest file in the folder, and a .gz cut
+	// before its footer is refused whole.
 	abandon := func() {
 		f.Close()
 		os.Remove(path)
@@ -860,11 +651,7 @@ func (c *Core) SaveLast() (string, int, error) {
 	w := bufio.NewWriterSize(sink, 64*1024)
 	hdr := c.replayHeaderFor(game, version, time.Now()) // wall-clock: an artefact timestamp
 	hdr.Delta = c.replayDelta()
-	// recorded is when the clip STARTS, which for a save-last file is the
-	// oldest sample's moment, not the key press.
-	// wall-clock: an artefact timestamp, back-dated from sample timestamps that ARE virtual.
-	// Mixed on purpose and harmless: the result is a human-readable string in a file header,
-	// never compared against anything.
+	// Recorded is when the clip starts, back-dated from virtual sample stamps: harmless in a string nobody compares.
 	hdr.Recorded = time.Now().Add(-time.Duration(samples[len(samples)-1].Timestamp-samples[0].Timestamp) * time.Millisecond).UTC().Format(time.RFC3339) // wall-clock: an artefact timestamp
 	if err := writeReplayLine(w, hdr); err != nil {
 		abandon()
@@ -899,8 +686,7 @@ func (c *Core) SaveLast() (string, int, error) {
 	}
 	span := time.Duration(samples[len(samples)-1].Timestamp-samples[0].Timestamp) * time.Millisecond
 	log.Printf("core: saved the last %s (%d samples) to %s", span.Round(time.Millisecond), len(samples), path)
-	// The input half of the same key press, tied to this clip by the same id.
-	// Best-effort: the state clip is written and returned either way.
+	// The input half of the same key press, best-effort: the state clip is written either way.
 	if ipath, iedges, ierr := c.SaveLastInputs(recordingIDFor(path)); ierr != nil {
 		log.Printf("core: could not save the last inputs: %v", ierr)
 	} else if iedges > 0 {
@@ -909,17 +695,11 @@ func (c *Core) SaveLast() (string, int, error) {
 	return path, len(samples), nil
 }
 
-// armRing sizes the ring for every consumer that needs recent samples: the
-// save-last key wants SaveLastSpan. (The chaser adds its own need later; the
-// ring keeps the longest.) Called when the adapter attaches.
+// armRing sizes the ring to SaveLastSpan when the adapter attaches.
 func (c *Core) armRing() {
 	span := c.saveLastSpan()
 	if span > 0 {
-		// Named out loud, the way StartChasers reports its own clamp: the
-		// player asked for something the ring will not do, and the only place
-		// they would otherwise notice is a save-last file that is shorter than
-		// the number in their config with nothing to explain it (2026-09-08,
-		// review G8).
+		// Said out loud, or a save-last file shorter than the config asks for would have nothing to explain it.
 		if span > maxRingSpan {
 			log.Printf("core: replay save_last asks for %s of recent play; keeping %s (the most the ring holds)", span, maxRingSpan)
 		}
@@ -927,12 +707,8 @@ func (c *Core) armRing() {
 	}
 }
 
-// flushRecordingIfOpen pushes whatever the recorder has buffered out to disk,
-// so a reader looking at the file right now sees complete lines up to this
-// moment. A no-op when nothing is recording.
-//
-// Exists for the replay-last hotkey, which reads the newest file in the folder
-// and will happily pick the one still being written.
+// flushRecordingIfOpen pushes whatever the recorder has buffered to disk, for the replay-last hotkey, which may pick
+// the file still being written. A no-op when nothing is recording.
 func (c *Core) flushRecordingIfOpen() {
 	c.rec.mu.Lock()
 	defer c.rec.mu.Unlock()

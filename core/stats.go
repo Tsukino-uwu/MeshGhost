@@ -1,24 +1,13 @@
 package core
 
-// Client-side counters, and the Stats snapshot cmd/meshghost logs on a timer.
+// Client-side counters, and the Stats snapshot cmd/meshghost logs on a timer: the client half of what the relay's
+// -introspect does for the server.
 //
-// This is the client half of what relay's -introspect already does for the
-// server. It exists because the core measured several genuinely useful things
-// and then showed them to nobody: ClockOffsetMs and RelayRTTMs were exported
-// with a comment saying a caller could display them, and until 2026-08-18 no
-// caller did, so a large clock offset or a bad link stayed "completely
-// invisible" -- the exact thing that comment said exporting them prevented.
+// Every counter is an atomic add on a path that already exists, never a new lock or per-tick work of its own: a
+// diagnostic can break what it measures, and the state path runs at the adapter's frame rate.
 //
-// Every counter is an atomic add on a path that already exists, never a new
-// lock and never per-tick work of its own. CLAUDE.md is blunt that a
-// diagnostic can break the thing it measures, and the state path here runs at
-// the adapter's frame rate.
-//
-// Counters are cumulative for the life of the process, NOT per connection:
-// they deliberately survive a reconnect, because "how much has this session
-// cost me" is the question being asked, and a reconnect resetting the numbers
-// would hide exactly the flapping worth noticing. Rates are derived by the
-// caller from two snapshots.
+// Counters are cumulative for the life of the process, not per connection: a reconnect resetting them would hide the
+// flapping worth noticing. Rates are derived by the caller from two snapshots.
 
 import (
 	"fmt"
@@ -37,57 +26,40 @@ type coreStats struct {
 	bytesReceived    uint64
 	statesReceived   uint64
 
-	// statesFilteredByArea counts remotes skipped at render time because
-	// their area_id did not match the local player's. This is the client
-	// side of the same question relay's cross-area fan-out counters ask: it
-	// is bytes that were paid for and then discarded, and it is the number
-	// that says how much relay-side filtering would be worth to THIS client.
+	// statesFilteredByArea counts remotes skipped at render time for another area_id: bytes paid for and discarded, and
+	// what relay-side filtering would be worth to this client.
 	statesFilteredByArea uint64
 
 	rendersSent  uint64
 	despawnsSent uint64
 
-	// statesSuppressed counts local frames that were NOT sent because the
-	// state was identical to the last one sent (see forwardLocalState's
-	// change suppression). bracketsSent counts the extra re-statements sent
-	// on resume so a receiver never interpolates across a silence. The pair
-	// is what says whether suppression is paying: suppressed is the saving,
-	// brackets are its cost, and the cost is one packet per resume.
+	// statesSuppressed counts local frames not sent because they matched the last one sent; bracketsSent counts the
+	// re-statements sent on resume so a receiver never interpolates across a silence. The saving and its cost.
 	statesSuppressed uint64
 	bracketsSent     uint64
 
-	// prevCarried counts sent states that carried the sample before them
-	// (loss cover, ADR 0045); prevRecovered counts received states whose
-	// carried prev filled a hole this client had not seen. Recovered is the
-	// number that says the link is losing packets, and that the cover is
-	// paying: on a clean link it stays 0 while carried climbs with every send.
+	// prevCarried counts sent states that carried the sample before them as loss cover; prevRecovered counts received
+	// states whose carried prev filled a hole. Recovered says the link is losing packets and the cover is paying; on a
+	// clean link it stays 0.
 	prevCarried   uint64
 	prevRecovered uint64
 
-	// remotesAgedOut counts peers dropped for going silent rather than for
-	// leaving -- see remoteStatesAt. A non-zero value in a healthy session
-	// means Leaves are not arriving, which is worth knowing on its own.
+	// remotesAgedOut counts peers dropped for silence rather than a Leave; non-zero in a healthy session means Leaves
+	// are not arriving.
 	remotesAgedOut uint64
-	// remotesReturned counts aged-out peers re-admitted by a fresh state --
-	// a paused emulator resuming. Zero on a healthy link; equal to the
-	// age-outs in a room of players who alt-tab (2026-09-09).
+	// remotesReturned counts aged-out peers re-admitted by a fresh state, such as a paused emulator resuming: zero on a
+	// healthy link, and equal to the age-outs in a room of players who alt-tab.
 	remotesReturned uint64
 
-	// rendersSuperseded counts ghost positions replaced in the bridge's
-	// outbound queue before the adapter could read them (core/adapterwriter.go).
-	// It is THE number that answers "is the bridge the limit here": zero means
-	// the adapter kept up with everything the core produced, and a climbing
-	// value means it is being sent the freshest positions and spared the rest.
-	// Not a fault -- that is the design -- but it is what a tester at 350
-	// ghosts should be able to point at.
+	// rendersSuperseded counts ghost positions replaced in the bridge's outbound queue before the adapter read them:
+	// zero means the adapter kept up, and a climbing value means the bridge is the limit and the adapter gets the
+	// freshest positions. That is the design, not a fault.
 	rendersSuperseded uint64
 }
 
-// Stats is one snapshot of what this core has done and what it currently
-// believes about its link. Safe to call at any time from any goroutine.
+// Stats is one snapshot of what this core has done and believes about its link. Safe from any goroutine.
 type Stats struct {
-	// Uptime is how long this Core has been running, so a reader can turn
-	// cumulative counters into rates without keeping a previous sample.
+	// Uptime turns the cumulative counters into rates without a previous sample.
 	Uptime time.Duration
 
 	StatesSent uint64
@@ -97,59 +69,48 @@ type Stats struct {
 	BytesReceived    uint64
 	StatesReceived   uint64
 
-	// StatesFilteredByArea is how many remote samples were received, parsed,
-	// buffered and then dropped at render time for being in another area.
+	// StatesFilteredByArea is how many remote samples were received and buffered, then dropped at render time for being
+	// in another area.
 	StatesFilteredByArea uint64
 
 	RendersSent  uint64
 	DespawnsSent uint64
 
-	// StatesSuppressed is how many local frames were skipped as identical to
-	// the last one sent; BracketsSent is how many extra re-statements were
-	// sent on resume to keep interpolation exact.
+	// StatesSuppressed is how many local frames were skipped as identical to the last one sent; BracketsSent how many
+	// re-statements were sent on resume to keep interpolation exact.
 	StatesSuppressed uint64
 	BracketsSent     uint64
-	// PrevCarried is how many sent states carried their predecessor as loss
-	// cover; PrevRecovered how many received states' carried predecessor
-	// filled a sample this client never got. See ADR 0045.
+	// PrevCarried is how many sent states carried their predecessor as loss cover; PrevRecovered how many received ones
+	// filled a sample this client never got.
 	PrevCarried   uint64
 	PrevRecovered uint64
 
-	// RemotesAgedOut is how many peers were despawned for silence rather than
-	// for a Leave.
+	// RemotesAgedOut is how many peers were despawned for silence rather than for a Leave.
 	RemotesAgedOut uint64
 
-	// RemotesReturned is how many of those came back: an aged-out peer whose
-	// states resumed under the same id (a paused emulator unpausing) and
-	// retook its seat without a Join (2026-09-09).
+	// RemotesReturned is how many of those came back: states resumed under the same id, retaking a seat without a Join.
 	RemotesReturned uint64
 
-	// RendersSuperseded is how many ghost positions were replaced in the
-	// bridge queue before the adapter read them -- how far behind the game
-	// has been running, in the only unit that matters.
+	// RendersSuperseded is how many ghost positions were replaced in the bridge queue before the adapter read them: how
+	// far behind the game has been running.
 	RendersSuperseded uint64
 
-	// What the prediction actually did, as opposed to what it was allowed to
-	// do. ExtrapolatedRenders counts render-set entries that were predicted
-	// rather than interpolated or held; ExtrapolatedAvgMs and ExtrapolatedMaxMs
-	// are how far past the newest sample those went; ExtrapolationsCapped is how
-	// many hit the configured ceiling, which is the number that says the ceiling
-	// is too low rather than merely present.
+	// What the prediction did: ExtrapolatedRenders counts renders predicted rather than interpolated or held, AvgMs and
+	// MaxMs how far past the newest sample they went, and ExtrapolationsCapped how many hit the ceiling, which says the
+	// ceiling is too low rather than merely present.
 	ExtrapolatedRenders  uint64
 	ExtrapolationsCapped uint64
 	ExtrapolatedAvgMs    float64
 	ExtrapolatedMaxMs    int64
 
-	// The buffer running dry under a MOVING peer (see dryMeter): renders of a
-	// moving peer, how many of them found the render time past the newest
-	// sample, and how far past on average and at worst.
+	// The buffer running dry under a moving peer (dryMeter): moving renders, how many found the render time past the
+	// newest sample, and how far past on average and at worst.
 	MovingRenders uint64
 	DryRenders    uint64
 	DryAvgMs      float64
 	DryMaxMs      int64
-	// DryP50Ms/P95/P99 are percentiles of how far past the newest sample the
-	// dry renders ran, to the 10ms bucket edge: the window extrapolate would
-	// have to cover to fill that share of the gaps (prediction-planning.md, A2.0).
+	// DryP50Ms/P95/P99 are percentiles of how far past the newest sample the dry renders ran, to the 10ms bucket edge:
+	// the window extrapolate would have to cover to fill that share of the gaps.
 	DryP50Ms int64
 	DryP95Ms int64
 	DryP99Ms int64
@@ -160,21 +121,18 @@ type Stats struct {
 	TransitAvgMs   float64
 	TransitMaxMs   int64
 	TransitSlow    uint64
-	// TransitP50Ms/P95/P99 are percentiles of the same arrival delay, to the
-	// 10ms bucket edge. A delay sized to cover a link has to cover its high
-	// percentile, which the mean hides and the max overstates.
+	// TransitP50Ms/P95/P99 are percentiles of the same arrival delay, to the 10ms bucket edge. A delay sized for a link
+	// must cover its high percentile, which the mean hides and the max overstates.
 	TransitP50Ms int64
 	TransitP95Ms int64
 	TransitP99Ms int64
 
-	// PeersKnown is roster size (everyone the relay says is in the room);
-	// PeersRendered is how many are currently being drawn. The gap between
-	// them is almost always the area filter.
+	// PeersKnown is the roster size, PeersRendered how many are drawn now; the gap is almost always the area filter.
 	PeersKnown    int
 	PeersRendered int
 
-	// RelayRTTMs is the best round trip measured on this connection, 0 if
-	// none has been. ClockOffsetMs is meaningful only when ClockMeasured.
+	// RelayRTTMs is the best round trip on this connection, 0 if none yet. ClockOffsetMs means something only when
+	// ClockMeasured.
 	RelayRTTMs    int64
 	ClockOffsetMs int64
 	ClockMeasured bool
@@ -183,10 +141,8 @@ type Stats struct {
 	PlayerID  string
 }
 
-// CrossAreaShare is the fraction of received state samples this client threw
-// away because the sender was somewhere else, 0 to 1. Directly comparable to
-// the relay's own cross-area figure, and the two should broadly agree -- if
-// they do not, one of them is measuring wrong.
+// CrossAreaShare is the fraction of received state samples discarded because the sender was elsewhere, 0 to 1. It
+// should broadly agree with the relay's own cross-area figure; if not, one of them is measuring wrong.
 func (s Stats) CrossAreaShare() float64 {
 	total := s.StatesReceived
 	if total == 0 {
@@ -195,10 +151,8 @@ func (s Stats) CrossAreaShare() float64 {
 	return float64(s.StatesFilteredByArea) / float64(total)
 }
 
-// SuppressedShare is the fraction of would-be sends that change suppression
-// removed, 0 to 1 -- the honest denominator being everything that reached the
-// send path after rate limiting, i.e. what was actually sent plus what was
-// skipped. The bracket re-statements are counted as sends, because they are.
+// SuppressedShare is the fraction of would-be sends change suppression removed, 0 to 1, over everything that reached
+// the send path after rate limiting. Brackets count as sends, because they are.
 func (s Stats) SuppressedShare() float64 {
 	total := s.StatesSent + s.StatesSuppressed
 	if total == 0 {
@@ -265,9 +219,8 @@ func (c *Core) Stats() Stats {
 	return s
 }
 
-// String renders the one-line form cmd/meshghost logs. Written for a human
-// staring at a terminal during a live test, in the units agent_docs asks for
-// (a rate they can feel, not a raw byte count).
+// String renders the one-line form cmd/meshghost logs, for a person watching a live test: rates they can feel, not raw
+// byte counts.
 func (s Stats) String() string {
 	link := "not connected"
 	if s.Connected {

@@ -1,26 +1,8 @@
 package core
 
-// The chaser pack: the player's own past, following them (ADR 0047).
-//
-// "Similar to how Badeline chases Madeline in Celeste": chaser i of count runs
-// delay + i*spacing behind the player, so with four or five of them going back
-// somewhere you were puts you in a ghost's path (the user's design,
-// 2026-09-03). Each chaser is a local peer fed by the same tap the recorder
-// uses -- recordLocal writes every stamped in-game sample ONCE into the
-// pack's shared history (chaserHistory), and a goroutine per chaser reads it
-// at its own cursor, sleeps until sample.Timestamp + its delay, then feeds
-// it. No relay, no file: it works offline and costs the adapter exactly what
-// count more peers would.
-//
-// COSMETIC, ALWAYS: a chaser renders with cosmetic=true like every local
-// peer. The only effect it may ever have is the contact hook,
-// session_policy.chaser_contact (ChaserContact below), which an adapter
-// honours only under its own per-game ADR and the user's on-screen
-// confirmation -- none exists yet.
-//
-// A live gap longer than replayGapSeamMs (a menu, a loading screen, nil
-// frames) is a seam for every chaser, so the pack reappears where the player
-// is rather than gliding there from where they were.
+// The chaser pack: the player's own past following them, chaser i delay + i*spacing behind. recordLocal writes each
+// stamped sample once into the pack's shared history, and a goroutine per chaser reads it at its own cursor and feeds
+// it as a local peer when due. A chaser always renders cosmetic; its only possible effect is ChaserContact.
 
 import (
 	"fmt"
@@ -31,14 +13,9 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// ChaserContact is what touching a chaser does to the player, and the value
-// session_policy.chaser_contact carries to the adapter (ADR 0068). A MODE
-// rather than a bool since 2026-09-15: "hurt" is exactly what an enemy's
-// touch does in that game, "kill" is a guaranteed death, and "off" -- the
-// shipped default -- is the cosmetic ghost every other rule describes. The
-// core knows nothing about what a hurt or a death IS; it only carries the
-// word. An adapter triggers the game's own damage or death path and never
-// writes health itself.
+// ChaserContact is what touching a chaser does to the player, carried to the adapter as
+// session_policy.chaser_contact: "hurt" is an enemy's touch in that game, "kill" a death, "off" (the default) nothing.
+// The core only carries the word; an adapter triggers the game's own damage or death path and never writes health.
 type ChaserContact string
 
 const (
@@ -47,10 +24,8 @@ const (
 	ChaserContactKill ChaserContact = "kill"
 )
 
-// ParseChaserContact reads the config value. The legacy bool -- the field
-// shipped as `"contact": false` from 2026-09-03 to 2026-09-15 -- still reads:
-// "true" is hurt (the one effect it ever promised) and "false" is off, so no
-// config written before the mode existed changes meaning. Empty is off.
+// ParseChaserContact reads the config value. The legacy bool still reads, "true" as hurt and "false" as off, so an
+// older config keeps its meaning; empty is off.
 func ParseChaserContact(s string) (ChaserContact, error) {
 	switch s {
 	case "", "off", "false":
@@ -63,85 +38,34 @@ func ParseChaserContact(s string) (ChaserContact, error) {
 	return ChaserContactOff, fmt.Errorf("chaser.contact %q is not a mode -- use \"off\", \"hurt\" or \"kill\"", s)
 }
 
-// Active says whether the mode is one the adapter is told about: anything
-// but off. The zero value ("") is off, so a Core that never set the field
-// pushes no policy for it.
+// Active reports whether the mode is anything but off; the zero value is off, so an unset Core pushes no policy.
 func (m ChaserContact) Active() bool {
 	return m == ChaserContactHurt || m == ChaserContactKill
 }
 
 const (
-	// No cap on the chaser COUNT since 2026-09-06 (the user's call: "allow
-	// people to do as much as their game can handle"). The 8 that stood here
-	// was hit by a tester the day before. What remains is the roster:
-	// protocol.MaxRosterSize seats shared with replays but not with real peers
-	// (their own bound since 2026-09-16, admitToRosterLocked), which is what
-	// bounds startChasers below -- past it admitLocalPeer refuses anyway.
-	//
-	// maxChaserBehind caps how far behind the player any chaser may run.
-	// FOUND BY THE EVERYTHING-FUZZER on its first run (2026-09-03): a legal
-	// config of count 8 and spacing 48h asked the eighth chaser for a queue
-	// sized to 336 hours of samples -- make(chan, 120 million) on the bridge
-	// goroutine, which is where the next adapter's hello is answered. The
-	// game sat with no bridge_ready for seconds, and the test saw a core
-	// that had stopped ticking. A chaser ten minutes behind is already a
-	// ghost of a different session; anything past this is clamped and logged.
-	//
-	// SINCE THE SHARED HISTORY (below) THE COUNT NO LONGER MULTIPLIES THIS.
-	// One ring is sized to the DEEPEST chaser's delay, so this clamp alone
-	// bounds the pack's whole memory at ~7.7MB however many chasers there are.
+	// maxChaserBehind caps how far behind any chaser may run, and so the shared history's size whatever the count. A
+	// chaser ten minutes behind is already a ghost of a different session.
 	maxChaserBehind = 10 * time.Minute
-	// chaserHistorySlack is how much beyond the deepest chaser's delay the
-	// shared history holds, at chaserOfferIntervalMs. It is the margin a
-	// chaser goroutine may fall behind the writer before the samples it has
-	// not read yet are overwritten -- see chaserHistory.read's `lapped`.
-	//
-	// "At the adapter's fastest rate" is what this used to say, and it was
-	// not: the sizing assumed 100Hz while Pseudoregalia sends ~180, so every
-	// chaser more than ~6s behind filled its queue, lost a hole longer than
-	// the seam threshold, and cycled despawn/respawn on the player with a
-	// period of delay+spawn (2026-09-05, watched live). The tap now thins to
-	// the rate assumed here, which turns the sizing into an invariant instead
-	// of a hope.
+	// chaserHistorySlack is how far a chaser goroutine may fall behind the writer before unread samples are
+	// overwritten (see chaserHistory.read's lapped).
 	chaserHistorySlack = 2 * time.Second
-	// chaserOfferIntervalMs is the minimum spacing, in gameplay milliseconds,
-	// between samples the tap hands to the pack -- 100 a second, the rate the
-	// history is sized for. A chaser renders through interpolation and never
-	// needed more.
+	// chaserOfferIntervalMs is the minimum gameplay-ms spacing between samples the tap hands the pack: the 100 a
+	// second the history is sized for, whatever rate the adapter sends at. A chaser interpolates and needs no more.
 	chaserOfferIntervalMs = 10
 )
 
-// chaserHistory is the pack's shared past: ONE copy of the player's recent
-// samples, read by every chaser at its own offset.
-//
-// IT REPLACED A PRIVATE CHANNEL PER CHASER, and the reason is arithmetic.
-// Every chaser replays the same stream lagged by a different amount, so a
-// queue each meant N copies of overlapping history: a tester's 512-pack at
-// 1s spacing sized 13.2 million protocol.State slots -- 1.69 GB of channel
-// buffer, allocated on the bridge goroutine the instant the adapter attached,
-// and again on every reconnect (measured 2026-09-07). One ring sized to the
-// deepest delay holds 51,400 slots for the same pack: ~6.6MB, a ~220x cut,
-// and it is flat in the count rather than quadratic.
-//
-// THE OVERWRITE DIRECTION IS THE OTHER HALF. A full channel dropped the
-// NEWEST sample for that chaser, punching a hole into the middle of its
-// trail that it could not see -- the 2026-09-05 despawn/respawn cycle. A
-// full ring overwrites the OLDEST instead, so a chaser that cannot keep up
-// loses the far end of its own past and is TOLD it happened (`lapped`),
-// which it renders as a seam. Both are degradation; only one is honest.
+// chaserHistory is the pack's shared past: one copy of the player's recent samples, read by every chaser at its own
+// offset, so its memory is flat in the count. A full ring overwrites the oldest and tells a reader that fell behind
+// (lapped), which renders as a seam rather than a hole in the trail it cannot see.
 type chaserHistory struct {
 	mu  sync.Mutex
 	buf []protocol.State
-	// next is the global index of the next write; the sample written at
-	// global index i lives at buf[i%len(buf)]. Monotonic and never reset,
-	// so a reader's cursor stays meaningful across any number of wraps.
+	// next is the global index of the next write, never reset, so a cursor survives any number of wraps; sample i
+	// lives at buf[i%len(buf)].
 	next int64
-	// notify is closed and replaced on every write: the broadcast a chaser
-	// waiting for a sample that does not exist yet selects on, alongside its
-	// own stop. A channel rather than a sync.Cond precisely because a chaser
-	// must be able to abandon the wait, which Cond cannot express. Cold in
-	// practice -- a chaser is at least its delay behind the writer, so it
-	// only waits at the very start of a pack.
+	// notify is closed and replaced on every write: a channel, not a sync.Cond, because a waiting chaser must be able
+	// to abandon the wait on stop.
 	notify chan struct{}
 }
 
@@ -152,9 +76,7 @@ func newChaserHistory(slots int) *chaserHistory {
 	return &chaserHistory{buf: make([]protocol.State, slots), notify: make(chan struct{})}
 }
 
-// add records one sample and wakes every waiting chaser. Never blocks and
-// never fails: this runs on the adapter's frame path, where the rule is that
-// nothing the pack does may cost the frame anything.
+// add records one sample and wakes every waiting chaser. It never blocks: it runs on the adapter's frame path.
 func (h *chaserHistory) add(s protocol.State) {
 	h.mu.Lock()
 	h.buf[h.next%int64(len(h.buf))] = s
@@ -165,17 +87,9 @@ func (h *chaserHistory) add(s protocol.State) {
 	close(woken)
 }
 
-// read returns the sample at global index i.
-//
-// ok=false means the history has not reached i yet, and `wait` is the channel
-// to block on until it might have. Both are decided under ONE lock so a
-// sample landing between the check and the wait cannot be missed -- the
-// classic lost-wakeup, and the only subtle thing in this type.
-//
-// lapped=true means i had already been overwritten: this reader fell more
-// than chaserHistorySlack behind the writer. `got` is then the oldest sample
-// that still survives, which is where the caller resumes, and the gap it
-// jumped is a seam.
+// read returns the sample at global index i. ok=false means the history has not reached i yet; wait is taken under
+// the same lock, so a sample landing between the check and the wait cannot be missed. lapped=true means i was
+// overwritten: got is then the oldest surviving sample, where the caller resumes, and the jump is a seam.
 func (h *chaserHistory) read(i int64) (s protocol.State, got int64, lapped bool, ok bool, wait <-chan struct{}) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -193,8 +107,7 @@ func (h *chaserHistory) read(i int64) (s protocol.State, got int64, lapped bool,
 	return h.buf[i%span], i, lapped, true, nil
 }
 
-// written is how many samples the history has ever taken, which is also the
-// index a chaser starting now would read first.
+// written is how many samples the history has ever taken: the index a chaser starting now reads first.
 func (h *chaserHistory) written() int64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -206,15 +119,13 @@ type chaser struct {
 	id    string
 	tag   protocol.Nametag
 	delay time.Duration
-	// spawn is how long the player must have been moving before this chaser
-	// may appear (the user's rule, 2026-09-03: no chaser spawns on top of a
-	// player who has not moved yet).
+	// spawn is how long the player must have been moving before this chaser may appear, so none spawns on top of a
+	// player who has not moved.
 	spawn time.Duration
-	// hist is the pack's shared history, read at this chaser's own cursor.
-	hist *chaserHistory
-	stop chan struct{}
-	done chan struct{}
-	once sync.Once
+	hist  *chaserHistory
+	stop  chan struct{}
+	done  chan struct{}
+	once  sync.Once
 }
 
 func (ch *chaser) halt() { ch.once.Do(func() { close(ch.stop) }) }
@@ -224,23 +135,15 @@ func (ch *chaser) run() {
 	defer ch.c.dropLocalPeer(ch.id)
 	admitted := false
 	var prevTs int64
-	// movingSince is the timestamp of the first sample that differed from
-	// the one before it since the last (re)start; zero until then. A sample
-	// is skipped -- not delayed -- until the player has been moving for the
-	// spawn window, so the chaser's first appearance is `delay` behind a
-	// player who is already on the move, never a copy of one standing still.
+	// movingSince is the stamp of the first sample that moved since the last (re)start, zero until then. Samples are
+	// skipped, not delayed, until the spawn window has passed, so the first appearance is never a standing copy.
 	var movingSince int64
 	var prevPos []float64
-	// cursor is this chaser's read position in the shared history, in the
-	// history's own global index space. It starts at 0 because StartChasers
-	// builds a fresh history for each pack, so index 0 is the pack's first
-	// sample.
+	// cursor starts at 0 because StartChasers builds a fresh history for each pack.
 	var cursor int64
 	for {
 		s, got, lapped, ok, wait := ch.hist.read(cursor)
 		if !ok {
-			// Nothing recorded yet at this cursor -- the start of a pack,
-			// or a game that has stopped sending frames.
 			select {
 			case <-ch.stop:
 				return
@@ -250,19 +153,15 @@ func (ch *chaser) run() {
 		}
 		cursor = got + 1
 		due := s.Timestamp + ch.delay.Milliseconds()
-		// A gap in the LIVE stream (menu, loading, nil frames): seam, so the
-		// chaser reappears rather than gliding across the hole. `lapped` is
-		// the same thing from the other end -- this goroutine fell far enough
-		// behind that the history overwrote what it had not read, so its
-		// trail has a hole whatever the timestamps say.
+		// A gap in the live stream (a menu, a load) is a seam, so the chaser reappears rather than gliding across the
+		// hole; lapped is the same hole seen from this end.
 		if lapped || (prevTs != 0 && s.Timestamp-prevTs > replayGapSeamMs) {
 			if admitted {
 				ch.c.dropLocalPeer(ch.id)
 				ch.c.awaitTick(ch.c.ticksBegun(), 500*time.Millisecond, ch.stop)
 				admitted = false
 			}
-			// The spawn window starts over after a gap: the player is
-			// standing wherever they reappeared.
+			// The player is standing wherever they reappeared, so the spawn window starts over.
 			movingSince, prevPos = 0, nil
 		}
 		prevTs = s.Timestamp
@@ -280,12 +179,8 @@ func (ch *chaser) run() {
 				continue
 			}
 		}
-		// Sleep in slices so a stop is prompt. GAMEPLAY time on both sides
-		// (ADR 0053): the stamp came from gameplayStamp and the clock here
-		// stands still while the adapter says the player is frozen, so a
-		// pause menu costs this chaser no delay -- it holds where it is and
-		// resumes the same distance behind, instead of spending the pause
-		// converging onto a player who cannot move.
+		// Sleep in slices so a stop is prompt. Gameplay time on both sides, so a pause holds the chaser the same
+		// distance behind instead of converging onto a player who cannot move.
 		var now int64
 		for {
 			now = ch.c.gameplayNowMs()
@@ -299,7 +194,7 @@ func (ch *chaser) run() {
 			select {
 			case <-ch.stop:
 				return
-			case <-time.After(wait): // wall-clock: the SLEEP; its due time comes from nowMs, which is virtual
+			case <-time.After(wait): // wall-clock: the sleep; its due time comes from nowMs, which is virtual
 			}
 		}
 		if !admitted {
@@ -309,10 +204,8 @@ func (ch *chaser) run() {
 			}
 			admitted = true
 		}
-		// Back to the WALL clock for the render side, which interpolates every
-		// local peer against nowMs: the wall instant `due` fell on is exactly
-		// (wall now - gameplay now) later than the gameplay instant, since no
-		// freeze can sit between a passed due time and now.
+		// Back to the wall clock, which the render side interpolates against: due fell (wall now - gameplay now) later
+		// in wall time, since no freeze can sit between a passed due time and now.
 		s.Timestamp = ch.c.nowMs() - now + due
 		if !ch.c.feedLocalPeer(ch.id, s) {
 			select {
@@ -330,10 +223,7 @@ func (ch *chaser) run() {
 // Called when the adapter attaches; safe to call again.
 func (c *Core) StartChasers() int {
 	c.StopChasers()
-	// One snapshot under c.mu, which is what guards these fields everywhere
-	// else (pushSessionPolicy reads them the same way): the caller is the
-	// bridge goroutine on attach, so reading them bare races anything that
-	// sets them. Sanitising and clamping happen on the copies, off the lock.
+	// One snapshot under c.mu, which guards these fields; reading them bare races the live setters.
 	c.mu.Lock()
 	enabled, count, delay := c.ChaserEnabled, c.ChaserCount, c.ChaserDelay
 	spacing, spawn := c.ChaserSpacing, c.ChaserSpawnDelay
@@ -360,17 +250,12 @@ func (c *Core) StartChasers() int {
 	}
 	name := protocol.SanitizeDisplayName(rawName)
 	color := protocol.SanitizeNameColor(rawColor)
-	// A fresh pack starts on a fresh gameplay clock: the accumulator only
-	// ever means "since these chasers began", and this runs on attach, where
-	// the adapter's first frozen report is still to come.
+	// A fresh pack starts a fresh gameplay clock; on attach the adapter's first frozen report is still to come.
 	c.frozenMu.Lock()
 	c.frozenSince, c.frozenTotalMs = 0, 0
 	c.frozenMu.Unlock()
 
-	// THE DEEPEST DELAY SIZES THE WHOLE PACK, once, because the history is
-	// shared: every chaser reads the same ring at its own offset, so the
-	// count does not enter the sizing at all. Computed before the loop so
-	// the ring exists before the first goroutine can read it.
+	// The deepest delay sizes the shared history once; the count does not enter it.
 	deepest := delay + time.Duration(count-1)*spacing
 	clamped := deepest > maxChaserBehind
 	if clamped {
@@ -406,19 +291,13 @@ func (c *Core) StartChasers() int {
 	return count
 }
 
-// chaserResetMinGap is how close together two chaser_resets may land and both
-// act. A reset rebuilds the pack's shared history, so an adapter sending one
-// per frame -- a bug, or a stuck edge -- would otherwise rebuild it every
-// frame; a real restart of the player (a death and its reload) is seconds
-// apart.
+// chaserResetMinGap is how close two chaser_resets may land and both act: a reset rebuilds the history, so a reset
+// per frame (a bug, a stuck edge) must not rebuild it every frame, while a death and its reload are seconds apart.
 const chaserResetMinGap = time.Second
 
-// ResetChasers is the bridge's chaser_reset (ADR 0072): the running pack
-// starts over as if play had just begun -- StartChasers already is exactly
-// that (the ghosts dropped, the history replaced, the spawn window waiting for
-// movement again). It reports the new pack's size and whether it acted: a pack
-// that is not running stays not running, and a reset inside chaserResetMinGap
-// of the last is ignored.
+// ResetChasers is the bridge's chaser_reset: the running pack starts over as if play had just begun. It reports the
+// new pack's size and whether it acted: a stopped pack stays stopped, and a reset within chaserResetMinGap of the
+// last is ignored.
 func (c *Core) ResetChasers() (int, bool) {
 	now := c.nowMs()
 	c.chaserMu.Lock()
@@ -439,9 +318,7 @@ func (c *Core) StopChasers() {
 	c.chaserMu.Lock()
 	pack := c.chasers
 	c.chasers = nil
-	// Released with the pack: the ring is the pack's memory, and holding it
-	// past a stop would keep the deepest chaser's whole delay alive for a
-	// session that no longer has chasers in it.
+	// Released with the pack, or the deepest chaser's whole delay stays alive.
 	c.chaserHist = nil
 	c.chaserMu.Unlock()
 	if len(pack) == 0 {
@@ -451,22 +328,8 @@ func (c *Core) StopChasers() {
 	for _, ch := range pack {
 		ch.halt()
 	}
-	// ONE second for the WHOLE PACK, not one per chaser (2026-09-08). This
-	// used to be a fresh time.After per member, so the total wait was the
-	// count times a second -- and the count has been uncapped since
-	// 2026-09-06. The starved pack is exactly the pack that misses its joins
-	// (an adapter that cannot keep up is what starves these goroutines), and
-	// StopChasers runs on the bridge's hello goroutine, so the wait sat
-	// directly across the attach path: a relaunched game that had already been
-	// told bridge_ready hung there with no error, and finishBridgeTeardown
-	// stalled behind it too.
-	//
-	// A shared budget rather than no budget: a goroutine that is about to
-	// finish is still joined, and once the second is spent the rest are
-	// checked without blocking -- one that has already closed done is joined
-	// at zero cost, and one that has not is left to exit on its own, which it
-	// does the moment it next reads ch.stop. Its ghost is gone either way,
-	// because dropLocalPeer below is unconditional.
+	// One second for the whole pack, not per chaser: this runs on the bridge's hello goroutine, across the attach
+	// path. Past the budget a straggler exits on its next read of ch.stop, and its ghost goes either way.
 	budget := time.NewTimer(time.Second) // wall-clock: a shutdown join -- virtual would turn a leak into a hang
 	defer budget.Stop()
 	spent := false
@@ -487,10 +350,8 @@ func (c *Core) StopChasers() {
 	}
 }
 
-// SetPlayerFrozen is the bridge's player_frozen message (ADR 0053): the
-// adapter says the game is holding the player still outside gameplay, or has
-// let go. Only a CHANGE does anything, so an adapter may repeat itself. The
-// chaser pack is the one consumer; nothing else in the core reads this.
+// SetPlayerFrozen is the bridge's player_frozen: the game is holding the player still outside gameplay, or has let
+// go. Only a change acts, so an adapter may repeat itself; the chaser pack is the one consumer.
 func (c *Core) SetPlayerFrozen(frozen bool) {
 	now := c.nowMs()
 	c.frozenMu.Lock()
@@ -512,9 +373,7 @@ func (c *Core) SetPlayerFrozen(frozen bool) {
 	}
 }
 
-// gameplayNowMs is nowMs with every frozen span taken out -- the clock a
-// chaser sleeps on. It stands still for as long as the adapter says the
-// player is frozen.
+// gameplayNowMs is nowMs with every frozen span taken out: the clock a chaser sleeps on.
 func (c *Core) gameplayNowMs() int64 {
 	now := c.nowMs()
 	c.frozenMu.Lock()
@@ -526,9 +385,8 @@ func (c *Core) gameplayNowMs() int64 {
 	return g
 }
 
-// gameplayStamp converts the tap's wall stamp of a frame taken NOW into the
-// gameplay clock, or reports false for a frame taken while frozen -- which
-// the chaser must never see (recorder.go says why).
+// gameplayStamp converts the tap's wall stamp of a frame taken now into gameplay time, or reports false for a frame
+// taken while frozen, which the chaser must never see.
 func (c *Core) gameplayStamp(wallMs int64) (int64, bool) {
 	c.frozenMu.Lock()
 	defer c.frozenMu.Unlock()
@@ -538,11 +396,7 @@ func (c *Core) gameplayStamp(wallMs int64) (int64, bool) {
 	return wallMs - c.frozenTotalMs, true
 }
 
-// offerChasers is recordLocal's hand-off: one lock and ONE write, however
-// many chasers are following, only while a pack exists (tapArmed covers the
-// "nothing armed" case). It used to be a non-blocking send per chaser, which
-// made the frame path's cost linear in the count -- 512 channel sends per
-// sample -- on top of the memory the private queues cost.
+// offerChasers is recordLocal's hand-off: one lock and one write however many chasers follow.
 func (c *Core) offerChasers(s protocol.State) {
 	c.chaserMu.Lock()
 	hist := c.chaserHist

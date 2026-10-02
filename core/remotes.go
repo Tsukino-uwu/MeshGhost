@@ -1,13 +1,7 @@
 package core
 
-// Remote peers: what the core knows about them and what it hands the adapter.
-//
-// Split out of core.go on 2026-08-25.
-//
-// **area_id is compared for equality and never parsed**, here as everywhere --
-// CLAUDE.md's opaque-field rule, which internal/gameblind enforces by walking
-// this package's AST. The cross-area filter below is an equality test and a
-// despawn, not a judgement about what an area contains.
+// Remote peers: what the core knows about them and what it hands the adapter. area_id is compared for equality and
+// never parsed (internal/gameblind walks this package's AST to enforce it).
 
 import (
 	"fmt"
@@ -18,24 +12,16 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// NOTE: no acceptableRelayPeerID gate here, deliberately. feedLocalPeer routes
-// this core's OWN replay and chaser ghosts through this function, and their ids
-// carry the very prefixes that gate refuses -- so bounding the id here would
-// silently delete both features. The gate belongs at the relay-facing callers,
-// which is where it is.
+// storeRemoteState validates and buffers one remote sample. It has no acceptableRelayPeerID gate: feedLocalPeer routes
+// this core's own replay and chaser ids through here, and the gate belongs at the relay-facing callers.
 func (c *Core) storeRemoteState(st protocol.State) {
 	if st.PlayerID == "" {
 		return
 	}
 	atomic.AddUint64(&c.stats.statesReceived, 1)
-	// Size/length/finiteness caps mirror the relay's own checks, via the
-	// shared protocol.ValidateState, applied here
-	// too since a hostile or compromised relay was previously trusted
-	// completely. See the ADR in agent_docs/architecture.md.
+	// The relay's own checks again: a hostile relay is not trusted to have enforced them.
 	if !protocol.ValidateState(st) {
-		// Throttled like the relay's twin (relay/states.go): a state dropped
-		// for size must say so -- the 2026-09-01 sword throw presented as four
-		// ghost bugs while both enforcement points stayed silent.
+		// A dropped state must say so, throttled like the relay's twin.
 		now := time.Now() // wall-clock: a five-second LOG throttle, not staleness (that comes from nowMs)
 		if last := c.lastStateDropLog.Load(); last == nil || now.Sub(*last) >= 5*time.Second {
 			stamp := now
@@ -47,23 +33,13 @@ func (c *Core) storeRemoteState(st protocol.State) {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Under the lock: c.playerID is written under c.mu.
 	if st.PlayerID == c.playerID {
-		// Moved inside the lock — c.playerID is written under c.mu
-		// elsewhere (ConnectRelay et al.); reading it unlocked here was a
-		// real data race, found in a review pass.
 		return
 	}
 	if _, known := c.roster[st.PlayerID]; !known {
-		// A state for a player_id this Core never saw via Welcome/Join is
-		// dropped rather than trusted — only the relay stamps player_id
-		// server-side, and this Core has no other way to confirm who's
-		// actually in the room. See the roster field's doc comment.
-		//
-		// The one exception is an id this Core admitted and then aged out
-		// for silence: the relay never said it left, so a fresh state is the
-		// peer coming back (a paused emulator resuming, 2026-09-09), and it
-		// retakes a seat through the same capped admission. A stale state
-		// cannot do this -- it would age out again on the next render tick.
+		// An id never seen in a Welcome or Join is dropped. The exception is one aged out for silence: a fresh state
+		// is that peer coming back, and it retakes a seat through the capped admission.
 		if _, was := c.agedOut[st.PlayerID]; !was || !c.admitToRosterLocked(st.PlayerID) {
 			return
 		}
@@ -76,23 +52,14 @@ func (c *Core) storeRemoteState(st protocol.State) {
 		b = &remoteBuffer{}
 		c.remotes[st.PlayerID] = b
 	}
-	// Set on every sample, not just at creation: InterpolationDelay and
-	// Extrapolate are public fields a caller may change while running, and a
-	// window derived once would then be wrong for the rest of the session.
+	// Set on every sample: InterpolationDelay and Extrapolate may change while running.
 	b.historyMs = c.requiredHistoryMsLocked()
 	b.lastTransitMs = c.nowMsLocked() - st.Timestamp
-	// The receiver's own clock, so the age-out has one fact about this peer
-	// that the peer does not supply. See remoteBuffer.lastArrivalMs.
+	// The receiver's own clock, so the age-out has one fact about this peer that the peer does not supply.
 	b.lastArrivalMs = c.nowMsLocked()
 	c.transit.record(b.lastTransitMs)
-	// ERROR DECAY (correction.go, 2026-09-15): remember where this ghost is
-	// drawn RIGHT NOW, before the new sample can move it, so the difference
-	// can be slid away instead of jumped. Two extra renders per received
-	// state, under c.mu, and only with the knob on -- off, nothing here runs
-	// and the render is byte-identical to before the knob existed. The meter
-	// is nil: these are probes, not renders, and c.extrapolation is a
-	// network statistic. A local peer (replay, chaser) is never corrected,
-	// for the reason remoteStatesAt never predicts one.
+	// Error decay: remember where this ghost is drawn before the new sample moves it, so the difference can slide
+	// away. Only with the knob on, never for a local peer, and with a nil meter: these are probes, not renders.
 	correct := c.Correction > 0 && !isLocalPeerID(st.PlayerID)
 	var drawn protocol.State
 	var okDrawn bool
@@ -106,12 +73,8 @@ func (c *Core) storeRemoteState(st protocol.State) {
 		drawn, okDrawn = b.atAhead(renderTime, c.Extrapolate.Milliseconds(), c.Curve, c.Predict, nil)
 		drawn = b.withCorrection(drawn)
 	}
-	// LOSS COVER (ADR 0045): a state may carry the sample sent before it. If
-	// that sample never arrived here, it goes into the buffer first, in its
-	// own timestamp order, so the ghost walks through it instead of over the
-	// hole. Seen already (the common case on a clean link) it is dropped, so
-	// the cover costs a receiver one seq comparison per state. The carrying
-	// state is stored WITHOUT it: the buffer holds samples, not packets.
+	// Loss cover: a state may carry the sample sent before it, buffered first if it never arrived, so the ghost walks
+	// through it instead of over the hole. The carrying state is stored without it: the buffer holds samples.
 	if st.Prev != nil {
 		if prev, ok := protocol.ApplyPrev(&st); ok && !b.hasSample(prev.Seq, prev.Timestamp) {
 			b.add(prev)
@@ -127,35 +90,10 @@ func (c *Core) storeRemoteState(st protocol.State) {
 	}
 }
 
-// requiredHistoryMsLocked is how far back a remote's buffer must reach for the
-// CURRENT render settings to work -- the fix for the two silent edge-hold bugs
-// described on maxSnapshots.
-//
-// Three terms, each earning its place:
-//   - THE INTERPOLATION DELAY, because the render time is exactly that far in
-//     the past and the buffer must still bracket it. This is the term that was
-//     missing: a fixed 600ms window meant any delay above it edge-held at every
-//     rate, and at high rates the COUNT cut the window shorter still.
-//   - THE PREDICTION WINDOW (Extrapolate), because a render time may run that
-//     much PAST the newest sample, and extrapolate still measures velocity over
-//     a pair behind it.
-//   - maxVelocitySpanMs, the longest baseline extrapolate will measure over,
-//     plus historyMarginMs of slack for arrival jitter and for CurveCatmullRom,
-//     which needs a sample on either side of the bracket rather than just the
-//     bracket itself.
-//
-// Floored at defaultSnapshotAgeMs so nothing that works today gets a SHORTER
-// window than it had -- this must not be able to regress a shipped
-// configuration -- and ceilinged so a hostile or fat-fingered setting cannot
-// turn the buffer into unbounded memory by another route.
-//
-// LOCAL PEERS DELIBERATELY SHARE THIS WINDOW even though they render at the
-// much smaller LocalInterpolationDelay: a local variant would compute ~325ms
-// and be floored straight back to defaultSnapshotAgeMs anyway, and retention is
-// the one slack a local ghost genuinely uses, since a chaser's queue drains in
-// a goroutine that can be descheduled.
-//
-// Caller must hold c.mu.
+// requiredHistoryMsLocked is how far back a remote's buffer must reach: the interpolation delay, the prediction window
+// (extrapolate measures velocity over a pair behind the render time), and maxVelocitySpanMs plus historyMarginMs for
+// jitter and Catmull-Rom's outer samples. Floored at defaultSnapshotAgeMs so no shipped setting loses window, and
+// capped against a hostile one. Local peers share it: theirs would floor to the same. Caller must hold c.mu.
 func (c *Core) requiredHistoryMsLocked() int64 {
 	need := c.InterpolationDelay.Milliseconds() + c.Extrapolate.Milliseconds() + maxVelocitySpanMs + historyMarginMs
 	if need < defaultSnapshotAgeMs {
@@ -167,16 +105,12 @@ func (c *Core) requiredHistoryMsLocked() int64 {
 	return need
 }
 
-// rememberAgedOutLocked records that id lost its roster seat to silence rather
-// than to a Leave, so a state from it can retake one. Extracted so the seatless
-// sweep below and the buffered age-out above cannot drift apart on the cap --
-// two copies of a bound is how a set of numbers meant to agree stops agreeing.
-// Caller holds c.mu and has already taken the seat.
+// rememberAgedOutLocked records that id lost its seat to silence rather than a Leave, so a state from it can retake
+// one. The set is capped because a relay can cycle join, one state, silence; both age-out paths share this one copy of
+// the cap. Caller holds c.mu and has already taken the seat.
 func (c *Core) rememberAgedOutLocked(id string) {
 	atomic.AddUint64(&c.stats.remotesAgedOut, 1)
-	// Full means forget this peer completely -- the tag too -- rather than
-	// remember it half way. It is then exactly an id that left: whoever holds
-	// it next arrives with a Join and is admitted fresh.
+	// Full means forget the peer, tag too: it is then exactly an id that left, admitted fresh on its next Join.
 	if len(c.agedOut) >= protocol.MaxRosterSize {
 		delete(c.remoteNames, id)
 		return
@@ -187,19 +121,9 @@ func (c *Core) rememberAgedOutLocked(id string) {
 	c.agedOut[id] = struct{}{}
 }
 
-// sweepSeatlessLocked takes back roster seats that have never had a state
-// behind them. Caller holds c.mu; cutoff is remoteStatesAt's own.
-//
-// THE AGE-OUT ABOVE CANNOT SEE THESE, because it walks c.remotes and an id that
-// only ever appeared in a Join has no buffer there. See Core.roster for what a
-// relay does with that: MaxRosterSize stateless Joins, which cost it nothing,
-// lock the room shut for real arrivals AND for the player's own chasers and
-// replays, since admitLocalPeer shares the admission.
-//
-// Local ids are exempt for the same reason they are exempt above: a chaser or
-// replay is admitted before its feeding goroutine has produced anything, and
-// dropping its seat in that window is the 2026-09-08 regression ADR 0053 was
-// written to fix.
+// sweepSeatlessLocked takes back roster seats that never had a state behind them, which the buffer age-out cannot
+// see: stateless Joins cost a relay nothing and would lock the room shut. Local ids are exempt: one is admitted before
+// its goroutine has fed anything. Caller holds c.mu; cutoff is remoteStatesAt's.
 func (c *Core) sweepSeatlessLocked(cutoff int64) {
 	for id, seatedAt := range c.roster {
 		// Zero is "unset" (see Core.roster) and never sweeps.
@@ -220,153 +144,51 @@ func (c *Core) dropRemote(playerID string) {
 	delete(c.remotes, playerID)
 }
 
-// dropAllRemotes clears every tracked remote at once — used when the relay
-// connection itself is lost, since there's no longer any source for
-// updates or an explicit Leave to drive individual despawns.
+// dropAllRemotes clears every tracked remote when the relay connection is lost: nothing is left to drive individual
+// despawns.
 func (c *Core) dropAllRemotes() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.remotes = make(map[string]*remoteBuffer)
 }
 
-// remoteStatesAt returns the interpolated state of every currently known
-// remote at renderTime that is also in this Core's own current area --
-// cross-area filtering, added 2026-08-13 after a real two-player TEVI test
-// showed a remote's ghost rendering at another zone's raw world coordinates,
-// invisible only by coincidence (see the ADR in architecture.md). Equality
-// comparison only, per contract.md's area_id rule -- never branches on
-// contents. If localAreaID is still empty (no real local frame has arrived
-// yet), every remote passes through unfiltered rather than hiding
-// everything on an unknown local area.
-// TAKES `now`, NOT A RENDER TIME, since 2026-09-03: there are two render times,
-// because a ghost this core invented is not delayed for a network it never
-// crossed. See DefaultLocalGhostDelay. Derived once each rather than per id --
-// the set of classes is closed at two.
+// remoteStatesAt returns the interpolated state of every known remote in this Core's own area (every remote while
+// that area is still unknown), with orientation brackets when the adapter asked. It takes now, not a render time: a
+// ghost this core invented is not delayed for a network it never crossed.
 func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]orientBracket) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	netRenderTime := now - c.InterpolationDelay.Milliseconds()
 	localRenderTime := now - c.LocalInterpolationDelay.Milliseconds()
 	out := make(map[string]protocol.State, len(c.remotes))
-	// The orientation bracket that goes with each state -- see orientBracket.
-	// A separate map rather than a field on protocol.State on purpose: State is
-	// the WIRE packet, and nothing here travels off this machine.
-	//
-	// NOT COMPUTED AT ALL unless the adapter asked (bridge.Hello's
-	// interpolate_orientation). An adapter with a discrete facing -- four
-	// compass directions, a flipped sprite -- cannot use a midpoint between two
-	// orientations and would discard every one of these. Left nil so the map
-	// is not even allocated for those three adapters.
+	// A separate map, not a field on protocol.State, which is the wire packet. Nil unless the adapter asked: a
+	// discrete facing cannot use a midpoint between two orientations.
 	var brackets map[string]orientBracket
 	if c.adapterWantsOrientBracket {
 		brackets = make(map[string]orientBracket, len(c.remotes))
 	}
-	// AGE OUT A PEER NOBODY IS HEARING FROM. Until 2026-08-28 a remote was
-	// dropped only when the relay said it had LEFT, and a buffer that stops
-	// being fed keeps answering: remoteBuffer.at returns its newest sample for
-	// any render time past it. So a peer that simply went quiet rendered
-	// forever, frozen at its last position -- which is what the user saw as
-	// "multiple static ghosts", one per core restart, each a relay identity
-	// that stopped sending without ever leaving.
-	//
-	// A Leave is not something to rely on: the relay's dev loopback echo never
-	// sends one by construction, a hard-killed client never gets to say
-	// goodbye, and udp signals nothing on close at all (status.md). Aging out
-	// is the only mechanism covering all three, and it is game-agnostic --
-	// "no sample for this long" needs no knowledge of what a sample means.
+	// Age out a peer nobody hears from: a buffer that stops being fed keeps answering with its newest sample, and a
+	// Leave cannot be relied on (a hard-killed client, udp, the dev loopback echo).
 	stale := c.remoteStaleAfter()
 	cutoff := c.nowMsLocked() - stale.Milliseconds()
-	// The seats the loop below is structurally unable to see: a Join with no
-	// state behind it never creates a buffer, so it never appears here.
+	// A Join with no state behind it has no buffer, so the loop below cannot see its seat.
 	if stale > 0 {
 		c.sweepSeatlessLocked(cutoff)
 	}
 	for id, buf := range c.remotes {
-		// THE ID, NOT A c.localPeers LOOKUP -- the same rule cosmetic is built
-		// from, for the same reason (localpeer.go). Membership is dropped and
-		// re-admitted at every seam, so a tick landing inside that window would
-		// move this ghost's render time by the whole difference and teleport it,
-		// once per lap. A relay peer whose id happened to carry the prefix
-		// already renders cosmetic=true today; it now also edge-holds, which
-		// escalates to nothing (no send path, no solidity).
+		// The id, not a c.localPeers lookup: membership drops at every seam, and a tick inside one would move this
+		// ghost's render time and teleport it.
 		local := isLocalPeerID(id)
-		// A LOCAL PEER IS EXEMPT FROM THE AGE-OUT (2026-09-08). Everything the
-		// block below explains is about a peer on the far side of a network
-		// that gives no goodbye. A ghost this core invented has no far side:
-		// its buffer is fed by a goroutine in this process and is dropped
-		// explicitly -- on a seam, on halt, by StopChasers/StopReplays -- all
-		// through dropLocalPeer, which takes the roster seat and the nametag
-		// with it. There is nothing here for a timeout to cover.
-		//
-		// Applying it anyway broke exactly what ADR 0053 was written to fix.
-		// The chaser sleeps on the GAMEPLAY clock, which stands still while the
-		// adapter reports the player frozen, so during a pause no sample ever
-		// falls due and the buffer stops being fed -- while the adapter keeps
-		// sending frames, so render ticks keep running and this wall-clock
-		// cutoff keeps advancing. What the player saw: sit in a pause menu for
-		// longer than RemoteStaleAfter (3s by default) and the whole pack
-		// blinks out, then pops back on the first frame after the resume.
-		// Worse, the chaser goroutine still believed it was admitted, so it
-		// re-fed through feedLocalPeer without re-running admitLocalPeer, and
-		// the ghosts that popped back had lost their nametags.
-		//
-		// The equivalent safety net for a local peer already exists on the
-		// clock that belongs to it: a live gap longer than replayGapSeamMs
-		// makes the chaser drop and re-spawn itself (chaser.go), and a replay
-		// player owns its own clip's end. An adapter that stops sending frames
-		// altogether stops driving render ticks too, so nothing is drawn in the
-		// meantime either way.
-		// EITHER kind of silence, and the second one is the one a peer cannot
-		// lie its way out of: a timestamp is chosen by the sender and
-		// MaxTimestampMs lets it name the year 2109, which put it permanently
-		// past this cutoff. lastArrivalMs is stamped here on receive. A peer
-		// that is genuinely sending satisfies both, so nothing that survives
-		// today despawns now -- see the field for why this is an extra
-		// condition and not a replacement.
+		// A local peer is exempt from the age-out: it has no far side and is dropped explicitly, and its feed stops
+		// on the gameplay clock during a pause while render ticks go on. Either kind of silence counts, since a
+		// timestamp is the sender's choice and can name a far future; lastArrivalMs is this side's.
 		silent := buf.newestTimestamp() < cutoff || buf.lastArrivalMs < cutoff
 		if stale > 0 && !local && silent {
-			// Dropped from the map, not merely skipped: keeping it would hold
-			// its snapshots forever and let it spring back to life.
 			delete(c.remotes, id)
-			// THE SEAT GOES WITH THE BUFFER, exactly as a Leave drops both
-			// (relaysession.go) and as dropLocalPeer does. Only the buffer was
-			// dropped here until 2026-09-08, and the roster is CAPPED at
-			// protocol.MaxRosterSize: on a transport where peers vanish
-			// without a goodbye -- udp signals nothing on close, and a
-			// hard-killed client never gets to say it, which is why this
-			// age-out exists at all -- 512 distinct ids over a long-lived
-			// session fill the roster with peers nobody is hearing from, and
-			// admitToRosterLocked then refuses every later join in silence.
-			// What the player sees is a room that stops showing new arrivals,
-			// with their own chasers and replays refused too, while the stats
-			// read PeersKnown 512 and PeersRendered 0.
+			// The seat goes with the buffer, as on a Leave, or silent peers fill the capped roster and every later
+			// join is refused. It is remembered, so a paused emulator coming back under the same id is re-admitted;
+			// the nametag stays, since a reused id arrives with its own Join.
 			delete(c.roster, id)
-			// The seat is REMEMBERED, not merely dropped: a paused emulator
-			// comes back sending under the same id without ever re-joining,
-			// and storeRemoteState re-admits it from this set (2026-09-09,
-			// see the field). The nametag STAYS -- it was deleted here from
-			// 2026-09-08 to 2026-09-09 on the reasoning that a relay reuses
-			// ids, but a reused id always arrives with its own Join, and
-			// Join stores the new name unconditionally; the Leave path is
-			// where a name is dropped. Deleting it here only cost a returning
-			// peer its tag.
-			//
-			// THE MEMORY IS BOUNDED BY THE SAME NUMBER THE SEAT WAS, because
-			// this branch is reached by GIVING a seat back and a relay can
-			// drive it in a loop: join an id, send it one state, go quiet, and
-			// 3s later the seat is free and the id is remembered here forever
-			// with its nametag. Nothing else evicts either -- a Leave does, and
-			// a relay is under no obligation to send one. Left uncapped, both
-			// maps grow for the life of the connection, and the bill lands on
-			// the next adapter to attach as one non-coalescing remote_name per
-			// entry (core/remotenames.go). Found by the third adversarial
-			// review (P3a-1, P3b-1).
-			//
-			// Full means forget this peer completely -- the tag too -- rather
-			// than remember it half way. It is then exactly an id that left:
-			// whoever holds it next arrives with a Join and is admitted fresh.
-			// An honest room cannot reach this, because it can never have had
-			// more than MaxRosterSize members to age out in the first place.
 			c.rememberAgedOutLocked(id)
 			continue
 		}
@@ -374,26 +196,17 @@ func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]
 		var br orientBracket
 		var ok bool
 		renderTime := netRenderTime
-		// Extrapolation is for a peer whose next sample has not ARRIVED yet.
-		// A replay's future is on disk and a chaser's is already recorded, so
-		// predicting one invents motion over data we hold, and it would pollute
-		// c.extrapolation, which is a network statistic.
+		// Extrapolation is for a peer whose next sample has not arrived; a local peer's future is already held.
 		ahead := c.Extrapolate.Milliseconds()
 		if local {
 			renderTime = localRenderTime
 			ahead = 0
 		}
-		// THE DRY METER IS A NETWORK STATISTIC and local peers must stay out of
-		// it. They could never register dry while they rendered a full
-		// interpolation delay behind their own feed; at the local delay any
-		// adapter hitch longer than that would, so a player with chasers on
-		// would read "your connection is bad" for what is a frame-rate stutter.
+		// The dry meter is a network statistic: at the local delay any adapter hitch would read as a bad connection.
 		if !local {
 			past, moving := buf.dryBy(renderTime)
 			c.dry.record(past, moving)
-			// Throttled on `now`, not on a render time: with two render times
-			// in play, a store from one class would suppress the other for the
-			// difference and let it log early by the same amount.
+			// Throttled on now, not a render time, or one peer class's store would suppress the other's.
 			if past > 0 && c.DryLog != nil && now-c.dryLoggedAt > 1000 {
 				c.dryLoggedAt = now
 				n := len(buf.snapshots)
@@ -410,10 +223,7 @@ func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]
 		if !ok {
 			continue
 		}
-		// ERROR DECAY (correction.go): draw at the sliding offset, advanced
-		// to this tick first. The zero-dt tick right after a store leaves the
-		// offset whole, which is what keeps the drawn position continuous. A
-		// knob turned off live drops whatever was still sliding.
+		// Draw at the sliding offset, advanced to this tick; a knob turned off live drops whatever was still sliding.
 		if buf.correction != nil {
 			if local || c.Correction <= 0 {
 				buf.correction = nil
@@ -423,11 +233,7 @@ func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]
 			}
 		}
 		if !c.adapterRenderAllAreas && c.localAreaID != "" && st.AreaID != c.localAreaID {
-			// The client side of the relay's cross-area fan-out question:
-			// this sample was received, validated, buffered and is now being
-			// thrown away. Counted per render tick rather than per arrival on
-			// purpose -- it measures wasted RENDER-set work, and the arrival
-			// count is already tracked separately as statesReceived.
+			// Counted per render tick: it measures wasted render work, and arrivals are statesReceived.
 			atomic.AddUint64(&c.stats.statesFilteredByArea, 1)
 			continue
 		}
@@ -439,23 +245,11 @@ func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]
 	return out, brackets
 }
 
-// tickRenders diffs the currently-interpolated remote set against what was
-// rendered last tick, calling render for every current remote and despawn
-// for every remote that dropped out — shared by both the bridge-wire path
-// (onAdapterFrame) and the in-process path (onAdapterFrameInProcess) so the
-// tick-model diff logic exists exactly once.
+// tickRenders diffs the interpolated remote set against what rendered last tick, calling render for each current
+// remote and despawn for each that dropped out; the bridge and in-process paths share it.
 func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st protocol.State, br orientBracket), despawn func(id string)) {
 	atomic.AddUint64(&c.ticksStarted, 1)
-	// The same clock domain outgoing timestamps are stamped in (nowMs), which
-	// is the whole point: remote samples carry the sender's idea of the time,
-	// and comparing them against a render time measured on a different clock
-	// is what makes interpolation degrade silently under skew. With clock
-	// sync off — every room today — this is exactly the previous
-	// time.Now().Add(-delay).
-	// The delay is subtracted inside remoteStatesAt, under c.mu and per peer
-	// class: a replay or chaser is not delayed for a network it never crossed.
-	// Reading InterpolationDelay here was also the one unsynchronized read of
-	// it left in the package.
+	// nowMs, the clock outgoing stamps use, so remote samples and the render time share a domain.
 	current, brackets := c.remoteStatesAt(c.nowMs())
 
 	for id, st := range current {
@@ -470,8 +264,7 @@ func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st p
 		}
 	}
 	atomic.AddUint64(&c.stats.rendersSent, uint64(len(current)))
-	// Stored rather than derived, because `rendered` is owned by the caller
-	// and Stats has no access to it.
+	// Stored: rendered is the caller's, and Stats cannot see it.
 	atomic.StoreInt64(&c.renderedNow, int64(len(rendered)))
 	atomic.AddUint64(&c.ticks, 1)
 }

@@ -1,9 +1,7 @@
 package core
 
-// The replay control surface (ADR 0047, ADR 0048): one entry point for the
-// mid-play actions, whoever triggers them -- a system-wide hotkey owned by
-// cmd/meshghost, a replay_control message from the adapter over the bridge,
-// or a test. Everything else about replays is config.
+// The replay control surface: one entry point for the mid-play actions, whoever triggers them (a system-wide hotkey
+// owned by cmd/meshghost, a replay_control message from the adapter, a test). Everything else about replays is config.
 
 import (
 	"errors"
@@ -16,8 +14,8 @@ import (
 	"time"
 )
 
-// ReplayAction is one of the mid-play actions. The strings are the wire form
-// of bridge.ReplayControl.Action and the names cmd/meshghost binds hotkeys to.
+// ReplayAction is one of the mid-play actions. The strings are the wire form of bridge.ReplayControl.Action and the
+// names cmd/meshghost binds hotkeys to.
 type ReplayAction string
 
 const (
@@ -37,28 +35,10 @@ type replayCmd struct {
 	seconds int
 }
 
-// ReplayControl performs one action and returns a short account of what it
-// ACTUALLY did. seconds applies to rewind and fast-forward; 0 or less means the
-// configured ReplaySeek. The error is for the caller's log: nothing here is
-// fatal, and an action that has nothing to act on (rewind with no replay
-// playing) says so rather than failing silently.
-//
-// WHY IT RETURNS A DESCRIPTION AND NOT JUST AN ERROR (2026-09-04). Neither
-// caller can reply: a system-wide hotkey has nobody to answer, and the bridge
-// sends no acknowledgement. So the log line the caller writes is the ONLY
-// feedback a player gets, and both callers used to write "done" -- identical
-// whichever branch ran. A tester, on record_toggle: "at least right now I can't
-// discern from the console log whether a record toggle started or stopped the
-// recording". They could not, and the toggle is precisely the action where the
-// same keypress means opposite things.
-//
-// The core DOES log a distinguishing line under each ("core: recording to ..."
-// at recorder.go:543, "core: recording stopped ..." at :559/:562), so the fault
-// is narrower than "no feedback": the two lines are the recorder's, phrased for
-// the recorder, and the hotkey's own line sat next to them saying "done". A
-// player watching for the effect of the key they just pressed read the useless
-// one. Naming the outcome on the caller's line is what makes the key legible
-// without having to know which neighbouring line belongs to it.
+// ReplayControl performs one action and returns a short account of what it actually did. seconds applies to rewind
+// and fast-forward; 0 or less means the configured ReplaySeek. Nothing here is fatal, and an action with nothing to
+// act on says so. A description, not just an error, because neither caller can reply: the line the caller logs is the
+// only feedback a player gets, and the toggle is where one keypress means opposite things.
 func (c *Core) ReplayControl(a ReplayAction, seconds int) (string, error) {
 	switch a {
 	case ReplayRecordStart:
@@ -66,9 +46,7 @@ func (c *Core) ReplayControl(a ReplayAction, seconds int) (string, error) {
 	case ReplayRecordStop:
 		return c.describeStop()
 	case ReplayRecordToggle:
-		// The SAME wording as the explicit actions, deliberately: a player
-		// reading the log should not have to know which key was pressed to
-		// know what happened.
+		// The same wording as the explicit actions, so the log does not depend on which key was pressed.
 		if c.Recording() {
 			return c.describeStop()
 		}
@@ -105,17 +83,14 @@ func (c *Core) ReplayControl(a ReplayAction, seconds int) (string, error) {
 	}
 }
 
-// describeStart and describeStop exist so the toggle and the explicit actions
-// cannot drift into describing the same event two different ways.
+// describeStart and describeStop exist so the toggle and the explicit actions cannot describe one event two ways.
 func (c *Core) describeStart() (string, error) {
 	path, err := c.StartRecording()
 	if err != nil {
 		return "", err
 	}
 	msg := "recording STARTED -> " + path
-	// Both tracks or neither: this sentence is the only feedback the key gives,
-	// so a player who turned replay.inputs on has to be able to see that the
-	// input half armed too (ADR 0056).
+	// This sentence is the key's only feedback, so it says whether the input half armed too.
 	if ipath, _, on := c.inputTrackProgress(); on {
 		msg += " (+ inputs -> " + ipath + ")"
 	}
@@ -123,8 +98,7 @@ func (c *Core) describeStart() (string, error) {
 }
 
 func (c *Core) describeStop() (string, error) {
-	// Read BEFORE stopping: StopRecording closes the input track with it and
-	// reports only the state half's numbers.
+	// Read before stopping: StopRecording closes the input track too and reports only the state half's numbers.
 	ipath, iwritten, ion := c.inputTrackProgress()
 	path, written, err := c.StopRecording()
 	if err != nil {
@@ -144,10 +118,8 @@ func (c *Core) describeStop() (string, error) {
 	return fmt.Sprintf("recording STOPPED -- %d sample(s) -> %s%s", written, path, inputs), nil
 }
 
-// seekReplays sends one command to every player. A player whose goroutine
-// has finished (a non-looping clip that reached its end) is relaunched from
-// the top on restart or rewind, which is what a player pressing the key
-// after the ghost left expects.
+// seekReplays sends one command to every replay player. One whose clip has ended is relaunched from the top on restart
+// or rewind, which is what pressing the key after the ghost left means.
 func (c *Core) seekReplays(cmd replayCmd) error {
 	c.replayMu.Lock()
 	defer c.replayMu.Unlock()
@@ -165,23 +137,21 @@ func (c *Core) seekReplays(cmd replayCmd) error {
 			fresh.launch()
 		default:
 			if !p.running() {
-				// Loaded but not yet started (no in-game frame yet): a seek
-				// before play means "start now", which the first frame does.
+				// Not started yet (no in-game frame): the first frame starts it, as a seek before play means.
 				continue
 			}
 			select {
 			case p.ctrl <- cmd:
 			default:
-				// Four commands already queued: a key held down. Dropping the
-				// fifth is the right answer; the ghost cannot seek faster.
+				// A full queue is a key held down; the ghost cannot seek faster, so this one is dropped.
 			}
 		}
 	}
 	return nil
 }
 
-// replayLast plays the newest recording in the replay folder itself (not
-// active/) right now, without moving the file. Pressing it again restarts it.
+// replayLast plays the newest recording in the replay folder itself (not active/) now, without moving the file.
+// Pressing it again restarts it.
 func (c *Core) replayLast() error {
 	if c.replayDir() == "" {
 		return errors.New("no replay folder configured")
@@ -200,9 +170,7 @@ func (c *Core) replayLast() error {
 			continue
 		}
 		lower := strings.ToLower(e.Name())
-		// .zip too, since replay/active takes them and a person who put one
-		// here means it. This path plays exactly ONE clip, so a zip of several
-		// gives its first -- the folder is where a pack belongs.
+		// A .zip too, as replay/active takes them; this path plays one clip, so a zip of several gives its first.
 		if !strings.HasSuffix(lower, ".ndjson") && !strings.HasSuffix(lower, ".ndjson.gz") &&
 			!strings.HasSuffix(lower, ".zip") {
 			continue
@@ -236,16 +204,10 @@ func (c *Core) replayLast() error {
 			}
 		}
 	}
-	// FLUSH FIRST IF WE ARE READING WHAT WE ARE WRITING. The most natural
-	// moment to press replay-last is mid-recording -- "let me see what I just
-	// did" -- and the newest file is then the open one. parseReplay tolerates a
-	// half-written final line, but flushing means the clip actually contains
-	// everything up to this instant rather than everything up to the last time
-	// a 64KiB buffer happened to fill.
+	// The newest file may be the recording still open, so flush it: the clip then holds everything up to now, not up to
+	// the last time a 64KiB buffer filled.
 	c.flushRecordingIfOpen()
-	// Read BEFORE the load, not after: a zip attaches its own track at parse
-	// time, and the `clip.track == nil` test below would then skip its own gate.
-	// See loadReplayAll's track branch (P5b-5).
+	// Read before the load: a zip attaches its track at parse time, which the clip.track == nil test below cannot gate.
 	c.mu.Lock()
 	wantTracks := c.adapterWantsInputTracks
 	c.mu.Unlock()
@@ -253,9 +215,7 @@ func (c *Core) replayLast() error {
 	if err != nil {
 		return err
 	}
-	// The newest recording's track is very often the one still being written
-	// -- the same "let me see what I just did" moment the flush above serves.
-	// The recorder flushes the input track with the clip (flushRecordingIfOpen).
+	// The newest recording's track is often still being written; flushRecordingIfOpen flushed it with the clip.
 	if wantTracks && clip.track == nil && clip.header.RecordingID != "" {
 		c.attachTrackFromIndex(clip, name, c.inputTrackIndex())
 	}

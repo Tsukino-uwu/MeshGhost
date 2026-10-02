@@ -6,21 +6,12 @@ import (
 	"time"
 )
 
-// LIVE SETTINGS (2026-09-09). A tester's report: editing config.json while the
-// game ran changed the input display (the Pseudoregalia mod polls the file for
-// its own keys) and nothing else -- replay, chaser and hotkey settings were read
-// once at start into plain fields on this struct and never looked at again.
-// The user's call: "make everything refresh if edit/save is used". cmd/meshghost
-// polls the file (reload.go) and calls the setters below; each one changes the
-// fields it owns under the lock that guards them and re-runs whatever consumed
-// the old value at start, so a save lands without a relaunch.
+// Live settings: cmd/meshghost polls config.json and calls the setters below; each changes the fields it owns under the
+// lock that guards them and re-runs whatever consumed the old value, so a save lands without a relaunch.
 //
-// Two locks, on purpose. c.mu guards the fields the render/frame path reads
-// every tick (smoothing, chaser, ghost collision) and those are set under it.
-// The replay and connection fields were read bare from the recorder, replay and
-// dial paths, which was fine while nothing wrote them after start; now that
-// something does, they go through settingsMu (an RWMutex: the reads are many
-// and short, the writes are a human saving a file). Nothing here takes c.mu
+// Two locks, on purpose. c.mu guards what the render and frame path reads every tick (smoothing, chaser, ghost
+// collision). The replay and connection fields are read from the recorder, replay and dial paths, and go through
+// settingsMu, an RWMutex since the reads are many and the writes are a person saving a file. Nothing here takes c.mu
 // while holding settingsMu.
 
 // ReplaySettings is the replay section as the live setters take it.
@@ -49,8 +40,7 @@ type ChaserSettings struct {
 	SpawnDelay time.Duration
 }
 
-// ConnectionSettings is what the relay Hello is built from. A change to any of
-// them can only take effect on a fresh connection.
+// ConnectionSettings is what the relay Hello is built from; a change takes effect only on a fresh connection.
 type ConnectionSettings struct {
 	RelayAddr    string
 	Room         string
@@ -130,11 +120,8 @@ func (c *Core) connectionSettings() ConnectionSettings {
 
 // --- setters ------------------------------------------------------------------
 
-// SetSmoothing changes the render-side smoothing under c.mu. The render path
-// reads these every tick (remotes.go documents them as changeable while
-// running), so the next tick uses them. A curve or prediction name the core
-// does not know is refused with an error and nothing changes -- a typo in a
-// file saved mid-session must not silently pick a default.
+// SetSmoothing changes the render-side smoothing under c.mu, used from the next tick. An unknown curve or prediction
+// name is refused and nothing changes: a typo saved mid-session must not silently pick a default.
 func (c *Core) SetSmoothing(interp, localInterp, extrapolate, correction time.Duration, curve CurveMode, predict PredictMode) error {
 	if correction < 0 {
 		return fmt.Errorf("correction %s is negative -- 0 turns error decay off, a positive duration is the time a correction slides over", correction)
@@ -160,11 +147,9 @@ func (c *Core) SetSmoothing(interp, localInterp, extrapolate, correction time.Du
 	return nil
 }
 
-// SetGhostCollisionPreference changes this client's ghost_collision preference
-// and re-tells the attached adapter the resolved policy (the room's value still
-// wins where it is stricter). The de-dupe key is cleared so a push happens even
-// if the resolved value is unchanged -- the log line that follows is the one
-// place a player sees why their ghosts are or are not solid.
+// SetGhostCollisionPreference changes this client's ghost_collision preference and re-tells the adapter the resolved
+// policy (the room's value still wins where stricter). The de-dupe key is cleared so the push and its log line happen
+// even when the resolved value is unchanged: that line is where a player sees why ghosts are or are not solid.
 func (c *Core) SetGhostCollisionPreference(pref string) {
 	c.mu.Lock()
 	c.GhostCollision = pref
@@ -173,12 +158,9 @@ func (c *Core) SetGhostCollisionPreference(pref string) {
 	c.pushSessionPolicy()
 }
 
-// SetChaserSettings replaces the chaser section and restarts the pack from it:
-// StartChasers stops the running pack first and snapshots the fields under
-// c.mu, so an in-flight pack visibly despawns and respawns after spawn_delay
-// (the same as a fresh attach). With Enabled false the pack is stopped. The
-// contact half of the session policy is re-pushed either way. Returns the
-// number of chasers now running.
+// SetChaserSettings replaces the chaser section and restarts the pack from it, so a running pack despawns and respawns
+// after spawn_delay as on a fresh attach; disabled, the pack stops. The contact policy is re-pushed either way. It
+// returns the number of chasers now running.
 func (c *Core) SetChaserSettings(s ChaserSettings) int {
 	c.mu.Lock()
 	c.ChaserEnabled, c.ChaserCount, c.ChaserDelay, c.ChaserSpacing = s.Enabled, s.Count, s.Delay, s.Spacing
@@ -195,14 +177,9 @@ func (c *Core) SetChaserSettings(s ChaserSettings) int {
 	return n
 }
 
-// SetReplaySettings replaces the replay section. Most of it is read at the
-// next use (the next recording start, the next save-last, the next replay
-// start, the next seek); the two that arm something now are re-armed here:
-// save_last resizes the live ring (and the input ring, when inputs is on) and
-// inputs turned on arms the input ring it had skipped. record_on_launch is a
-// launch setting -- a recording in progress is neither started nor stopped by
-// a save, which is the one thing a player editing mid-session would not want
-// decided for them.
+// SetReplaySettings replaces the replay section. Most of it is read at its next use; save_last resizes the live rings
+// now, and inputs turned on arms the input ring. record_on_launch is a launch setting: a save neither starts nor stops
+// a recording in progress.
 func (c *Core) SetReplaySettings(s ReplaySettings) {
 	c.settingsMu.Lock()
 	c.RecordOnLaunch = s.RecordOnLaunch
@@ -229,14 +206,10 @@ func (c *Core) SetReplaySettings(s ReplaySettings) {
 	}
 }
 
-// SetConnectionSettings replaces what the relay Hello is built from. When any
-// of it changed and a relay session is live, the session is closed on purpose:
-// the connection's own disconnect path then redials with the new values
-// through the same auto-retry a dropped socket gets (ConnectRelay reads these
-// fields per dial), so the room, name or relay a player just saved is where
-// they end up, without touching the game. Offline turned on closes the session
-// and the retry declines to dial; offline turned off with a game attached
-// dials again. Returns whether a reconnect was set in motion.
+// SetConnectionSettings replaces what the relay Hello is built from. When any of it changed and a relay session is
+// live, the session is closed on purpose and the disconnect path redials with the new values through the ordinary
+// auto-retry, without touching the game. Offline turned on closes the session and the retry declines to dial; turned
+// off with a game attached, it dials again. It reports whether a reconnect was set in motion.
 func (c *Core) SetConnectionSettings(s ConnectionSettings) bool {
 	c.settingsMu.Lock()
 	changed := s != ConnectionSettings{
@@ -257,9 +230,7 @@ func (c *Core) SetConnectionSettings(s ConnectionSettings) bool {
 	retry := relayRetry{c.autoRetryGameID, c.autoRetryAdapterGameVersion, c.autoRetryBridgeConn}
 	c.mu.Unlock()
 	if live != nil {
-		// The disconnect callback does the rest: clearRelaySession, the
-		// remotes dropped, and reconnectWithBackoff when an adapter is
-		// attached -- which reads the new settings on its first dial.
+		// The disconnect callback does the rest, and reconnectWithBackoff reads the new settings on its first dial.
 		log.Printf("core: connection settings changed -- leaving the relay session to rejoin with them")
 		live.Close()
 		return true

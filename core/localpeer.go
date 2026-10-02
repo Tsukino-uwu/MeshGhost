@@ -1,28 +1,8 @@
 package core
 
-// Local peers: ghosts this core invents rather than learns from the relay.
-//
-// A replay of a recorded run and the chaser (the player's own past, a few
-// seconds behind) are both fed through here (ADR 0047). The whole design rests
-// on one property the core already had: nothing downstream of storeRemoteState
-// can tell where a sample came from, so a ghost that was never on the network
-// renders through the same buffer, the same bridge messages and the same
-// adapter code as a real peer. This file is the seam that makes that explicit
-// and pins the three things a local peer must never do:
-//
-//   - reach the relay: the only send path is forwardLocalState -> sendState,
-//     which reads the adapter's own state and never c.remotes, and a
-//     relay-issued id never has the "replay:"/"chaser:" shape;
-//   - be solid: every render_remote for a local peer carries cosmetic=true so
-//     an adapter treats it as a picture whatever ghost_collision says;
-//   - carry loss cover: Prev is stripped, so ApplyPrev never runs on a sample
-//     the core itself made.
-//
-// THE ROSTER IS PER RELAY SESSION and is wiped on every reconnect
-// (forgetRelaySessionLocked), so a local peer cannot rely on a one-time admit.
-// feedLocalPeer re-admits on every sample -- one map lookup -- and the seat it
-// takes counts against protocol.MaxRosterSize -- the local ghosts' own share of
-// it since 2026-09-16, never the relay's (admitToRosterLocked).
+// Local peers: ghosts this core invents (a replay, the chaser pack), rendered through the same buffer and bridge
+// messages as relay peers. A local peer never reaches the relay, always renders cosmetic, and never carries loss cover
+// (Prev is stripped). The roster is wiped on every reconnect, so feedLocalPeer re-admits on every sample.
 
 import (
 	"strings"
@@ -37,55 +17,23 @@ const (
 	localPeerChaserPrefix = "chaser:"
 )
 
-// isLocalPeerID says whether an id has the shape only this core hands out.
-// Relay ids come from the relay's own counter and never carry a colon prefix
-// like these, which is what keeps the two namespaces from colliding.
+// isLocalPeerID says whether an id has the shape only this core hands out. render_remote.cosmetic is built from this,
+// never from membership: a seam drops and re-admits the peer, and a tick inside that window would call it solid.
 func isLocalPeerID(id string) bool {
 	return strings.HasPrefix(id, localPeerReplayPrefix) || strings.HasPrefix(id, localPeerChaserPrefix)
 }
 
-// acceptableRelayPeerID is the shape a RELAY-announced player_id must have
-// before this core will key anything by it. Three refusals, all about shape and
-// none about meaning, so this stays as blind to a game as everything else here.
-//
-//   - Empty, which names nobody.
-//   - Past protocol.MaxHelloFieldLenForID. That bound's own comment says it is
-//     "only about refusing an unbounded string before it is used as a map key",
-//     and until 2026-09-12 it was applied to ids a CLIENT sends the relay and
-//     never to the ones the relay sends back -- though it is the second kind
-//     that becomes a key in c.roster, c.remotes, c.remoteNames and c.agedOut,
-//     and that is handed to the game mod verbatim.
-//   - Carrying a local-peer prefix. isLocalPeerID above says relay ids "never
-//     carry a colon prefix like these", which is true of an honest relay and is
-//     not a guarantee. A relay that mints "chaser:1" lands its states in the
-//     very buffer this core's own chaser feeds, renders cosmetic, and -- since
-//     the stale age-out deliberately skips local ids -- leaves a ghost that
-//     never despawns and a seat that never frees.
-//
-// Found by the third adversarial review (P3a-3, P3a-6).
+// acceptableRelayPeerID is the shape a relay-announced player_id must have before this core keys anything by it: not
+// empty, within MaxHelloFieldLenForID (it becomes a map key and reaches the mod verbatim), and without a local-peer
+// prefix, or a relay minting "chaser:1" would feed this core's own chaser buffer a ghost the age-out never removes.
 func acceptableRelayPeerID(id string) bool {
 	return id != "" &&
 		protocol.ValidOpaqueString(id, protocol.MaxHelloFieldLenForID) &&
 		!isLocalPeerID(id)
 }
 
-// THIS, NOT A MEMBERSHIP LOOKUP, IS WHAT render_remote.cosmetic MUST BE BUILT
-// FROM. There used to be an isLocalPeer(id) beside this that asked whether the
-// id was in c.localPeers, and sendRenderRemote used it. A seam DROPS the peer
-// and re-admits it -- every restart, every lap, every recorded gap -- so a
-// render tick landing inside that window found the id absent and sent
-// cosmetic=false for a replay ghost, telling the adapter it was solid and
-// damageable for that frame. ADR 0047 says a replay or chaser ghost is cosmetic
-// whatever ghost_collision says.
-//
-// Membership is transient. The id is not, and the namespaces cannot collide.
-// The old helper was deleted rather than left beside this one, because its
-// existence is what made the wrong choice available. Found by FuzzEverything on
-// CI, 2026-09-03.
-
-// admitLocalPeer registers id as a ghost this core invents and hands the
-// adapter its nametag. False means the roster is full (protocol.MaxRosterSize)
-// and the peer will not render; the caller logs that once.
+// admitLocalPeer registers id as a ghost this core invents and hands the adapter its nametag. False means the roster
+// is full and the peer will not render; the caller logs that once.
 func (c *Core) admitLocalPeer(id string, tag protocol.Nametag) bool {
 	c.mu.Lock()
 	if c.localPeers == nil {
@@ -99,18 +47,13 @@ func (c *Core) admitLocalPeer(id string, tag protocol.Nametag) bool {
 	if !ok {
 		return false
 	}
-	// storeRemoteName sanitizes, stores, and pushes remote_name only on a
-	// change -- and pushRemoteNames backfills a late-attaching adapter -- so a
-	// local peer's tag is handled exactly like a relay peer's.
 	c.storeRemoteName(id, &tag)
 	return true
 }
 
-// feedLocalPeer hands one sample to the interpolation buffer as if it had
-// arrived from the relay for id. The sample's timestamp must already be in the
-// c.nowMs() domain (the caller rebases a recording; the chaser stamps its own
-// due time), because the stale age-out and the render clock both read that
-// clock. False means id was never admitted, or the roster refused the re-admit.
+// feedLocalPeer hands one sample to the interpolation buffer as if it came from the relay. Its timestamp must already
+// be on the c.nowMs() clock, which the age-out and the render clock read. False means id was never admitted, or the
+// roster refused the re-admit.
 func (c *Core) feedLocalPeer(id string, st protocol.State) bool {
 	st.PlayerID = id
 	st.Prev = nil
@@ -125,9 +68,8 @@ func (c *Core) feedLocalPeer(id string, st protocol.State) bool {
 	return true
 }
 
-// dropLocalPeer removes a local peer the way a relay Leave removes a real one:
-// roster, nametag and buffer together, so the next render tick despawns it and
-// a later admit is a fresh join (the adapter is told the name again).
+// dropLocalPeer removes a local peer the way a relay Leave removes a real one, so the next render tick despawns it and
+// a later admit is a fresh join.
 func (c *Core) dropLocalPeer(id string) {
 	c.mu.Lock()
 	delete(c.roster, id)
@@ -137,52 +79,29 @@ func (c *Core) dropLocalPeer(id string) {
 	c.dropRemote(id)
 }
 
-// ticksBegun is how many render ticks have STARTED. A seam takes this value
-// right after dropping the peer and then waits for tickCount to pass it, which
-// is the only way to know a tick that began AFTER the drop has finished -- a
-// tick already in flight at the drop may have rendered the old peer and would
-// otherwise satisfy the wait without ever sending the despawn.
+// ticksBegun is how many render ticks have started. A seam takes it right after the drop and waits for tickCount to
+// pass it: a tick already in flight may have rendered the old peer without sending the despawn.
 func (c *Core) ticksBegun() uint64 {
 	return atomic.LoadUint64(&c.ticksStarted)
 }
 
-// tickCount is how many render ticks have run. A seek (restart, rewind, the
-// loop seam) is a drop followed by a re-feed, and the despawn only reaches the
-// adapter if a tick runs BETWEEN the two -- otherwise the diff in tickRenders
-// sees the id present on both sides and the ghost glides instead of jumping.
+// tickCount is how many render ticks have run. A seek is a drop and a re-feed, and the despawn reaches the adapter
+// only if a tick runs between them; otherwise the ghost glides instead of jumping.
 func (c *Core) tickCount() uint64 {
 	return atomic.LoadUint64(&c.ticks)
 }
 
-// awaitTick waits until at least one render tick has run after `after`, or
-// max elapses. Polled rather than signalled: ticks are driven by the adapter's
-// own frames, which may simply stop (the game is in a menu), and a waiter that
-// blocks forever on a game that stopped calling would wedge a replay.
-// stop is the caller's shutdown channel, or nil for a caller that has none. It
-// matters more than it looks: this function is called from INSIDE the replay
-// player's and the chasers' goroutines, which is to say from inside the very
-// goroutines halt() is supposed to be able to interrupt. Without an escape here,
-// halt() closes a channel nothing is listening to, StopReplays and StopChasers
-// fall through to their one-second joins, and each one leaks a goroutine.
-//
-// That is survivable at the wall clock, where the 500ms deadline eventually
-// fires anyway. It stops being survivable the moment this loop reads an
-// injectable clock (see clock.go): a test that never advances time would park
-// every replay and chaser here permanently. So the escape lands FIRST, on its
-// own, while the wall clock is still in place.
-//
-// A nil stop channel blocks forever in the select, which is exactly the old
-// behaviour for the callers that have nothing to cancel.
+// awaitTick waits until tickCount passes after, or max elapses. Polled, not signalled: the adapter's frames may stop
+// (a menu). stop lets halt() interrupt the replay and chaser goroutines that call this; a nil stop never fires.
 func (c *Core) awaitTick(after uint64, max time.Duration, stop <-chan struct{}) bool {
-	deadline := time.Now().Add(max)   // wall-clock: bounds a poll for an ADAPTER frame
+	deadline := time.Now().Add(max)   // wall-clock: bounds a poll for an adapter frame
 	for time.Now().Before(deadline) { // wall-clock: pairs with the deadline above
 		if c.tickCount() > after {
 			return true
 		}
 		select {
 		case <-stop:
-			// Report honestly rather than assuming failure: a tick may have
-			// landed between the check above and the shutdown.
+			// A tick may have landed between the check and the stop.
 			return c.tickCount() > after
 		case <-time.After(2 * time.Millisecond): // wall-clock: the poll interval
 		}

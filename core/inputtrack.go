@@ -1,17 +1,8 @@
 package core
 
-// Reading an input track back (ADR 0056), and finding a clip's track (ADR 0057).
-//
-// Written a day before anything played one, and deliberately: the moment one
-// person sends another a track, the file is a stranger's bytes, and a parser
-// written later under the pressure of a feature is a parser written without
-// this file's caution. Since ADR 0057 a replay streams its track to an adapter
-// that asked (replayinputs.go); this file still only READS.
-//
-// Same defensive posture as parseReplay, for the same reasons and in the same
-// order: the line cap applied BEFORE decoding, a hard sample ceiling, a
-// tolerated half-written FINAL line and nothing else tolerated, and every edge
-// re-validated against the bounds the bridge would have applied.
+// Reading an input track back, and finding a clip's track. A track someone sent is a stranger's bytes, so this keeps
+// parseReplay's posture: the line cap before decoding, a hard edge ceiling, only a half-written final line tolerated,
+// and every edge re-validated against the bridge's bounds.
 
 import (
 	"bufio"
@@ -32,23 +23,17 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// inputMaxEdges bounds memory the way replayMaxSamples does: a whole track is
-// held as a slice, so the ceiling is what stands between a hand-made file and
-// the process.
+// inputMaxEdges bounds memory: a whole track is held as a slice.
 const inputMaxEdges = 2_000_000
 
-// inputTrack is a parsed track: its header, and its edges in order.
 type inputTrack struct {
 	file   string
 	header inputHeader
 	edges  []inputEdgeLine
 }
 
-// loadInputTrack reads one .ndjson or .ndjson.gz track from disk.
-//
-// No zip case HERE: a track only ever travels inside its clip's zip, and
-// loadReplayAll routes such an entry to parseInputTrackLimited under the
-// archive's own edge budget (ADR 0057).
+// loadInputTrack reads one .ndjson or .ndjson.gz track. There is no zip case: a track travels only inside its clip's
+// zip, which loadReplayAll parses under the archive's edge budget.
 func loadInputTrack(path string) (*inputTrack, error) {
 	name := filepath.Base(path)
 	f, err := os.Open(path)
@@ -73,20 +58,15 @@ func parseInputTrack(r io.Reader, name string) (*inputTrack, error) {
 	return parseInputTrackLimited(r, name, inputMaxEdges)
 }
 
-// parseInputTrackLimited is parseInputTrack with the edge cap supplied, so a
-// zip can spend one budget across all the tracks it holds (loadReplayAll,
-// ADR 0057) the way it does for its clips.
+// parseInputTrackLimited takes the edge cap, so a zip can spend one budget across all its tracks.
 func parseInputTrackLimited(r io.Reader, name string, maxEdges int) (*inputTrack, error) {
-	// Bounded by bytes READ as well as edges kept, for replay.go's reason: a
-	// blank line costs neither, so a whitespace gzip was unbounded work
-	// (pass 5 of the adversarial review, 2026-09-16, PM-3's sibling).
+	// Bounded by bytes read as well as edges kept: a blank line costs neither.
 	r = &scanCappedReader{r: r, left: replayMaxBytes}
 	if maxEdges > inputMaxEdges {
 		maxEdges = inputMaxEdges
 	}
 	sc := bufio.NewScanner(r)
-	// The wire's own line cap, applied BEFORE decoding: a longer line is
-	// refused, never allocated for.
+	// The wire's line cap, before decoding: a longer line is refused, never allocated for.
 	sc.Buffer(make([]byte, 0, 4096), protocol.MaxLineBytes)
 
 	if !sc.Scan() {
@@ -99,10 +79,7 @@ func parseInputTrackLimited(r io.Reader, name string, maxEdges int) (*inputTrack
 	if err := json.Unmarshal(sc.Bytes(), &hdr); err != nil {
 		return nil, fmt.Errorf("%s: line 1 is not an input-track header: %w", name, err)
 	}
-	// The check that makes a misplaced file fail with a sentence. A replay clip
-	// handed to this parser has no meshghost_inputs key and is refused here,
-	// exactly as a track handed to parseReplay is refused there for having no
-	// meshghost_replay key.
+	// A replay clip has no meshghost_inputs key, so a misplaced file is refused with a sentence.
 	if hdr.Format == 0 {
 		return nil, fmt.Errorf("%s: line 1 has no meshghost_inputs key -- not an input track", name)
 	}
@@ -110,29 +87,15 @@ func parseInputTrackLimited(r io.Reader, name string, maxEdges int) (*inputTrack
 		log.Printf("core: input track %s is format %d, this build reads %d -- reading what it understands",
 			name, hdr.Format, inputFormatVersion)
 	}
-	// A label table longer than the mask is wide names buttons no edge can
-	// ever set, so the file disagrees with itself about its own shape.
+	// More labels than the mask has bits names buttons no edge can set.
 	if len(hdr.Labels) > bridge.MaxInputLabels {
 		return nil, fmt.Errorf("%s: %d labels, over the %d the mask has bits for",
 			name, len(hdr.Labels), bridge.MaxInputLabels)
 	}
-	// THE HEADER'S OWN THREE FIELDS GET THE BRIDGE'S CHECK, and until 2026-09-12
-	// they got none at all. The per-edge validation below builds a synthetic
-	// InputSample carrying only the edge, so Labels, Axes and Source never went
-	// through validInputNames or the Source length bound on this path -- and
-	// Axes was never length-checked here in any form, though the wire path
-	// bounds it. _template/PROTOCOL.md promises adapter authors the opposite.
-	//
-	// Nothing shipped crashes on it today: the Pseudoregalia adapter, the only
-	// one that consumes tracks, defends itself. So this is a broken promise to
-	// the NEXT adapter author rather than a live fault -- which is exactly the
-	// kind that is only cheap to fix before somebody relies on it. Found by the
-	// third adversarial review (P5b-4).
+	// The header's tables get the bridge's own check, which the per-edge validation below never applies to them.
 	if !bridge.ValidateInputSample(bridge.InputSample{
 		Labels: hdr.Labels, Axes: hdr.Axes, Source: hdr.Source,
-		// One inert edge, because an InputSample with no edges and no tables is
-		// refused as an adapter burning a line to say nothing -- a rule about
-		// the WIRE that says nothing about a file's header.
+		// One inert edge: a sample with no edges and no tables is refused by a wire rule, not a header one.
 		Edges: []bridge.InputEdge{{}},
 	}) {
 		return nil, fmt.Errorf("%s: line 1: %s", name, bridge.InputSampleRejectReason(bridge.InputSample{
@@ -151,10 +114,8 @@ func parseInputTrackLimited(r io.Reader, name string, maxEdges int) (*inputTrack
 		}
 		var e inputEdgeLine
 		if err := json.Unmarshal(raw, &e); err != nil {
-			// A half-written FINAL line is not a broken file -- the writer
-			// flushes on a clock, so a track read while it is still being
-			// written ends mid-line. Only the last one, and only a decode
-			// failure: anything after a bad line means a corrupt file.
+			// A half-written final line is a track still being written (the writer flushes on a clock); anything
+			// after a bad line is corruption.
 			if !sc.Scan() {
 				log.Printf("core: input track %s: line %d is incomplete and was dropped -- the file "+
 					"was still being written, or the game that wrote it did not close it", name, line)
@@ -162,9 +123,7 @@ func parseInputTrackLimited(r io.Reader, name string, maxEdges int) (*inputTrack
 			}
 			return nil, fmt.Errorf("%s: line %d: %w", name, line, err)
 		}
-		// Every edge meets the bounds the bridge would have applied, whatever
-		// wrote the file. ValidateInputSample is reused rather than reimplemented
-		// so a file and a batch can never be held to different rules.
+		// The bridge's own validator, so a file and a batch can never be held to different rules.
 		if !bridge.ValidateInputSample(bridge.InputSample{
 			Edges: []bridge.InputEdge{{F: e.F, T: e.T, M: e.M, Ax: e.Ax}},
 		}) {
@@ -176,11 +135,8 @@ func parseInputTrackLimited(r io.Reader, name string, maxEdges int) (*inputTrack
 		if e.Ts < 0 {
 			return nil, fmt.Errorf("%s: line %d: ts %d is before the epoch", name, line, e.Ts)
 		}
-		// Ordering is the property a reader is allowed to trust absolutely, so
-		// it is enforced on the way in rather than assumed. Checked on ts as
-		// well as on the adapter's own counters: a track whose core stamps go
-		// backwards would put a later edge earlier in any correlation with the
-		// state recording.
+		// Ordering is enforced, not assumed, on ts as well as the adapter's counters: backwards core stamps would
+		// misplace an edge against the state recording.
 		if n := len(track.edges); n > 0 {
 			prev := track.edges[n-1]
 			if e.Ts < prev.Ts || e.F < prev.F || e.T < prev.T {
@@ -199,14 +155,11 @@ func parseInputTrackLimited(r io.Reader, name string, maxEdges int) (*inputTrack
 	return track, nil
 }
 
-// inputIndexScanMax bounds how many tracks a lookup will open. A header read
-// each is cheap; ten thousand of them on the hello goroutine is not, and
-// nobody has a folder that size yet. Newest first, so the ones that matter
-// are inside the bound.
+// inputIndexScanMax bounds how many headers a lookup opens on the hello goroutine; newest first, so the ones that
+// matter are inside it.
 const inputIndexScanMax = 2000
 
-// loadInputTrackHeader reads only a track's first line -- what the lookup by
-// recording_id needs, without paying for the edges.
+// loadInputTrackHeader reads only a track's first line, for the lookup by recording_id.
 func loadInputTrackHeader(path string) (inputHeader, error) {
 	var hdr inputHeader
 	f, err := os.Open(path)
@@ -240,16 +193,9 @@ func loadInputTrackHeader(path string) (inputHeader, error) {
 	return hdr, nil
 }
 
-// inputTrackIndex maps recording_id -> track path for every track in
-// replay/inputs/, newest file first so a duplicate id resolves to the most
-// recent take. Built per replay load, on demand, and only for an adapter
-// that asked for tracks (ADR 0057) -- StartReplays never calls it otherwise,
-// which TestReplayTrackIsNeverSentToAnAdapterThatDidNotAsk pins through the
-// inputTrackScans counter.
-//
-// NO ON-DISK INDEX, deliberately: one header read per file is a fraction of
-// a second at a thousand tracks nobody has, while an index file would add a
-// write path, a staleness case and a corruption case for that saving.
+// inputTrackIndex maps recording_id to track path for every track in replay/inputs/, newest first so a duplicate id
+// resolves to the latest take. Built per replay load, only for an adapter that asked for tracks. There is no on-disk
+// index: it would add a write path, a staleness case and a corruption case to save a header read per file.
 func (c *Core) inputTrackIndex() map[string]string {
 	atomic.AddUint32(&c.inputTrackScans, 1)
 	dir := c.inputsDir()
@@ -287,8 +233,7 @@ func (c *Core) inputTrackIndex() map[string]string {
 	}
 	idx := make(map[string]string, len(cands))
 	for _, cd := range cands {
-		// The listing's own name, joined and cleaned: nothing in a file
-		// chooses a path.
+		// The listing's own name, joined and cleaned: nothing in a file chooses a path.
 		path := filepath.Join(dir, filepath.Base(cd.name))
 		hdr, err := loadInputTrackHeader(path)
 		if err != nil || hdr.RecordingID == "" {
@@ -302,9 +247,8 @@ func (c *Core) inputTrackIndex() map[string]string {
 	return idx
 }
 
-// attachTrackFromIndex finds and attaches a clip's track, logging what it
-// found either way -- silence here would be a ghost with no inputs and
-// nothing anywhere saying why.
+// attachTrackFromIndex finds and attaches a clip's track, logging either way: silence would leave a ghost with no
+// inputs and nothing saying why.
 func (c *Core) attachTrackFromIndex(clip *replayClip, name string, idx map[string]string) {
 	path, ok := idx[clip.header.RecordingID]
 	if !ok {

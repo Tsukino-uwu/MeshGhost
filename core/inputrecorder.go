@@ -1,26 +1,9 @@
 package core
 
-// The input recorder: what the player PRESSED, as a track of its own (ADR 0056).
-//
-// A SECOND TRACK, never a field on state. The state recording beside this one
-// (recorder.go) reproduces the fields we sync; an input track records what the
-// player actually did, which stays true however the sync changes later. They are
-// independent files, correlated by a shared recording_id and by a timestamp in
-// the same clock domain, and either may exist without the other.
-//
-// EDGES, NOT SAMPLES. A button is written when it goes down and when it comes
-// up, so a one-frame press is two lines with consecutive `f` and no rate limit
-// anywhere can erase it. That is also why there is no delta encoding here: the
-// edge encoding IS the delta, and a line is four integers.
-//
-// THE CORE READS NONE OF IT. A mask is an integer compared to the previous one
-// for equality; labels, axis names and the source tag are strings copied into
-// the file header and never read back. The adapter names its own buttons, which
-// is the split that keeps this side blind -- see bridge.InputSample.
-//
-// NOTHING PLAYS ONE BACK. This slice records only. Driving a ghost from inputs
-// is a later, per-game ADR blocked on determinism; driving the LOCAL player is
-// forbidden in anything that ships.
+// The input recorder: what the player pressed, as a track of its own beside the state recording, tied to it by
+// recording_id and a timestamp on the same clock. Buttons are written as edges, so a one-frame press is two lines no
+// rate limit can erase. The core reads none of it: masks are compared for equality and the adapter's labels are only
+// copied into the header. Driving the local player from a track is forbidden in anything that ships.
 
 import (
 	"bufio"
@@ -39,39 +22,22 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// inputFormatVersion is the value of the header's meshghost_inputs key. Same
-// rule as replayFormatVersion: bumped only if a reader could not make sense of
-// an older file at all, and adding keys does not bump it.
+// inputFormatVersion is the header's meshghost_inputs value, bumped only when a reader could not make sense of an
+// older file at all.
 const inputFormatVersion = 1
 
-// inputsSubdir is where every input track is written, and it is a SUBDIRECTORY
-// of the replay folder for a specific safety reason rather than for tidiness.
-//
-// replayLast plays the newest FILE in ReplayDir itself, and StartReplays reads
-// everything in ReplayDir/active/. An input track in either would be picked up
-// and parsed as a clip. replayLast skips directories outright, so a subfolder is
-// invisible to both -- pinned by TestReplayScannersIgnoreTheInputTrack rather
-// than by this comment.
+// inputsSubdir is a subdirectory because replayLast plays the newest file in ReplayDir and StartReplays reads
+// ReplayDir/active/, and both skip directories; a track in either would be parsed as a clip.
 const inputsSubdir = "inputs"
 
-// inputHeader is the first line of an input track.
-//
-// Format is FIRST and is spelled meshghost_inputs, never meshghost_replay:
-// parseReplay refuses a header whose meshghost_replay key is absent, so a track
-// that somebody hand-copies up into the replay folder is refused with a sentence
-// instead of being misplayed as a clip.
+// inputHeader is the first line of a track. Its key is meshghost_inputs, never meshghost_replay, so a track copied
+// into the replay folder is refused with a sentence instead of misplayed.
 type inputHeader struct {
 	Format int `json:"meshghost_inputs"`
-	// RecordingID is the state recording's own base filename, when one was
-	// running -- the correlation between the two tracks. Empty is normal and
-	// correct: the ring runs with no state recording at all, and then there is
-	// nothing to correlate to yet.
+	// RecordingID is the state recording's base filename, empty when none was running.
 	RecordingID string `json:"recording_id,omitempty"`
-	// Source, Labels and Axes are the adapter's, copied verbatim and never
-	// read. Labels names bit 0..n-1 of every line's `m`; Axes names the slots
-	// of `ax`. They make the file self-describing, which is what lets a reader
-	// built later refuse a track it does not understand instead of trusting
-	// bits that mean something else.
+	// Source, Labels and Axes are the adapter's, copied verbatim and never read: Labels names the bits of m, Axes the
+	// slots of ax, so a later reader can refuse a track it does not understand.
 	Source string   `json:"source,omitempty"`
 	Labels []string `json:"labels,omitempty"`
 	Axes   []string `json:"axes,omitempty"`
@@ -82,50 +48,29 @@ type inputHeader struct {
 	Recorded        string `json:"recorded"`
 }
 
-// inputEdgeLine is one written line: an edge, plus the core's own stamp.
-//
-// Ts is this core's clock, the same domain recorder.go stamps a state sample
-// in, and it is what correlates the two tracks -- no offset table, and both
-// drift together under a virtual clock. F and T are the ADAPTER's frame counter
-// and millisecond stamp, kept verbatim beside it: one receipt stamp per batch
-// would smear the frame spacing inside that batch, and a hold's length has to
-// stay expressible in frames.
+// inputEdgeLine is one edge plus the core's own stamp. Ts is the clock state samples are stamped in, which correlates
+// the two tracks. F and T are the adapter's frame and stamp: one receipt stamp per batch would smear the frame spacing.
 type inputEdgeLine struct {
 	Ts int64     `json:"ts"`
 	F  uint64    `json:"f"`
 	T  int64     `json:"t"`
 	M  uint32    `json:"m"`
 	Ax []float64 `json:"ax,omitempty"`
-	// Drop is carried on the first line after the adapter reported losing
-	// edges, so a reader can tell a lossy region from a quiet one. A gap alone
-	// cannot say which it was.
+	// Drop rides on the first line after the adapter reported losing edges, so a reader can tell a lossy gap from a
+	// quiet one.
 	Drop uint32 `json:"drop,omitempty"`
 }
 
-// maxInputRingEdges bounds the ring by COUNT as well as by span, and both
-// bounds are load-bearing.
-//
-// Span alone is not a bound: that is review G8's lesson, which cost the state
-// ring a ceiling -- a time-bounded buffer fed at an uncapped rate is an
-// unbounded buffer. An input edge is small, but a game with a stuck axis or an
-// adapter with a broken change-detector can produce them at frame rate forever,
-// and the ring is the always-on half of this feature. 200k edges is ~10MB and
-// far more than ten minutes of real play, which is the span ceiling beside it.
+// maxInputRingEdges bounds the ring by count as well as span: a time-bounded buffer fed at an uncapped rate is
+// unbounded, and a stuck axis can send edges at frame rate forever. Far more than ten minutes of real play.
 const maxInputRingEdges = 200_000
 
-// maxInputEdgesPerSecond is the flood ceiling, averaged over a second. Well
-// above any real adapter: 60fps of genuine change is a couple of hundred edges
-// a second at the very most.
-//
-// Over budget the BATCH is dropped and counted. The adapter is never detached
-// for being loud -- that is the 2026-09-06 slow-adapter lesson and the "client
-// died at 343 ghosts" failure: killing the game's own connection because it
-// sent too much is a worse outcome than losing the thing we were recording.
+// maxInputEdgesPerSecond is the flood ceiling, well above any real adapter. Over it the batch is dropped and counted,
+// never the connection: losing a recording beats killing the game's own link.
 const maxInputEdgesPerSecond = 1000
 
-// inputRing keeps the last `span` milliseconds of edges, trimmed by the newest
-// edge's own stamp for the same reason sampleRing is: a game that stops sending
-// freezes the ring rather than draining it.
+// inputRing keeps the last span of edges, trimmed by the newest edge's stamp, so a game that stops sending freezes
+// the ring rather than draining it.
 type inputRing struct {
 	mu   sync.Mutex
 	span int64
@@ -156,15 +101,11 @@ func (r *inputRing) add(e inputEdgeLine) {
 	for drop < len(r.buf)-1 && r.buf[drop].Ts < cutoff {
 		drop++
 	}
-	// The count ceiling, applied after the span trim: whichever bites first
-	// wins, and the oldest go.
 	if over := len(r.buf) - drop - maxInputRingEdges; over > 0 {
 		drop += over
 	}
 	if drop > 0 {
-		// Reslice, never copy down: sampleRing.add says why (O(1) per edge
-		// instead of the whole live buffer moved per edge; the dead prefix is
-		// reclaimed by append's next regrowth, not accumulated).
+		// Reslice, never copy down: O(1) per edge, and append's next regrowth reclaims the dead prefix.
 		r.buf = r.buf[drop:]
 	}
 }
@@ -180,14 +121,8 @@ func (r *inputRing) snapshot() []inputEdgeLine {
 	return out
 }
 
-// inputMeta is the per-connection state a batch is checked against: the sticky
-// label table, the last edge accepted (for cross-batch ordering), and the flood
-// limiter's window.
-//
-// Its own mutex, and it is NEVER taken while holding c.mu or c.rec.mu -- the
-// same ordering rule the state recorder is held to, for the same reason (the
-// 2026-09-04 hang, and the StartRecording/StopRecording re-entrancy deadlock of
-// 2026-09-06).
+// inputMeta is the per-connection state a batch is checked against. Its mutex is never taken while holding c.mu or
+// c.rec.mu, the order the state recorder keeps.
 type inputMeta struct {
 	mu     sync.Mutex
 	labels []string
@@ -203,14 +138,12 @@ type inputMeta struct {
 	windowMs int64
 	inWindow int
 	dropped  uint32 // reported by the adapter, carried onto the next line written
-	refused  uint64 // dropped by US, for the log
+	refused  uint64 // dropped by this side, for the log
 	loggedMs int64
 }
 
-// reset clears everything a new adapter connection must not inherit. A second
-// adapter's bit 3 is not the first one's bit 3, and its frame counter starts
-// again from zero -- so carrying either across a reconnect would either refuse
-// every batch as backwards or mislabel every button in the file.
+// reset clears what a new adapter connection must not inherit: its bit 3 is not the last one's and its frame counter
+// restarts, so either would mislabel every button or refuse every batch as backwards.
 func (m *inputMeta) reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -219,9 +152,8 @@ func (m *inputMeta) reset() {
 	m.windowMs, m.inWindow, m.dropped, m.refused, m.loggedMs = 0, 0, 0, 0, 0
 }
 
-// inputRecorder is the file half of the input tap. Same lazy open as the state
-// recorder: the file appears at the first edge, so a track armed in the main
-// menu leaves nothing behind if the game is quit before play starts.
+// inputRecorder is the file half of the input tap. The file opens at the first edge, so a track armed in the main
+// menu leaves nothing if the game quits before play.
 type inputRecorder struct {
 	mu        sync.Mutex
 	dir       string
@@ -272,8 +204,7 @@ func (r *inputRecorder) writeLocked(e inputEdgeLine) error {
 		return err
 	}
 	r.written++
-	// Flushed on a clock, never per line: the bridge reader goroutine runs this
-	// and must not wait on a disk (review E5).
+	// Flushed on a clock, never per line: the bridge reader goroutine runs this and must not wait on a disk.
 	if r.flushClock().Since(r.lastFlush) >= time.Second {
 		r.lastFlush = r.flushClock().Now()
 		return r.flushLocked()
@@ -297,8 +228,7 @@ func (r *inputRecorder) closeLocked() (path string, written int, err error) {
 		if ferr := r.w.Flush(); ferr != nil {
 			err = ferr
 		}
-		// Close, not Flush: the gzip footer is written here, and a stream
-		// without it is refused whole rather than read as a prefix.
+		// Close, not Flush: the gzip footer is written here, and a stream without it is refused whole.
 		if r.gz != nil {
 			if gerr := r.gz.Close(); gerr != nil && err == nil {
 				err = gerr
@@ -314,9 +244,7 @@ func (r *inputRecorder) closeLocked() (path string, written int, err error) {
 	return path, written, err
 }
 
-// roundedAxes copies and trims the axis floats for writing, for the same reason
-// roundedForFile copies rather than rounding in place: the slice arrived from a
-// decoded batch and the ring holds it too.
+// roundedAxes copies before rounding: the slice came from a decoded batch, which the ring holds too.
 func roundedAxes(ax []float64) []float64 {
 	if len(ax) == 0 {
 		return nil
@@ -340,12 +268,8 @@ func sameAxes(a, b []float64) bool {
 	return true
 }
 
-// recordInput is the input tap: called with every batch the adapter sends. One
-// atomic load when nothing is armed, which is the shipped state.
-//
-// Runs on the bridge reader goroutine, so it never blocks: the ring is bounded,
-// the writer is buffered and flushed on a clock, and the limiter DROPS rather
-// than waits (review E5 -- a blocking write here stalls the adapter's frames).
+// recordInput is the input tap, called with every batch the adapter sends; one atomic load when nothing is armed. It
+// runs on the bridge reader goroutine, so it never blocks: the limiter drops rather than waits.
 func (c *Core) recordInput(s bridge.InputSample) {
 	if atomic.LoadUint32(&c.inputTapArmed) == 0 {
 		return
@@ -367,7 +291,6 @@ func (c *Core) recordInput(s bridge.InputSample) {
 		c.inputMeta.dropped += s.Drop
 	}
 
-	// The flood ceiling, averaged over a one-second window.
 	if ts-c.inputMeta.windowMs >= 1000 {
 		c.inputMeta.windowMs, c.inputMeta.inWindow = ts, 0
 	}
@@ -390,10 +313,8 @@ func (c *Core) recordInput(s bridge.InputSample) {
 		return
 	}
 
-	// Cross-batch ordering. Refused WHOLE rather than repaired: a batch that
-	// goes backwards means the adapter's own counters restarted or its queue
-	// reordered, and a reader that cannot trust ordering absolutely cannot use
-	// the track for anything.
+	// A backwards batch is refused whole, not repaired: the adapter's counters restarted or its queue reordered, and a
+	// track whose order cannot be trusted is useless.
 	if len(s.Edges) > 0 && c.inputMeta.haveLast {
 		first := s.Edges[0]
 		if first.F < c.inputMeta.lastF || first.T < c.inputMeta.lastT {
@@ -404,18 +325,13 @@ func (c *Core) recordInput(s bridge.InputSample) {
 		}
 	}
 
-	// Build the lines, suppressing an edge identical to the one before it. The
-	// adapter should not send those; this side must not depend on it.
-	// Snapshotted under this lock and applied to the header below, because the
-	// label table arrives WITH the first batch and the file is opened lazily at
-	// the first edge. Arming the track happens before the adapter has declared
-	// anything, so a header built at StartInputRecording time is always empty --
-	// which is what the first version of this did.
+	// The tables are snapshotted for the header here: they arrive with the first batch, after the track was armed.
 	metaLabels := append([]string(nil), c.inputMeta.labels...)
 	metaAxes := append([]string(nil), c.inputMeta.axes...)
 	metaSource := c.inputMeta.source
 
 	lines := make([]inputEdgeLine, 0, len(s.Edges))
+	// An edge identical to the one before it is suppressed; the adapter should not send those, but may.
 	for _, e := range s.Edges {
 		ax := roundedAxes(e.Ax)
 		if c.inputMeta.haveLast && e.M == c.inputMeta.lastM && sameAxes(ax, c.inputMeta.lastAx) {
@@ -440,9 +356,7 @@ func (c *Core) recordInput(s bridge.InputSample) {
 	c.inputRec.mu.Lock()
 	writeFailed := false
 	if c.inputRec.on {
-		// Only while the file is still unopened: after that the header is
-		// written and a later table change belongs to a later track, not to
-		// this one retroactively.
+		// Only while the file is unopened; once the header is written, a table change belongs to a later track.
 		if c.inputRec.f == nil {
 			c.inputRec.header.Labels = metaLabels
 			c.inputRec.header.Axes = metaAxes
@@ -459,9 +373,7 @@ func (c *Core) recordInput(s bridge.InputSample) {
 	}
 	c.inputRec.mu.Unlock()
 
-	// After the unlock and on a flag captured inside it, the same rule
-	// recordLocal follows: rearmInputTap takes c.inputRec.mu and Go mutexes are
-	// not reentrant.
+	// After the unlock: rearmInputTap takes c.inputRec.mu.
 	if writeFailed {
 		c.rearmInputTap()
 	}
@@ -471,9 +383,7 @@ func (c *Core) recordInput(s bridge.InputSample) {
 	}
 }
 
-// logInputReject reports a refused batch, at most once every ten seconds. A
-// broken adapter sends a broken batch every frame, and a line per batch would
-// bury the console it is trying to report into.
+// logInputReject reports a refused batch at most once every ten seconds: a broken adapter sends one every frame.
 func (c *Core) logInputReject(reason string) {
 	if reason == "" {
 		return
@@ -490,10 +400,8 @@ func (c *Core) logInputReject(reason string) {
 	}
 }
 
-// recordingIDFor turns a recording's path into the id both tracks carry: the
-// base filename with its extensions removed, so "rec-20260908-214210.ndjson.gz"
-// and the plain form give the same id and a person can see at a glance which
-// two files belong together.
+// recordingIDFor is the id both tracks carry: the base filename without extensions, so the gzip and plain forms of a
+// recording give the same id.
 func recordingIDFor(path string) string {
 	base := filepath.Base(path)
 	for {
@@ -505,7 +413,6 @@ func recordingIDFor(path string) string {
 	}
 }
 
-// inputHeaderFor is the header a fresh track carries.
 func (c *Core) inputHeaderFor(game, version, recordingID string, at time.Time) inputHeader {
 	c.inputMeta.mu.Lock()
 	labels := append([]string(nil), c.inputMeta.labels...)
@@ -525,7 +432,6 @@ func (c *Core) inputHeaderFor(game, version, recordingID string, at time.Time) i
 	}
 }
 
-// inputsDir is the folder every track is written to.
 func (c *Core) inputsDir() string {
 	if c.replayDir() == "" {
 		return ""
@@ -533,8 +439,7 @@ func (c *Core) inputsDir() string {
 	return filepath.Join(c.replayDir(), inputsSubdir)
 }
 
-// gameLabels answers what the header's game/version pair should say, with the
-// same precedence StartRecording uses.
+// gameLabels is the header's game and version, with the precedence StartRecording uses.
 func (c *Core) gameLabels() (game, version string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -548,12 +453,8 @@ func (c *Core) gameLabels() (game, version string) {
 	return game, version
 }
 
-// StartInputRecording arms the file half of the input tap, writing to
-// replay/inputs/in-YYYYMMDD-HHMMSS.ndjson. recordingID is the state recording
-// this track belongs to, or "" when none is running.
-//
-// A no-op returning "" when ReplayInputs is off: the whole feature is opt-in,
-// and a caller should not have to check.
+// StartInputRecording arms the file half of the input tap, writing to replay/inputs/in-YYYYMMDD-HHMMSS.ndjson.
+// recordingID is the state recording this track belongs to, or "". A no-op returning "" when ReplayInputs is off.
 func (c *Core) StartInputRecording(recordingID string) (string, error) {
 	if !c.replayInputs() {
 		return "", nil
@@ -572,7 +473,7 @@ func (c *Core) StartInputRecording(recordingID string) (string, error) {
 	}
 	c.inputRec.dir = dir
 	c.inputRec.gzip = c.replayGzip()
-	path, err := replayFileName(dir, "in", time.Now(), c.inputRec.gzip) // wall-clock: a filename, deduplicated against the real filesystem
+	path, err := replayFileName(dir, "in", time.Now(), c.inputRec.gzip) // wall-clock: a filename, checked on disk
 	if err != nil {
 		return "", err
 	}
@@ -584,8 +485,7 @@ func (c *Core) StartInputRecording(recordingID string) (string, error) {
 	return path, nil
 }
 
-// StopInputRecording closes the track. written is 0 when no edge ever arrived,
-// in which case no file exists and path is "".
+// StopInputRecording closes the track. written is 0 when no edge ever arrived, and then no file exists and path is "".
 func (c *Core) StopInputRecording() (path string, written int, err error) {
 	c.inputRec.mu.Lock()
 	on := c.inputRec.on
@@ -611,13 +511,8 @@ func (c *Core) SetInputRingSpan(span time.Duration) {
 	c.rearmInputTap()
 }
 
-// rearmInputTap recomputes the atomic the per-batch tap checks.
-//
-// A SEPARATE atomic from tapArmed, deliberately. The two taps arm for different
-// reasons -- the input ring is always on whenever the feature is enabled, while
-// the state tap is on only for a recording, the save-last ring or a chaser pack
-// -- and folding them would make an always-on input ring silently switch the
-// state tap on and start feeding chasers that nobody asked for.
+// rearmInputTap recomputes inputTapArmed, kept apart from tapArmed: the input ring is always on with the feature, and
+// folding the two would switch the state tap on and feed chasers nobody asked for.
 func (c *Core) rearmInputTap() {
 	if !c.replayInputs() {
 		atomic.StoreUint32(&c.inputTapArmed, 0)
@@ -636,12 +531,8 @@ func (c *Core) rearmInputTap() {
 	}
 }
 
-// armInputRing sizes the input ring, which is the ALWAYS-ON half of this
-// feature: whenever replay.inputs is set, the last SaveLastSpan of input is
-// being kept whether or not anything is recording, so save-last can export it
-// after the fact. That is the whole point of the feature for a practice mod --
-// "always record inputs, and a button to export the last X seconds" -- and it
-// costs one ring plus one atomic per batch.
+// armInputRing sizes the input ring, the always-on half of the feature: with replay.inputs set, the last SaveLastSpan
+// of input is kept whether or not anything is recording, so save-last can export it after the fact.
 func (c *Core) armInputRing() {
 	if !c.replayInputs() {
 		return
@@ -651,9 +542,8 @@ func (c *Core) armInputRing() {
 	}
 }
 
-// SaveLastInputs writes what the input ring holds to
-// replay/inputs/inlast-YYYYMMDD-HHMMSS.ndjson. recordingID ties it to the
-// state clip written by the same key press.
+// SaveLastInputs writes what the input ring holds to replay/inputs/inlast-YYYYMMDD-HHMMSS.ndjson. recordingID ties it
+// to the state clip written by the same key press.
 func (c *Core) SaveLastInputs(recordingID string) (string, int, error) {
 	if !c.replayInputs() {
 		return "", 0, nil
@@ -679,9 +569,7 @@ func (c *Core) SaveLastInputs(recordingID string) (string, int, error) {
 	if err != nil {
 		return "", 0, fmt.Errorf("create %s: %w", path, err)
 	}
-	// abandon closes AND removes, the same rule SaveLast follows: a truncated
-	// .gz has no CRC footer and is refused whole, and leaving the corpse in the
-	// folder leaves a file every later reader has to reject.
+	// abandon closes and removes: a truncated .gz has no CRC footer and is refused whole by every later reader.
 	abandon := func() {
 		f.Close()
 		os.Remove(path)
@@ -693,8 +581,8 @@ func (c *Core) SaveLastInputs(recordingID string) (string, int, error) {
 		sink = gz
 	}
 	w := bufio.NewWriterSize(sink, 64*1024)
-	hdr := c.inputHeaderFor(game, version, recordingID, time.Now()) // wall-clock: an artefact timestamp, like Recorded below
-	// recorded is when the clip STARTS, back-dated from the edges themselves.
+	hdr := c.inputHeaderFor(game, version, recordingID, time.Now()) // wall-clock: an artefact timestamp
+	// Recorded is when the clip starts, back-dated from the edges themselves.
 	span := time.Duration(edges[len(edges)-1].Ts-edges[0].Ts) * time.Millisecond
 	hdr.Recorded = time.Now().Add(-span).UTC().Format(time.RFC3339) // wall-clock: an artefact timestamp
 	if err := writeReplayLine(w, hdr); err != nil {
@@ -723,8 +611,7 @@ func (c *Core) SaveLastInputs(recordingID string) (string, int, error) {
 	return path, len(edges), nil
 }
 
-// flushInputTrackIfOpen pushes whatever the input recorder has buffered out to
-// disk. A no-op when nothing is recording.
+// flushInputTrackIfOpen pushes whatever the input recorder has buffered to disk; a no-op when nothing is recording.
 func (c *Core) flushInputTrackIfOpen() {
 	c.inputRec.mu.Lock()
 	defer c.inputRec.mu.Unlock()
@@ -736,9 +623,7 @@ func (c *Core) flushInputTrackIfOpen() {
 	}
 }
 
-// inputTrackProgress reports the open track's path and how many edges it has
-// written so far. on is false when nothing is recording, which is what the
-// hotkey descriptions use to decide whether to mention the track at all.
+// inputTrackProgress reports the open track's path and edges written; on is false when nothing is recording.
 func (c *Core) inputTrackProgress() (path string, written int, on bool) {
 	c.inputRec.mu.Lock()
 	defer c.inputRec.mu.Unlock()

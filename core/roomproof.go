@@ -1,12 +1,8 @@
 package core
 
-// The client's half of the room-code proof (package pake, ADR 0067): the
-// code never leaves this process. A hello carries KE1; the relay's KE2 is
-// checked against the code AND against the fingerprint of the certificate
-// this connection verified, so a relay that is not the one this client
-// meant fails here, before anything else is sent; KE3 goes back; the relay
-// then welcomes (or answers the transport query) exactly as a right code
-// used to make it.
+// The client's half of the room-code proof (package pake): the code never leaves this process. A hello carries KE1;
+// the relay's KE2 is checked against the code and the fingerprint of the certificate this connection verified, so a
+// relay that is not the one this client meant fails here, before anything else is sent; then KE3 goes back.
 
 import (
 	"encoding/base64"
@@ -23,9 +19,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// roomProof is one connection's proof in progress. Nil when this Core has no
-// room code: then the hello carries nothing and the relay either has no code
-// either (and welcomes) or refuses.
+// roomProof is one connection's proof in progress. Nil when this Core has no room code: the hello then carries
+// nothing, and a relay with a code refuses.
 type roomProof struct {
 	client   *pake.Client
 	serverID string
@@ -35,10 +30,8 @@ type roomProof struct {
 	answered bool // KE2 arrived and was judged
 }
 
-// newRoomProof prepares the proof for a connection, or returns nil when
-// there is no code to prove. serverID is the fingerprint of the certificate
-// netConn verified -- every shipped dial is TLS, so it is set; the dev-only
-// udp transport has none and proves the code unbound.
+// newRoomProof prepares the proof for a connection, or returns nil when there is no code to prove. serverID is the
+// fingerprint of the certificate netConn verified; the dev-only udp transport has none and proves the code unbound.
 func newRoomProof(roomCode string, netConn net.Conn) (*roomProof, error) {
 	if roomCode == "" {
 		return nil, nil
@@ -66,10 +59,8 @@ func (p *roomProof) KE1() string {
 	return p.ke1
 }
 
-// errProofFailed is the local refusal: the relay's KE2 did not check out
-// against this client's code and the certificate it verified. Reported as a
-// Reject with the room-code CODE so every caller classifies it as permanent
-// (a retry cannot fix a wrong code), with prose that names the other cause.
+// errProofFailed is the local refusal when the relay's KE2 does not check out. It carries the room-code code so every
+// caller treats it as permanent: a retry cannot fix a wrong code.
 var errProofFailed = protocol.Reject{
 	Reason: "the room code did not match what the server knows -- or the server is not the one this " +
 		"client verified (its certificate fingerprint is bound into the proof)",
@@ -77,13 +68,8 @@ var errProofFailed = protocol.Reject{
 	Retryable: false,
 }
 
-// errServerHasNoCode is the refusal when this client has a room code and the
-// server welcomed it without asking for one. A code on one side only is a
-// mismatch, the same as two different codes (the user, 2026-09-16: "either you
-// have a code or you don't ... both should either have no code or both have
-// the same code"). Until then the client joined and logged one line, so a
-// server pretending to be the player's could take the session simply by never
-// asking for the proof (pass 5 of the adversarial review, P1b-client-1; ADR 0070).
+// errServerHasNoCode is the refusal when this client has a room code and the server welcomed it without asking. A
+// code on one side only is a mismatch, or a server posing as the player's could take the session by never asking.
 var errServerHasNoCode = protocol.Reject{
 	Reason: "this client has a room code set, and the server asked for none -- either the server has " +
 		"no code (clear room_code in config.json to join it) or it is not the server this client meant",
@@ -91,11 +77,9 @@ var errServerHasNoCode = protocol.Reject{
 	Retryable: false,
 }
 
-// intercept handles one line from the relay if it is the proof's business.
-// It returns true when the line was consumed: a KE2, answered with KE3 or
-// refused, or a welcome (or transports answer) from a relay that never asked
-// for the proof, which is refused as a mismatched code (errServerHasNoCode).
-// Any other line returns false so the ordinary handler sees it.
+// intercept handles one line from the relay if it is the proof's business. It returns true when the line was
+// consumed: a KE2, answered with KE3 or refused, or a welcome or transports answer from a relay that never asked for
+// the proof, refused as errServerHasNoCode. Any other line goes to the ordinary handler.
 func (p *roomProof) intercept(conn transport.Transport, payload []byte, refuse func(protocol.Reject)) bool {
 	if p == nil {
 		return false

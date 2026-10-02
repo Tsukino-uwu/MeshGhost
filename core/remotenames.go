@@ -8,41 +8,13 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// Peer nametags: learning them from the relay, and handing them to the adapter.
-//
-// A name is not part of a peer's motion, which is why none of this lives with
-// the interpolation buffer. It arrives once -- in a Join, or in the Welcome
-// roster for players already in the room -- stays put through every state that
-// follows, and has to still be available to an adapter that attaches minutes
-// after the core connected.
-//
-// EVERYTHING HERE RE-SANITIZES. The relay sanitizes on the way in, and this
-// does it again on the way out, because "the relay already did it" assumes a
-// relay this client did not write and cannot inspect. A hostile or simply older
-// relay can put anything in a Join. protocol.SanitizeDisplayName is idempotent
-// precisely so this second pass costs nothing and cannot disagree with the
-// first -- if it could, one player would render under different names on
-// different machines, which makes impersonation easier rather than harder.
+// Peer nametags: learned once from a Join or the Welcome, kept for an adapter that attaches later, and re-sanitized
+// on receipt because the relay may be hostile or older. SanitizeDisplayName is idempotent, so the second pass cannot
+// disagree with the first and render one player under two names.
 
-// storeRemoteName records a peer's nametag and, if it changed, tells the
-// attached adapter. raw is whatever the relay sent and is sanitized here.
-//
-// An empty name is stored as an ABSENCE rather than as "": there is no
-// difference between "set no name" and "set a name made entirely of characters
-// we strip", and both must end with no nametag drawn.
-// admitToRosterLocked adds playerID to the roster unless doing so would take
-// its KIND past protocol.MaxRosterSize, in which case the id is refused and
-// stays unknown -- so its state is dropped by storeRemoteState like any other
-// unannounced id, and the adapter never hears of it. An id already present
-// is always admitted (a repeated join is not a new seat). Caller holds c.mu.
-//
-// TWO KINDS, EACH WITH THE WHOLE BOUND: ids the relay announces, and ghosts
-// this core invents (isLocalPeerID -- replays and chasers). They shared one
-// pool until 2026-09-16, so a replay zip of 512 one-sample clips someone sent
-// a player took every seat before the relay's first Join, and nobody who
-// joined afterwards ever appeared for the rest of the session (pass 5 of the
-// adversarial review, PM-2). Neither kind can now starve the other; the maps
-// keyed by the roster are bounded at twice the constant instead of once.
+// admitToRosterLocked adds playerID to the roster unless that takes its kind past protocol.MaxRosterSize; a refused id
+// stays unknown, so its states are dropped. An id already present is always admitted. Relay ids and local ghosts each
+// get the whole bound, so neither can starve the other. Caller holds c.mu.
 func (c *Core) admitToRosterLocked(playerID string) bool {
 	if c.roster == nil {
 		c.roster = make(map[string]int64)
@@ -62,20 +34,19 @@ func (c *Core) admitToRosterLocked(playerID string) bool {
 			return false
 		}
 	}
-	// Stamped with the admission, so remoteStatesAt can tell a seat that is
-	// merely new from one that has never carried anything. See Core.roster.
+	// Stamped with the admission, so remoteStatesAt can tell a new seat from one that never carried anything.
 	c.roster[playerID] = c.nowMsLocked()
 	return true
 }
 
+// storeRemoteName records a peer's nametag, sanitized here, and tells the attached adapter if it changed. An empty
+// name is stored as an absence: a name made entirely of stripped characters must draw no nametag either.
 func (c *Core) storeRemoteName(playerID string, raw *protocol.Nametag) {
 	c.storeRemoteNameOpts(playerID, raw, false)
 }
 
-// storeRemoteNameQuiet is storeRemoteName without the per-change log line,
-// for a tag that legitimately changes several times a second: the split
-// time on a replay ghost (core/splittime.go). The push-on-change rule is
-// unchanged; only the log is.
+// storeRemoteNameQuiet skips the per-change log line, for a tag that changes several times a second (a replay ghost's
+// split time).
 func (c *Core) storeRemoteNameQuiet(playerID string, raw *protocol.Nametag) {
 	c.storeRemoteNameOpts(playerID, raw, true)
 }
@@ -88,8 +59,7 @@ func (c *Core) storeRemoteNameOpts(playerID string, raw *protocol.Nametag, quiet
 			Color: protocol.SanitizeNameColor(raw.Color),
 		}
 	}
-	// A tag whose name did not survive sanitizing is no tag, colour included:
-	// a colour with nothing to colour would have a renderer draw an empty box.
+	// A tag whose name did not survive sanitizing is no tag, colour included, or a renderer draws an empty box.
 	if tag.Name == "" {
 		tag = protocol.Nametag{}
 	}
@@ -106,21 +76,13 @@ func (c *Core) storeRemoteNameOpts(playerID string, raw *protocol.Nametag, quiet
 		c.remoteNames[playerID] = tag
 	}
 	changed := tag != prev
-	// attachedAdapter, the connection that actually became the adapter -- not
-	// merely any bridge connection. adapterReady gates it because an adapter
-	// keys off bridge_ready to start listening, so a name sent before that has
-	// nowhere to land.
+	// adapterReady gates the attached adapter: it starts listening at bridge_ready.
 	nd := c.attachedAdapter
 	ready := c.adapterReady
 	c.mu.Unlock()
 
-	// LOGGED EITHER WAY, once per change, because silence here was unreadable.
-	//
-	// A nametag failing to appear in a game had three possible causes on this side -- the relay
-	// never sent one, this core never stored it, or it stored it and never handed it over -- and
-	// nothing distinguished them. That cost several live sessions chasing the renderer while the
-	// message was never arriving. Cheap by construction: a name changes at most once per peer per
-	// session, so this cannot become per-frame logging.
+	// Logged either way, once per change, or a missing nametag cannot tell never-sent from never-stored from
+	// never-handed-over.
 	if changed && !quiet {
 		switch {
 		case !ready || nd == nil:
@@ -131,9 +93,7 @@ func (c *Core) storeRemoteNameOpts(playerID string, raw *protocol.Nametag, quiet
 		}
 	}
 
-	// Only on a change: a name is stable for a whole session, so an adapter
-	// that has been told once must not be told again every time somebody
-	// reconnects into the same id.
+	// Only on a change, so a reconnect into the same id does not tell the adapter again.
 	if changed && ready && nd != nil {
 		_ = c.sendToAdapter(nd, bridge.TypeRemoteName, bridge.RemoteName{
 			PlayerID:    playerID,
@@ -143,31 +103,9 @@ func (c *Core) storeRemoteNameOpts(playerID string, raw *protocol.Nametag, quiet
 	}
 }
 
-// storeRosterNames records the nametags of players already in the room, from
-// Welcome.RosterNames.
-//
-// Without this a newcomer learns ids and no names for everybody who was already
-// standing there, and stays that way until each of them happens to reconnect --
-// because a Join only ever announces an ARRIVAL, and names are deliberately not
-// in the state stream.
-// A NAME IS ONLY KEPT FOR SOMEBODY THE ROSTER SAYS IS HERE, and that
-// membership test is also this map's only bound.
-//
-// Welcome.Nametags is a map the RELAY fills, and nothing in the protocol ties
-// its keys to Welcome.Roster: until 2026-09-12 every entry was stored, for any
-// id, with no cap. The roster merge above is capped at protocol.MaxRosterSize
-// and this ran after it, so a relay could seed the map with ids that were never
-// in the room -- and c.remoteNames had no eviction for an id that never joins,
-// never sends a state and never leaves. Each one costs a non-coalescing
-// remote_name on every later adapter attach (pushRemoteNames), and past
-// adapterQueueCap the core calls the adapter stuck and tears the bridge down:
-// ghosts, chasers, replays and any in-progress recording, on every game launch
-// for the life of the core process.
-//
-// Gating on the roster rather than counting to a limit is deliberate. The
-// roster is already capped, so membership IS the cap -- one rule, and no second
-// number to keep in step with the first. Found by the third adversarial review
-// (P3a-1, P3b-1).
+// storeRosterNames records the nametags of players already in the room, from Welcome.Nametags: a Join announces only
+// arrivals. A name is kept only for an id the roster holds, which is also this map's only bound, since the relay
+// fills it and nothing ties its keys to the roster.
 func (c *Core) storeRosterNames(names map[string]protocol.Nametag) {
 	if len(names) > 0 {
 		log.Printf("core: the room's welcome carried %d nametag(s)", len(names))
@@ -180,9 +118,7 @@ func (c *Core) storeRosterNames(names map[string]protocol.Nametag) {
 		}
 	}
 	c.mu.Unlock()
-	// Says so rather than dropping in silence: a name that never appears is
-	// otherwise indistinguishable from a renderer fault, which is the exact
-	// confusion storeRemoteNameOpts' own logging was added to end.
+	// Said out loud: a name that never appears otherwise looks like a renderer fault.
 	if dropped := len(names) - len(keep); dropped > 0 {
 		log.Printf("core: ignoring %d welcome nametag(s) for ids that are not in the room's roster", dropped)
 	}
@@ -192,7 +128,6 @@ func (c *Core) storeRosterNames(names map[string]protocol.Nametag) {
 	}
 }
 
-// remoteNamesSnapshot copies the currently known nametags.
 func (c *Core) remoteNamesSnapshot() map[string]protocol.Nametag {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -206,18 +141,11 @@ func (c *Core) remoteNamesSnapshot() map[string]protocol.Nametag {
 	return out
 }
 
-// pushRemoteNames tells a freshly attached adapter every nametag already known.
-//
-// An adapter attaches whenever the game launches, which can be long after this
-// core connected and long after the Joins that carried these names went past --
-// the same gap pushAreaPreference exists for. Without this, ghosts that were
-// already in the room render with no nametag for the rest of the session while
-// anyone joining later gets one, which looks like a bug in the nametags rather
-// than a missed handover.
+// pushRemoteNames tells a freshly attached adapter every nametag already known: the game may launch long after the
+// Joins that carried them went past.
 func (c *Core) pushRemoteNames(nd transport.Transport) {
 	known := c.remoteNamesSnapshot()
-	// Says the COUNT, including zero. "No nametags to hand over" and "this was never called" are
-	// different facts and looked identical for an entire evening of live testing.
+	// The count, zero included: "none to hand over" and "never called" must not look the same.
 	log.Printf("core: adapter attached -- handing it %d already-known nametag(s)", len(known))
 	for id, tag := range known {
 		_ = c.sendToAdapter(nd, bridge.TypeRemoteName, bridge.RemoteName{

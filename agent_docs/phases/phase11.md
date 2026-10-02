@@ -1053,3 +1053,11 @@ nothing). Detail and tests in `phase10.md`'s entry of the same date.
 
 A new optional bridge message, adapter -> core: a death starts the chaser pack over (`ResetChasers`,
 `core/chaser.go`; `TestChaserResetStartsThePackOver`). The whole account is `phase7.md`, same date.
+
+## 2026-10-02 — pointer: the replay, recording and chaser files' comments trimmed (A5)
+
+`replay.go`, `replaycontrol.go`, `replayinputs.go`, `recorder.go`, `inputrecorder.go` and `chaser.go` lost their
+history comments with the rest of `core/` (the account is `phase10.md`, same date). Stale claims fixed on the way: the
+input track said nothing plays it back (`replayinputs.go` streams it), the chaser said to read the save-last ring and the
+ring to keep the longest span (it sets the span outright; the chaser has its own history), and `replayMaxSamples` said
+to bound memory (`replayMaxBytes` does).

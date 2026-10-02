@@ -1,11 +1,7 @@
 package core
 
-// The send path: local state out to the relay, and keeping the link alive.
-//
-// Split out of core.go on 2026-08-25. The rate rule lives here and is easy to get
-// backwards: the effective send interval is the SLOWER of this client's own
-// configured minimum and the rate the relay advertised, so a relay can never
-// speed a client up past a rate it explicitly chose.
+// The send path: local state out to the relay, and keeping the link alive. The effective send interval is the slower of
+// this client's own minimum and the relay's advertised rate, so a relay can never speed a client past a rate it chose.
 
 import (
 	"bytes"
@@ -19,18 +15,10 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// effectiveSendInterval returns the slower of (the relay's advertised
-// interval, this Core's own configured floor), falling back to
-// DefaultMinSendInterval when neither exists. Slower, always: the relay's
-// rate is prescriptive for a client that hasn't expressed a preference, but
-// a client that deliberately set MinSendInterval did so because of its own
-// connection, and the relay has no business overriding that upward. Caller
-// holds c.mu. See the ADR in agent_docs/architecture.md.
+// effectiveSendInterval returns the slower of the relay's advertised interval and this Core's own floor, or
+// DefaultMinSendInterval when neither is set: a client that set MinSendInterval did so for its own connection, and the
+// relay has no business overriding that upward. Caller holds c.mu.
 func (c *Core) effectiveSendInterval() time.Duration {
-	// The slower of the two wins, and if neither is set the built-in default
-	// does. Written as a max rather than the four-arm switch this used to be:
-	// both non-positive means neither was set, one set means that one, and both
-	// set means the slower -- which is exactly what taking the larger does.
 	d := c.MinSendInterval
 	if c.serverSendInterval > d {
 		d = c.serverSendInterval
@@ -41,42 +29,27 @@ func (c *Core) effectiveSendInterval() time.Duration {
 	return d
 }
 
-// forwardLocalState stamps and sends state to the relay, if there is one.
-// state == nil means "don't send this frame" (get_local_state()'s nil
-// case). Actual sends are capped to effectiveSendInterval() regardless of
-// how often the adapter calls in — see its own comment and
-// DefaultMinSendInterval's. A dropped frame here is not stamped with
-// seq/timestamp at all, so it never reaches the relay and never affects
-// Core.seq's monotonic count.
+// forwardLocalState stamps and sends state to the relay, if there is one; nil means not this frame. Sends are capped to
+// effectiveSendInterval however often the adapter calls, and a frame not sent is never stamped, so it costs no seq.
 func (c *Core) forwardLocalState(state *protocol.State) {
 	if state == nil {
 		return
 	}
-	// THE RECORDER TAP (ADR 0047), before the rate limit and before the
-	// relay-or-not check: a recording is the densest copy of what the adapter
-	// reports, and it works offline. One atomic load when nothing is armed.
+	// The recorder tap, before the rate limit and the relay check, so a recording is the densest copy and works
+	// offline.
 	c.recordLocal(state)
-	// And the first in-game frame is when a loaded replay starts (one atomic
-	// load until then; a no-op after), so a ghost of a run lines up with the
-	// run rather than with the main menu.
+	// The first in-game frame starts a loaded replay, so a ghost lines up with the run rather than the main menu.
 	c.launchPendingReplays()
-	// Split times against every running replay (core/splittime.go): a
-	// windowed nearest-sample search, cheap enough for the frame path, and a
-	// nametag update at most four times a second.
+	// Split times: a windowed nearest-sample search, cheap enough for the frame path.
 	c.updateSplits(state)
 
 	c.mu.Lock()
-	// Recorded on every real local frame, independent of MinSendInterval
-	// throttling below and of whether a relay connection exists yet --
-	// remoteStatesAt's cross-area filter needs this to always reflect the
-	// adapter's actual current area, not just what was last sent over the
-	// network. See the 2026-08-13 ADR in architecture.md.
+	// Recorded on every real frame, sent or not: the cross-area filter needs the adapter's current area, not the last
+	// one sent.
 	c.localAreaID = state.AreaID
 	relay := c.relay
 	if relay == nil {
-		// No adapter has sent a Hello yet (or -game/config never set one) --
-		// nothing to forward to. Not an error: this is the normal state
-		// while ConnectRelayOnAdapterHello is waiting for one.
+		// No relay yet: the normal state while ConnectRelayOnAdapterHello waits for an adapter.
 		c.mu.Unlock()
 		return
 	}
@@ -89,42 +62,21 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 		c.mu.Unlock()
 		return
 	}
-	// CHANGE SUPPRESSION. An identical state is not worth a packet: most of a
-	// singleplayer session is spent standing still, and at 20-100Hz that is
-	// hundreds of byte-identical messages a minute, uploaded, fanned out to
-	// every peer in the room, and rendered as no movement at all. Requested
-	// 2026-08-21 and again 2026-08-28 (agent_docs/ideas.md, "third rung");
-	// this is the whole-state half of it, which needs no protocol change --
-	// the per-field version makes wire fields optional and is a protocol rev.
-	//
-	// GAME-AGNOSTIC by construction: "is this value the same as last time" needs
-	// no knowledge of what the value means, which is why it belongs here rather
-	// than in four adapters.
-	//
-	// The keepalive is not optional. Silence and absence must stay
-	// distinguishable -- for the relay, for a late joiner who has never seen a
-	// state from this player, and on udp, where a suppressed packet's loss would
-	// otherwise persist until the player next moves.
+	// Change suppression: an identical state is not worth a packet, and most of a session is spent standing still. The
+	// keepalive keeps silence and absence distinguishable, for the relay, for a late joiner who has never seen this
+	// player, and on a lossy transport, where a suppressed packet's loss would otherwise last until the player moves.
 	unchanged := c.IdleKeepalive > 0 && sameSentState(c.lastSentState, state)
 	if unchanged && c.clk().Since(c.lastSendAt) < c.IdleKeepalive {
-		// lastSendAt deliberately NOT updated: this frame did not send, and the
-		// next CHANGED frame must be free to go out as soon as the ordinary
-		// rate limit allows rather than being pushed back by a skip.
+		// lastSendAt stays put: the next changed frame must go out as soon as the ordinary rate limit allows.
 		c.suppressedSinceSend = true
 		c.mu.Unlock()
 		atomic.AddUint64(&c.stats.statesSuppressed, 1)
 		return
 	}
 
-	// THE BRACKET SAMPLE, and it is what makes suppression invisible rather
-	// than merely cheap. A receiver interpolates between the two samples that
-	// bracket its render time (core/interp.go), so resuming after a silence
-	// would blend the stale standing position into the first moving one across
-	// the whole gap -- a ghost creeping at a fraction of walking speed, which
-	// adapters/CLAUDE.md forbids outright ("never move a ghost slower than the
-	// game moves"). Re-stating the unchanged state one millisecond before the
-	// changed one collapses that gap: the peer holds still until the instant it
-	// genuinely moved, then moves at its own true rate.
+	// The bracket sample makes suppression invisible: a receiver interpolates between the samples around its render
+	// time, so resuming after a silence would creep across the whole gap. Re-stating the unchanged state 1ms before the
+	// changed one holds the ghost still until the instant it moved.
 	var bracket *protocol.State
 	if !unchanged && c.suppressedSinceSend && c.lastSentState != nil {
 		b := *c.lastSentState
@@ -142,11 +94,8 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 	carryPrev := c.redundancyOnLocked(interval)
 	c.mu.Unlock()
 
-	// From here to the end: one adapter frame's packets go out together and
-	// in order, and each records itself as the next one's predecessor. The
-	// loss cover (ADR 0045) is only correct if "previous" means the packet
-	// sent immediately before, so this section is serialized on its own
-	// mutex rather than c.mu, which nowMs needs.
+	// One frame's packets go out together and in order, each recorded as the next one's predecessor: the loss cover is
+	// correct only if previous means the packet sent just before. Serialized on sendMu, not c.mu, which nowMs needs.
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
 
@@ -163,19 +112,14 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 	st := *state
 	st.PlayerID = playerID
 	st.Seq = atomic.AddUint64(&c.seq, 1)
-	// Stamped in the RELAY's clock domain when this room negotiated clock
-	// sync, and in the local one otherwise (which is every room today, and
-	// every room against an older relay). See nowMs and clockSync in
-	// online.go: a receiver compares this against its own wall clock, so what
-	// matters is that every member of a room measures against the same one,
-	// not that any of them is right about the real time.
+	// On the relay's clock when the room negotiated clock sync, else the local one: a room only needs one clock to
+	// agree on.
 	st.Timestamp = c.nowMs()
 	c.attachPrev(&st, carryPrev)
 	c.sendState(relay, st)
 }
 
-// redundancyOnLocked says whether a state sent at this interval carries the
-// sample before it. Caller holds c.mu (the interval came from under it).
+// redundancyOnLocked says whether a state sent at this interval carries the sample before it. Caller holds c.mu.
 func (c *Core) redundancyOnLocked(interval time.Duration) bool {
 	gate := c.RedundancyMinInterval
 	if gate == 0 {
@@ -184,10 +128,9 @@ func (c *Core) redundancyOnLocked(interval time.Duration) bool {
 	return gate > 0 && interval >= gate
 }
 
-// attachPrev makes st carry the last state sent (as a delta) when the cover is
-// on, and records st as the next state's predecessor either way. Caller holds
-// c.sendMu. The recorded copy never carries a prev of its own, so a delta is
-// always against a plain sample.
+// attachPrev makes st carry the last state sent, as a delta, when the cover is on, and records st as the next one's
+// predecessor either way, without a prev of its own, so a delta is always against a plain sample. Caller holds
+// c.sendMu.
 func (c *Core) attachPrev(st *protocol.State, carry bool) {
 	if carry && c.lastSentWire != nil {
 		st.Prev = protocol.BuildPrev(c.lastSentWire, st)
@@ -198,35 +141,18 @@ func (c *Core) attachPrev(st *protocol.State, carry bool) {
 	c.lastSentWire = &kept
 }
 
-// sendHeartbeats sends a Ping on conn every Core.HeartbeatInterval
-// (DefaultHeartbeatInterval unless overridden; a value <= 0 disables
-// heartbeats entirely and this returns immediately) for as
-// long as conn remains this Core's current relay connection, so a relay
-// connection with no real traffic (no adapter attached, or one reporting
-// get_local_state()==nil for a stretch) doesn't get killed by the relay's
-// idle timeout. See DefaultHeartbeatInterval's doc comment for the live
-// incident this fixes. Exits silently once conn is replaced or closed —
-// ConnectRelay's own OnDisconnect handler already logs and handles
-// reconnection; this has nothing more to add on a Send failure.
+// sendHeartbeats sends a Ping on conn every HeartbeatInterval (none when it is 0 or less) while conn is this Core's
+// relay connection, so a link with no real traffic is not killed by the relay's idle timeout. It exits quietly once
+// conn is replaced or closed; the disconnect handler does the rest.
 func (c *Core) sendHeartbeats(conn transport.Transport) {
 	interval := c.HeartbeatInterval
 	if interval <= 0 {
 		return
 	}
 	var nonce uint64
-	// One ping is a heartbeat; a short burst of them is a clock measurement.
-	// The burst comes first because the heartbeat interval is 20s, and an
-	// offset estimate that takes a minute to form is useless for exactly the
-	// minute a player is first walking into everyone else's view. Three
-	// probes cost three messages and give the "keep the lowest RTT"
-	// estimator something to choose between, which a single sample cannot.
-	//
-	// Spaced at the SHORTER of the probe interval and this Core's heartbeat
-	// interval. A Core configured to heartbeat faster than the burst clearly
-	// wants pings sooner, and spacing the burst wider than the heartbeat
-	// would delay the very keepalive it is being sent alongside — which is
-	// not hypothetical, it broke two existing heartbeat tests the moment the
-	// burst was added with a fixed interval.
+	// One ping is a heartbeat; a short burst first is a clock measurement, since at the heartbeat's pace the estimate
+	// would take a minute to form. Spaced at the shorter of the probe and heartbeat intervals, or the burst would delay
+	// the keepalive sent alongside it.
 	probeGap := initialClockProbeInterval
 	if interval < probeGap {
 		probeGap = interval
@@ -247,10 +173,8 @@ func (c *Core) sendHeartbeats(conn transport.Transport) {
 	}
 }
 
-// sendPing sends one Ping on conn and records when it went out, so the
-// matching Pong can be turned into a round-trip time and a clock offset.
-// Returns false once conn is no longer this Core's relay connection, or the
-// send fails — in both cases sendHeartbeats should stop.
+// sendPing sends one Ping on conn and records when it went out, for the matching Pong's round trip and clock offset.
+// False once conn is not this Core's relay connection or the send fails.
 func (c *Core) sendPing(conn transport.Transport, nonce *uint64) bool {
 	c.mu.Lock()
 	stillCurrent := c.relay == conn
@@ -267,9 +191,7 @@ func (c *Core) sendPing(conn transport.Transport, nonce *uint64) bool {
 	if err != nil {
 		return true
 	}
-	// Recorded before the send, not after: a send that blocks briefly is part
-	// of the round trip a client actually experiences, and stamping
-	// afterwards would quietly subtract it and bias every estimate low.
+	// Recorded before the send: a send that blocks is part of the round trip, and stamping after would bias it low.
 	c.recordPingSent(*nonce, time.Now()) // wall-clock: the other half of the RTT measurement
 	return conn.Send(env) == nil
 }
@@ -280,46 +202,11 @@ func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 		log.Printf("core: BUG: state failed to marshal: %v", err)
 		return
 	}
-	// One pass, not two. This used to marshal the State and then marshal an
-	// Envelope around the bytes that produced, re-parsing and re-copying every
-	// one of them -- the same shape the relay had, and the same fix
-	// (protocol.AppendEnvelope, whose comment carries the precondition and the
-	// fuzz target behind it).
-	//
-	// It matters more here than on the relay despite the smaller share: a core
-	// runs on the same machine as the game it is serving, at up to 100Hz, so
-	// its cost lands on the frame budget that agent_docs/plans.md says may
-	// never be spent to buy bandwidth.
+	// One pass: AppendEnvelope wraps the payload without marshalling it again, which matters on the game's own machine.
 	env := protocol.AppendEnvelope(nil, protocol.TypeState, payload)
-	// THE LINE CAP, CHECKED ON SEND. protocol.ValidateState bounds every FIELD
-	// and nothing bounds the LINE, so a state that is legal field by field can
-	// still not fit: measured 2026-09-07 at 4167 bytes for a maximal-but-legal
-	// state (area_id 256B, anim 256B, orientation 256B, extras 1024B, 8 position
-	// components) carrying a prev that differs in every field, against
-	// protocol.MaxPayloadBytes (4095, one under MaxLineBytes -- the receiving
-	// scanner counts the delimiter against its own buffer, so a payload of
-	// exactly 4096 is refused; see that constant). ValidateState returns true for
-	// such a state, and its three call sites are all on RECEIVE, so until
-	// 2026-09-08 nothing on this side looked.
-	//
-	// What that cost: the relay's read loop turns an over-long line into
-	// bufio.ErrTooLong, which ends the loop and drops the connection WITHOUT a
-	// reject (relay.go says so -- an oversized line never reaches the callback).
-	// This core reads EOF, classifies it transient, reconnects, and is issued a
-	// NEW player_id, so every peer sees the player despawn and respawn. It loops
-	// for as long as the game stays in whatever state produced the big line, and
-	// no log line anywhere named a size. Redundancy is on at the shipped 15Hz,
-	// so prev is attached in the default configuration and the default
-	// configuration is the one that fails.
-	//
-	// DROP THE PREV FIRST, because prev is pure redundancy (ADR 0045): it covers
-	// one lost datagram and its absence costs nothing a receiver cannot get from
-	// the next sample. Re-measuring after dropping it is one marshal on a path
-	// that is already marshalling, and only on a frame that was going to be
-	// unsendable anyway -- so the common case pays nothing. Dropping the whole
-	// state is the last resort, and it is still better than sending it: an
-	// oversized line does not deliver this frame either, and takes the session
-	// down with it.
+	// The line cap, checked on send: every field can be legal and the line still too long, and the relay drops the
+	// whole connection on an over-long line instead of rejecting it, so the player despawns and respawns under a new
+	// id. The prev goes first, being pure redundancy; the whole state only if that is not enough.
 	if len(env) > protocol.MaxPayloadBytes && st.Prev != nil {
 		full := len(env)
 		st.Prev = nil // st is this function's own copy; attachPrev's record is unaffected
@@ -341,20 +228,8 @@ func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 			len(env), protocol.MaxPayloadBytes)
 		return
 	}
-	// SendUnreliable, not Send: this is the state plane, which
-	// agent_docs/contract.md defines as lossy and latest-wins. On tcp
-	// there is no difference at all. On a datagram transport it means a
-	// lost sample is superseded by the next one ~50ms later instead of
-	// being retransmitted — and a retransmitted position would arrive
-	// stale and out of order, which is worse than the gap it fills. Every
-	// other message this Core sends stays on Send. See the transport ADR
-	// in agent_docs/architecture.md.
-	// QUEUED, NOT WRITTEN. This runs on the bridge connection's read goroutine,
-	// so a synchronous write here made a relay that stopped reading freeze the
-	// game's main thread a bridge-buffer later. core/relaywriter.go has the
-	// whole failure; the counters below still count what this core handed over,
-	// which is what they counted before -- a line the transport accepted was
-	// never a line that arrived.
+	// Unreliable, since the state plane is lossy and latest-wins: a retransmitted position would arrive stale. Queued,
+	// not written, so a relay that stops reading cannot freeze the game through this goroutine.
 	if !c.sendToRelay(relay, env, true) {
 		return
 	}
@@ -362,27 +237,15 @@ func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 	atomic.AddUint64(&c.stats.bytesSent, uint64(len(env)))
 }
 
-// oversizedPrevDropped and oversizedDropped count how many times each half of
-// the send-side line-cap check above has fired, and are what paces its logging.
-//
-// Counters rather than a clock, deliberately. Whatever makes a state too big --
-// an adapter packing a large extras map, a long area_id -- is a property of the
-// game state, not of one frame, so it repeats every frame for as long as the
-// player stays in it: at 15Hz that is 900 identical lines a minute, which buries
-// the log the host is meant to read this in. A time-based limiter would need a
-// clock, and core/clock.go's injectable one is per-Core while these are
-// per-process; noteOversizedState prints occurrence 1, 2, 4, 8, 16 ... instead,
-// which needs no clock at all, still says "this is still happening" as it goes
-// on, and is deterministic for a test.
+// oversizedPrevDropped and oversizedDropped count each half of the send-side line-cap check and pace its logging. An
+// oversized state repeats every frame while the player stays put, so noteOversizedState prints occurrences 1, 2, 4, 8
+// and on: no clock needed (these are per-process, the injectable clock per-Core), and deterministic for a test.
 var (
 	oversizedPrevDropped atomic.Uint64
 	oversizedDropped     atomic.Uint64
 )
 
-// noteOversizedState logs format at power-of-two occurrences of n. Package
-// level, not per-Core, because it needs no Core state and the failure it
-// reports is about what an adapter is sending, which a second Core in the same
-// process would be reporting for the same reason.
+// noteOversizedState logs format at power-of-two occurrences of n.
 func noteOversizedState(n *atomic.Uint64, format string, args ...any) {
 	count := n.Add(1)
 	if count&(count-1) != 0 { // not a power of two: this occurrence stays quiet
@@ -395,16 +258,9 @@ func noteOversizedState(n *atomic.Uint64, format string, args ...any) {
 	log.Printf(format+" (occurrence %d)", append(args, count)...)
 }
 
-// sameSentState answers the one question change suppression turns on: would
-// this state render exactly as the last one sent? Seq and Timestamp are
-// excluded because they differ on every frame by design and mean nothing on
-// screen; PlayerID because it is stamped after this comparison.
-//
-// Every other field is compared WITHOUT interpretation -- Orientation is raw
-// JSON, Extras is a free-form map, and both are opaque to the core
-// (contract.md). reflect.DeepEqual is the honest tool for that: it compares
-// what is there without the core having to know what any of it means, and a
-// state is a handful of small fields at at most 100Hz.
+// sameSentState says whether this state would render exactly as the last one sent. Seq and Timestamp differ every frame
+// by design, and PlayerID is stamped after this. Every other field is compared without interpretation: Orientation and
+// Extras are opaque to the core.
 func sameSentState(prev *protocol.State, cur *protocol.State) bool {
 	if prev == nil || cur == nil {
 		return false
@@ -418,39 +274,16 @@ func sameSentState(prev *protocol.State, cur *protocol.State) bool {
 	if !bytes.Equal(prev.Orientation, cur.Orientation) {
 		return false
 	}
-	// Extras keeps reflect.DeepEqual. Hand-comparing a map[string]any means
-	// re-implementing reflection, badly, on the one field whose contents are
-	// free-form by contract -- and the cheap fields above already short-circuit
-	// almost every changed frame before reaching it.
+	// Extras keeps reflect.DeepEqual: it is free-form, and the cheap fields above short-circuit almost every changed
+	// frame.
 	return reflect.DeepEqual(prev.Extras, cur.Extras)
 }
 
-// samePosition is reflect.DeepEqual for a []float64, without the reflection.
-// This runs once per adapter frame -- up to 100Hz on the dev rig, on the
-// machine running the game -- which is the whole reason it is worth spelling
-// out by hand.
-//
-// The nil-versus-empty case is not pedantry and must not be "simplified" away:
-// DeepEqual reports a nil slice and an empty one as DIFFERENT, and both really
-// occur (protocol.IsValidPosition accepts either, and a state with no position
-// decodes to nil while "position":[] decodes to empty). A plain length check
-// followed by a loop would call them equal and quietly change which frames get
-// suppressed.
-//
-// The aliasing shortcut is likewise not an optimisation but a correctness
-// requirement, and TestSamePositionMatchesDeepEqual is what found that out.
-// DeepEqual documents that two slices sharing a backing array and a length are
-// deeply equal WITHOUT comparing elements, so it reports a []float64{NaN} as
-// equal to itself while an element-wise loop reports the opposite. That case is
-// live rather than theoretical: forwardLocalState keeps `kept := *state`, a
-// struct copy that shares the adapter's own Position array, so prev and cur
-// really can be the same memory on the next frame.
-//
-// Element comparison is then plain ==, exactly as DeepEqual does it: two
-// DISTINCT slices both holding NaN are not equal, so such a state is not
-// suppressed. That errs toward sending, which is the safe direction, and it is
-// bit-for-bit what this path did before -- the bar for a change meant to be
-// invisible.
+// samePosition is reflect.DeepEqual for a []float64 without the reflection, since it runs once per adapter frame. Nil
+// and empty must stay different, as DeepEqual has them: both occur, and calling them equal would change which frames
+// are suppressed. The aliasing shortcut is required too: DeepEqual calls two slices sharing a backing array equal
+// without comparing elements, so a NaN equals itself there, and forwardLocalState's struct copy shares the adapter's
+// Position array. Distinct slices holding NaN are not equal, which errs toward sending.
 func samePosition(a, b []float64) bool {
 	if (a == nil) != (b == nil) {
 		return false

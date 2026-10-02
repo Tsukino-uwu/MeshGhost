@@ -1,16 +1,8 @@
 package core
 
-// The client half of everything past the cosmetic state plane: capability
-// advertisement, clock sync against the relay, session resumption, and the
-// send/receive paths for the event, lease, escrow and world planes. (The world
-// plane was missing from this list until 2026-08-27; SetWorld, DropWorld and
-// sendWorld are all in this file.)
-//
-// Nothing here interprets a payload. A lease key, an escrow blob and an event
-// payload pass through this package as opaque bytes on their way between the
-// relay and whichever adapter asked for them — the same rule that keeps the
-// core game-agnostic for area_id and anim (CLAUDE.md), applied to a plane
-// that could otherwise carry a whole battle protocol.
+// The client half of the planes past cosmetic: capability negotiation, clock sync against the relay, session
+// resumption, and the send and receive paths for the event, lease, escrow and world planes. Nothing here interprets a
+// payload: keys and blobs pass between the relay and the adapter as opaque bytes.
 
 import (
 	"encoding/json"
@@ -23,44 +15,23 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// clockSync is this connection's estimate of the offset between the local
-// wall clock and the relay's.
-//
-// **Why it exists:** agent_docs/contract.md makes State.Timestamp wall-clock,
-// and interp.go's remoteBuffer.at() compares a *local* render time directly
-// against a *remote's* timestamps. Two peers whose clocks disagree by more
-// than the interpolation delay therefore stop interpolating and fall back to
-// an edge snapshot every tick — with no error anywhere, which is the worst
-// possible failure mode: ghosts that look subtly wrong for a reason nothing
-// reports. Nobody's clock has to be *correct*; they only have to agree, and
-// the relay is the one thing every member of a room already shares.
-//
-// The estimate keeps the sample with the LOWEST round-trip time rather than
-// averaging. That is the standard approach and the right one: a slow sample
-// is slow because it was delayed somewhere, and an asymmetric delay is
-// exactly what corrupts an offset estimate. Averaging drags the estimate
-// toward the noise; keeping the best sample discards it.
+// clockSync estimates the offset between the local wall clock and the relay's. A local render time is compared
+// against a remote's wall-clock stamps, so peers whose clocks disagree by more than the delay stop interpolating with
+// no error anywhere; they need only agree, and the relay is what a room shares. The lowest round trip wins: a slow
+// sample was delayed somewhere, and an asymmetric delay is what corrupts an offset.
 type clockSync struct {
-	// offsetMs is (relay clock - local clock) in milliseconds, from the best
-	// sample so far. Zero also means "never measured", which is deliberately
-	// indistinguishable from "measured as zero" — both mean "apply nothing".
+	// offsetMs is (relay clock - local clock) from the best sample; zero also means never measured, and both mean
+	// apply nothing.
 	offsetMs int64
-	// bestRTTMs is the round-trip time of the sample offsetMs came from.
-	// Zero means no sample yet.
+	// bestRTTMs is the round trip offsetMs came from; zero means no sample yet.
 	bestRTTMs int64
 }
 
-// observe folds one ping/pong round trip into the estimate. sentAt is when
-// the Ping went out, serverMs is the relay's own clock from the Pong, and
-// recvAt is when the Pong arrived.
-//
-// The offset is the standard three-timestamp estimate: assume the network
-// delay was symmetric, so the relay's clock reading corresponds to the local
-// midpoint of the round trip.
+// observe folds one ping/pong round trip into the estimate, assuming a symmetric delay: the relay's reading is the
+// local midpoint of the round trip.
 func (cs *clockSync) observe(sentAt, recvAt time.Time, serverMs int64) {
 	if serverMs == 0 {
-		// An older relay that does not stamp its clock. Nothing to learn, and
-		// no offset applied — exactly the pre-2026-08-17 behaviour.
+		// A relay that does not stamp its clock: nothing to learn.
 		return
 	}
 	rtt := recvAt.Sub(sentAt).Milliseconds()
@@ -75,75 +46,23 @@ func (cs *clockSync) observe(sentAt, recvAt time.Time, serverMs int64) {
 	cs.offsetMs = serverMs - midpoint
 }
 
-// The clock's two numbers are read through Stats() -- see core/stats.go, which
-// records why: these were exported as ClockOffsetMs() and RelayRTTMs() on the
-// claim that "a caller can log or display it", and then no caller ever did.
-// Both were deleted on 2026-08-27 with zero call sites anywhere including
-// tests; Stats.ClockOffsetMs and Stats.RelayRTTMs expose the same two values to
-// the one consumer that wanted them.
-
-// nowMs is the timestamp this Core stamps on outgoing state: local wall clock,
-// shifted into the relay's clock domain when clock sync is in play.
-//
-// The shift is applied only for a room that agreed on FeatureClockV1, because
-// it changes which clock a timestamp is expressed in — and a room where some
-// members shift and others don't is worse than one where nobody does. Feature
-// stickiness is what makes that safe to assume rather than hope for. Caller
-// must not hold c.mu.
+// nowMs is the timestamp this Core stamps on outgoing state: the local clock, shifted into the relay's when the room
+// agreed on FeatureClockV1 (a room where only some members shift is worse than none). Caller must not hold c.mu.
 func (c *Core) nowMs() int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.nowMsLocked()
 }
 
-// nowMsLocked is nowMs for a caller that ALREADY HOLDS c.mu. It exists
-// because Go mutexes are not reentrant and taking c.mu twice on one goroutine
-// deadlocks the whole client -- which is not hypothetical: remoteStatesAt,
-// which runs under the lock, called nowMs on 2026-08-28 and hung the core on
-// its first render tick. The visible symptom was two frozen GAMES, because an
-// adapter writing state to a core that has stopped reading eventually blocks on
-// the socket, on the game's main thread. Anything called from under c.mu needs
-// this form.
+// nowMsLocked is nowMs for a caller that already holds c.mu: Go mutexes are not reentrant, and a core deadlocked on
+// c.mu stops reading, so the adapter's writes block on the game's main thread.
 func (c *Core) nowMsLocked() int64 {
-	// THE ROOT. Every timestamp stamped on outgoing state, every render time
-	// remotes are interpolated at, and every due time a replay or chaser sleeps
-	// until comes from here -- so converting this one call converts staleness,
-	// interpolation, playback pacing and the chaser pack together, and no other
-	// site needs its own clock for any of them.
-	//
-	// c.clk() is a pure read that never assigns (clock.go says why at length):
-	// this runs under c.mu, and an accessor that took the lock to initialise
-	// itself would be the exact reentrancy deadlock this function's own comment
-	// above describes.
-	//
-	// The OFFSET stays wall-derived, and that is deliberate rather than an
-	// oversight: clockAdjustLocked comes from RTT samples measured against the
-	// real network (sending.go's ping pairing), which a virtual clock cannot
-	// measure. So this is a virtual now plus a wall-measured scalar. That is
-	// sound -- the scalar is just a number a test can set -- but it must be
-	// written down, or someone will later "fix" the inconsistency and
-	// reintroduce a mixed clock.
+	// Every outgoing stamp, render time and replay or chaser due time comes from here. The offset stays
+	// wall-measured on purpose: a virtual clock cannot measure the network, and it is a scalar a test can set.
 	ms := c.clk().Now().UnixMilli() + c.clockAdjustLocked()
-	// **Never go backwards.** The offset is re-estimated whenever a better
-	// (lower-RTT) sample arrives, so it can DECREASE — and this value feeds
-	// both the timestamp stamped on outgoing state and the render time used to
-	// interpolate remotes. Either one moving backwards is a real fault:
-	//
-	//   - interp.go's remoteBuffer.add states plainly that callers must add
-	//     snapshots in non-decreasing Timestamp order and that it does not
-	//     re-sort, so a timestamp that went backwards would leave every peer's
-	//     buffer unsorted and at() picking the wrong bracket.
-	//   - a render time that went backwards would rewind every ghost slightly,
-	//     and — because opaque fields come from the older bracketing snapshot —
-	//     could flip one back to a previous value, manufacturing a state edge
-	//     in a field the core is forbidden to interpret. An adapter that fires
-	//     on such an edge (Pseudoregalia poses a ghost's slide exactly that
-	//     way) would act on a transition that never happened.
-	//
-	// Clamping rather than slewing: this holds the clock still until real time
-	// catches up, which is what a monotonic clock should do with a correction
-	// that would otherwise step back. A correction FORWARD is applied
-	// immediately, since jumping ahead breaks neither property above.
+	// Never go backwards: a better sample can lower the offset. A rewound stamp unsorts every peer's buffer, and a
+	// rewound render time can flip an opaque field back, an edge an adapter would act on. Hold until real time
+	// catches up; a forward correction applies at once.
 	if ms < c.lastNowMs {
 		ms = c.lastNowMs
 	}
@@ -151,8 +70,7 @@ func (c *Core) nowMsLocked() int64 {
 	return ms
 }
 
-// clockAdjustLocked returns the offset to apply, or 0 when this room did not
-// opt into clock sync. Caller holds c.mu.
+// clockAdjustLocked returns the offset to apply, or 0 when this room did not opt into clock sync. Caller holds c.mu.
 func (c *Core) clockAdjustLocked() int64 {
 	if !protocol.HasFeature(c.activeFeatures, protocol.FeatureClockV1) {
 		return 0
@@ -160,16 +78,8 @@ func (c *Core) clockAdjustLocked() int64 {
 	return c.clock.offsetMs
 }
 
-// effectiveFeatures is what this Core advertises: its own configured
-// Features plus whatever the adapter asked for in its bridge Hello,
-// normalized into one set.
-//
-// The adapter gets a say here, unlike with the relay address, transport or
-// rate (agent_docs/contract.md's invariant). That is not an exception to the
-// rule but an application of the same logic that already lets an adapter
-// report game_version: a capability is a statement about what the ADAPTER can
-// do, and the adapter is the only thing that knows. It still cannot influence
-// *how* the core reaches the relay — only what it will ask that relay for.
+// effectiveFeatures is this Core's configured Features plus whatever the adapter's bridge Hello asked for. The adapter
+// has a say here, unlike over the relay address or rate, because a capability is a statement about what it can do.
 func (c *Core) effectiveFeatures() []string {
 	c.mu.Lock()
 	adapter := c.adapterFeatures
@@ -180,10 +90,8 @@ func (c *Core) effectiveFeatures() []string {
 	return protocol.NormalizeFeatures(combined)
 }
 
-// RoomFeatures is what the relay reported this room actually agreed on,
-// which is what every send path below gates against — not what this Core
-// asked for. Empty against a relay that predates feature negotiation. Set
-// from Welcome, cleared on disconnect.
+// RoomFeatures is what the relay reported this room agreed on, which every send path gates against. Set from Welcome,
+// cleared on disconnect.
 func (c *Core) RoomFeatures() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -192,47 +100,29 @@ func (c *Core) RoomFeatures() []string {
 	return out
 }
 
-// Resumed reports whether the current relay session reclaimed a previous
-// identity rather than being issued a new one. False for a fresh session and
-// for any room without protocol.FeatureResumeV1.
+// Resumed reports whether the current relay session reclaimed a previous identity rather than being issued a new one.
 func (c *Core) Resumed() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.resumed
 }
 
-// ErrFeatureNotEnabled is returned by the send paths below when this room's
-// agreed feature set does not include the capability being used. A distinct
-// error rather than a silent drop: a caller that asks for a lease in a room
-// with no leases has a configuration problem, and silence is how that becomes
-// a bug report about trades "sometimes" not working.
+// ErrFeatureNotEnabled is returned by the send paths when this room did not negotiate the capability: an error, not
+// a silent drop, because a lease asked for in a room without leases is a configuration problem.
 var ErrFeatureNotEnabled = fmt.Errorf("core: this room did not negotiate that capability")
 
 // ErrNotConnected is returned when there is no relay connection to send on.
 var ErrNotConnected = fmt.Errorf("core: not connected to a relay")
 
-// sendControl marshals and sends one non-state message on the RELIABLE plane.
-// Reliable is the default and is what every plane but one uses: a lease grant,
-// an escrow step and an event all carry a decision, and unlike a position
-// sample a lost one is never superseded by the next.
-//
-// The one exception is a lossy world write, which goes through
-// sendControlUnreliable below. That is a delivery choice the ADAPTER makes per
-// write, not a property of the plane — see protocol.World.Reliable.
+// sendControl sends one non-state message on the reliable plane: a lease grant, an escrow step or an event carries a
+// decision, which no later message supersedes.
 func (c *Core) sendControl(t protocol.MessageType, feature string, payload any) error {
 	return c.sendControlOn(t, feature, payload, false)
 }
 
-// sendControlUnreliable is sendControl for a message the caller has declared
-// superseded by its own next update. Named distinctly rather than added as a
-// bool on sendControl, the same reasoning transport.SendUnreliable and
-// Room.ForwardUnreliable already follow: reliability is opt-OUT, so a call site
-// that never learns this exists stays correct.
-//
-// **Losing reliability does not lose ordering.** The relay stamps and delivers
-// every world write under one lock regardless of which of these sent it, so a
-// message that arrives is never out of order with respect to another that
-// arrived; it can only be missing. On tcp there is no difference at all.
+// sendControlUnreliable is sendControl for a message superseded by the caller's own next update, named apart so
+// reliability stays opt-out. It does not lose ordering: the relay delivers every world write under one lock, so a
+// message can only be missing.
 func (c *Core) sendControlUnreliable(t protocol.MessageType, feature string, payload any) error {
 	return c.sendControlOn(t, feature, payload, true)
 }
@@ -252,65 +142,40 @@ func (c *Core) sendControlOn(t protocol.MessageType, feature string, payload any
 	if err != nil {
 		return err
 	}
-	// See sendState's note: one pass rather than marshaling the payload and
-	// then marshaling an envelope around its own output.
 	env := protocol.AppendEnvelope(nil, t, b)
-	// Through the connection's queue, like the state plane: an adapter's event,
-	// world write, lease or escrow step is handled on the bridge read goroutine
-	// too, so a synchronous write here stalls the same loop (core/relaywriter.go).
-	// A reliable line is never dropped -- a full queue closes the connection
-	// instead, and this call reports that as a send failure, which is what a
-	// blocked write eventually did anyway.
+	// Queued, so the bridge read goroutine never blocks on the relay; a full queue closes the connection rather than
+	// drop a reliable line, and that is reported as a send failure.
 	if !c.sendToRelay(relay, env, unreliable) {
 		return ErrNotConnected
 	}
 	return nil
 }
 
-// SendEvent sends one event. ev.To names an addressee, or is empty for a room
-// broadcast; From and Seq are ignored on send and stamped by the relay.
-//
-// The sender always receives its own event back, carrying the relay's
-// sequencer stamp — that echo is how a client learns where its own action
-// landed in the total order, and an adapter distinguishes it by comparing
-// From against its own player_id.
+// SendEvent sends one event: ev.To names an addressee or is empty for a broadcast, and From and Seq are stamped by the
+// relay. The sender receives its own event back with the sequencer stamp, which is where its action landed.
 func (c *Core) SendEvent(ev protocol.Event) error {
 	ev.From = ""
 	ev.Seq = 0
 	if !protocol.ValidateEvent(ev) {
-		// Checked here as well as at the relay, the same two-enforcement-point
-		// discipline ValidateState already has — a caller gets a real error
-		// instead of a message the relay silently drops. There is no
-		// fragmentation fallback on purpose: an oversized payload means the
-		// event should carry a reference to the data rather than the data.
+		// Checked here too so a caller gets a real error; an oversized event should carry a reference, not the data.
 		return fmt.Errorf("core: event exceeds protocol limits (payload max %d bytes)", protocol.MaxEventBytes)
 	}
 	return c.sendControl(protocol.TypeEvent, protocol.FeatureEventV1, ev)
 }
 
-// ClaimLease asks the relay for exclusive hold of an opaque key. The answer
-// arrives asynchronously as a LeaseState (OnLeaseState, or over the bridge) —
-// **this returns when the request was sent, never when it was granted.**
-//
-// The adapter must ask BEFORE acting, never announce after. Acting locally
-// and then claiming puts the relay's "no" after the fact is already on
-// screen, which is a rollback problem: per-game, and genuinely hard. That
-// costs a network round trip before anything visible happens, which is
-// invisible for a turn-based trade and unacceptable for anything twitchy —
-// and is the real reason this goes no deeper than bounded, consensual
-// interactions.
+// ClaimLease asks the relay for exclusive hold of an opaque key. The answer arrives later as a LeaseState, so this
+// returns when the request was sent, never when it was granted. An adapter must ask before acting: acting first turns
+// the relay's no into a rollback.
 func (c *Core) ClaimLease(key string, ttl time.Duration) error {
 	return c.sendLease(protocol.Lease{Op: protocol.LeaseClaim, Key: key, TTLMs: int(ttl.Milliseconds())})
 }
 
-// RenewLease extends a lease this Core already holds. From a non-holder it is
-// denied rather than quietly upgraded into a claim.
+// RenewLease extends a lease this Core already holds; from a non-holder it is denied, not turned into a claim.
 func (c *Core) RenewLease(key string, ttl time.Duration) error {
 	return c.sendLease(protocol.Lease{Op: protocol.LeaseRenew, Key: key, TTLMs: int(ttl.Milliseconds())})
 }
 
-// ReleaseLease gives up a held key immediately, rather than waiting out its
-// TTL.
+// ReleaseLease gives up a held key immediately, rather than waiting out its TTL.
 func (c *Core) ReleaseLease(key string) error {
 	return c.sendLease(protocol.Lease{Op: protocol.LeaseRelease, Key: key})
 }
@@ -322,13 +187,8 @@ func (c *Core) sendLease(req protocol.Lease) error {
 	return c.sendControl(protocol.TypeLease, protocol.FeatureLeaseV1, req)
 }
 
-// SendEscrow drives one step of a two-sided atomic exchange. Results arrive
-// asynchronously as EscrowState.
-//
-// **An adapter applies the swap only on EscrowPhaseCommitted, and never
-// before.** Any other phase — including "both sides deposited" — may still
-// end in an abort, and acting early is how one side ends up having given
-// something away that the other never received.
+// SendEscrow drives one step of a two-sided atomic exchange; results arrive as EscrowState. An adapter applies the
+// swap only on EscrowPhaseCommitted: any earlier phase, "both sides deposited" included, may still abort.
 func (c *Core) SendEscrow(req protocol.Escrow) error {
 	if !protocol.ValidateEscrow(req) {
 		return fmt.Errorf("core: invalid escrow request (blob max %d bytes)", protocol.MaxEscrowBlobBytes)
@@ -336,33 +196,17 @@ func (c *Core) SendEscrow(req protocol.Escrow) error {
 	return c.sendControl(protocol.TypeEscrow, protocol.FeatureEscrowV1, req)
 }
 
-// SetWorld writes one entity's opaque state into the world the relay holds
-// custody of, under an authority lease this Core must already hold. Like every
-// other send here it returns when the request went out, never when it was
-// accepted — a refusal arrives asynchronously as a WorldState carrying
-// protocol.WorldDenied.
-//
-// reliable selects the delivery variant: false for continuous motion that the
-// next write supersedes, true for a change that must not be missed. **A write
-// that CREATES a key must be reliable** — a lossy one on a key the relay does
-// not yet hold is ignored, because the lossy and reliable planes cannot be
-// ordered against each other and a create that raced a drop would resurrect an
-// entity permanently. See protocol.WorldSet.
-//
-// **This Core keeps no world of its own.** It forwards writes up and states
-// down and holds nothing in between, exactly as it does for leases. A map of
-// entities in here would be the core holding game state, which is the one thing
-// the core/adapter split exists to prevent — and it would be wrong as well as
-// forbidden, since the relay's copy is the authoritative one.
+// SetWorld writes one entity's opaque state into the relay's world, under an authority lease this Core must hold; a
+// refusal arrives later as a WorldState carrying WorldDenied. reliable false is for motion the next write supersedes.
+// A write that creates a key must be reliable: a lossy create is ignored, since the two planes cannot be ordered
+// against each other. This Core keeps no world of its own; the relay's copy is authoritative.
 func (c *Core) SetWorld(authority, key string, blob json.RawMessage, reliable bool) error {
 	return c.sendWorld(protocol.World{
 		Op: protocol.WorldSet, Authority: authority, Key: key, Blob: blob, Reliable: reliable,
 	})
 }
 
-// DropWorld removes one entity from the world. Always reliable: a drop is by
-// definition not superseded by anything, and a lost one leaves an entity
-// standing for everyone who missed it with no later message to correct them.
+// DropWorld removes one entity from the world. Always reliable: nothing supersedes a drop.
 func (c *Core) DropWorld(authority, key string) error {
 	return c.sendWorld(protocol.World{
 		Op: protocol.WorldDrop, Authority: authority, Key: key, Reliable: true,
@@ -380,32 +224,9 @@ func (c *Core) sendWorld(req protocol.World) error {
 	return c.sendControlUnreliable(protocol.TypeWorld, protocol.FeatureWorldV1, req)
 }
 
-// handleOnlineMessage dispatches the event/lease/escrow planes to whichever
-// consumers exist: the in-process callbacks, and the attached adapter over
-// the bridge. Both, not either — an in-process host may want to observe
-// traffic it also forwards. Returns false for a type it does not handle, so
-// handleRelayMessage's own switch keeps its unknown-type fallthrough.
-// planeNegotiated gates an inbound opt-in plane on BOTH halves of the
-// negotiation: the room agreed it (Welcome.Features) and this side asked for it
-// (Core.Features plus the adapter's own bridge Hello).
-//
-// THE SECOND HALF IS THE ONE THAT DOES THE WORK, and it is why this is not
-// simply the mirror of sendControlOn. activeFeatures comes out of the relay's
-// own Welcome, so a hostile relay opens that gate by writing to it; what it
-// cannot do is make this client have asked. A default cosmetic room asks for
-// nothing at all, which is every shipped adapter -- so in the configuration
-// almost everybody runs, all four opt-in planes are refused here outright.
-//
-// What that stops: until 2026-09-12 handleOnlineMessage forwarded event,
-// lease_state, escrow_state and world_state to the adapter with no capability
-// check whatsoever, while the SEND path gated all four. An empty
-// {"type":"event","payload":{}} passes ValidateEvent, and the event lane does
-// not coalesce -- so repeating it fills the adapter queue to adapterQueueCap,
-// at which point the core declares the adapter stuck and tears the bridge down
-// (core/adapterwriter.go). Found by the third adversarial review (P3a-2).
-//
-// c.Features is read without c.mu, matching effectiveFeatures: it is a caller's
-// own setting, fixed before the core runs.
+// planeNegotiated gates an inbound opt-in plane on both halves of the negotiation: the room agreed it, and this side
+// asked for it. The second half does the work: a hostile relay writes activeFeatures itself but cannot make this
+// client have asked, and a default cosmetic room asks for nothing. c.Features is fixed before the core runs.
 func (c *Core) planeNegotiated(feature string) bool {
 	c.mu.Lock()
 	agreed := protocol.HasFeature(c.activeFeatures, feature)
@@ -414,6 +235,8 @@ func (c *Core) planeNegotiated(feature string) bool {
 	return agreed && (asked || protocol.HasFeature(c.Features, feature))
 }
 
+// handleOnlineMessage dispatches the event, lease, escrow and world planes to both the in-process callbacks and the
+// attached adapter, and folds a pong into clock sync. It returns false for a type it does not handle.
 func (c *Core) handleOnlineMessage(env protocol.Envelope) bool {
 	switch env.Type {
 	case protocol.TypeEvent:
@@ -425,9 +248,7 @@ func (c *Core) handleOnlineMessage(env protocol.Envelope) bool {
 			return true
 		}
 		if !protocol.ValidateEvent(ev) {
-			// Mirrors the relay's own check on receive. A hostile or
-			// compromised relay is not trusted to have enforced its limits,
-			// the same posture ValidateState already takes here.
+			// Every inbound plane mirrors the relay's own check: a hostile relay is not trusted to have enforced it.
 			return true
 		}
 		if c.OnEvent != nil {
@@ -443,11 +264,6 @@ func (c *Core) handleOnlineMessage(env protocol.Envelope) bool {
 			return true
 		}
 		if !protocol.ValidateLeaseState(st) {
-			// These two planes were the only relay->client messages reaching a
-			// game with nothing checked at all: no such validator existed
-			// before 2026-09-12, while event, state and world_state each had
-			// their own mirror on this side. Same hostile-relay posture, same
-			// reason.
 			return true
 		}
 		if c.OnLeaseState != nil {
@@ -478,15 +294,9 @@ func (c *Core) handleOnlineMessage(env protocol.Envelope) bool {
 			return true
 		}
 		if !protocol.ValidateWorldState(st) {
-			// Mirrors the relay's own check, the hostile-relay posture the
-			// event and state planes already take on this side.
 			return true
 		}
-		// **Deliberately NOT filtered against the roster**, unlike
-		// storeRemoteState. A world entry legitimately outlives the player who
-		// wrote it, and Holder may name someone who has already left — so a
-		// roster check here would silently discard exactly the adopted world
-		// custody exists to preserve. See protocol.WorldState.Holder.
+		// Not filtered against the roster: a world entry outlives its writer, and Holder may name someone who left.
 		if c.OnWorldState != nil {
 			c.OnWorldState(st)
 		}
@@ -503,15 +313,10 @@ func (c *Core) handleOnlineMessage(env protocol.Envelope) bool {
 	return true
 }
 
-// observePong turns a heartbeat reply into a clock sample. A nonce with no
-// recorded send time is ignored — it belongs to a previous connection, or to
-// a relay echoing something this Core never sent.
+// observePong turns a heartbeat reply into a clock sample; a nonce with no recorded send time is ignored.
 func (c *Core) observePong(pong protocol.Pong) {
 	recvAt := time.Now() // wall-clock: half of an RTT measurement of the real network
-	// THE RELAY'S CLOCK READING IS A TIMESTAMP AND GETS A TIMESTAMP'S BOUND.
-	// Nothing checked it until 2026-09-12, while every other int64 that crosses
-	// this wire goes through ValidateState's identical pair. Found by the third
-	// adversarial review (P3b-4).
+	// The relay's clock reading gets a timestamp's bound.
 	if pong.ServerTimeMs < 0 || pong.ServerTimeMs > protocol.MaxTimestampMs {
 		return
 	}
@@ -524,31 +329,9 @@ func (c *Core) observePong(pong protocol.Pong) {
 	delete(c.pendingPings, pong.Nonce)
 	before := c.clock
 	c.clock.observe(sentAt, recvAt, pong.ServerTimeMs)
-	// AND THE OFFSET IT PRODUCES IS BOUNDED, because the estimate is one-way in
-	// practice: nowMsLocked clamps its output monotonically (it must -- see the
-	// page it spends on why a render time may never rewind), so an offset that
-	// moves the clock forward is latched by the very next reading and no later
-	// correction can bring it back. One accepted sample therefore decides the
-	// rest of the session, and the only thing gating acceptance is beating the
-	// best RTT so far, which a relay does by replying quickly.
-	//
-	// What a large forward offset costs: every render time runs past every
-	// sample any peer has sent, so the whole room edge-holds, and the stale
-	// age-out despawns everyone on every tick. No error is raised anywhere,
-	// which is the part that makes it worth refusing rather than absorbing.
-	//
-	// REFUSED, not clamped: a clamped offset is still a number this Core
-	// invented, and reverting to the previous estimate keeps whatever honest
-	// measurement it already had. Refusing everything leaves offset 0, which is
-	// the pre-clock.v1 behaviour -- degraded (peers whose clocks disagree stop
-	// interpolating) and not broken.
-	//
-	// The bound is deliberately generous rather than tight. clock.v1 exists to
-	// correct ORDINARY machine skew, and a player running without time sync can
-	// legitimately be seconds or minutes out -- refusing those would regress the
-	// exact case the feature was added for. An hour is past the point where the
-	// machine's clock is breaking TLS certificate validation too, so nothing
-	// beyond it is a skew this is entitled to repair.
+	// The offset is bounded because nowMsLocked latches forward: one fast reply's offset would decide the session,
+	// every render time would pass every sample, and the age-out would despawn the room. Refused rather than clamped,
+	// keeping the last honest estimate.
 	if off := c.clock.offsetMs; off > maxClockOffsetMs || off < -maxClockOffsetMs {
 		c.clock = before
 		c.mu.Unlock()
@@ -559,14 +342,12 @@ func (c *Core) observePong(pong protocol.Pong) {
 	c.mu.Unlock()
 }
 
-// maxClockOffsetMs bounds how far a relay's clock may move this client's. See
-// observePong, which explains why an offset is refused rather than clamped and
-// why the bound is an hour rather than something tighter.
+// maxClockOffsetMs bounds how far a relay's clock may move this client's. Generous: clock sync corrects ordinary skew,
+// which can be minutes, and an hour off is past where the machine's clock already breaks TLS certificate checks.
 const maxClockOffsetMs = int64(60 * 60 * 1000)
 
-// recordPingSent remembers when a nonce went out, bounding the map so a relay
-// that never answers cannot make it grow. Pings are sequential per
-// connection, so dropping the oldest is dropping the least useful.
+// recordPingSent remembers when a nonce went out. The map is bounded, oldest nonce first, so a relay that never
+// answers cannot grow it.
 func (c *Core) recordPingSent(nonce uint64, at time.Time) {
 	c.mu.Lock()
 	if c.pendingPings == nil {
@@ -586,23 +367,14 @@ func (c *Core) recordPingSent(nonce uint64, at time.Time) {
 	c.mu.Unlock()
 }
 
-// initialClockProbeCount / initialClockProbeInterval control the short burst
-// of pings sent right after connecting.
-//
-// The burst exists because the heartbeat runs every 20s, and an estimate that
-// takes a minute to form is useless for the first minute — which is exactly
-// when a player is walking into view of everyone else. Three probes a second
-// apart cost three messages and give the "keep the lowest RTT" estimator
-// something to choose between, which one sample cannot.
+// initialClockProbeCount pings go out right after connecting, initialClockProbeInterval apart: at the heartbeat's
+// pace the estimate would take a minute to form, and the lowest-RTT estimator needs samples to choose between.
 const (
 	initialClockProbeCount    = 3
 	initialClockProbeInterval = 1 * time.Second
 )
 
-// pushToAdapter sends one message to the attached adapter, if there is one.
-// Silently does nothing when no adapter is attached — a core with no game on
-// it is a normal, expected state (it is what every core looks like before the
-// game launches), not an error worth logging per message.
+// pushToAdapter sends one message to the attached adapter, if any; no adapter is a normal state, not worth a log line.
 func (c *Core) pushToAdapter(t bridge.MessageType, payload any) {
 	c.mu.Lock()
 	nd := c.attachedAdapter
@@ -613,16 +385,8 @@ func (c *Core) pushToAdapter(t bridge.MessageType, payload any) {
 	_ = c.sendToAdapter(nd, t, payload)
 }
 
-// reportBridgeSendErr logs an adapter's failed request against the relay.
-//
-// Logged rather than answered with a bridge-level rejection, deliberately.
-// The three planes are asynchronous by nature — a lease request's real answer
-// is a LeaseState that arrives later — so adding a second, synchronous
-// failure channel would give an adapter two different shapes to handle for
-// one operation. The failures reachable here are all configuration problems
-// (a capability this room never negotiated, or no relay connection yet), not
-// per-request outcomes, and they belong in the log the user reads once rather
-// than in a code path every adapter must implement.
+// reportBridgeSendErr logs an adapter's failed request rather than answering it: the planes answer asynchronously, and
+// these failures are configuration problems (no capability, no relay), not per-request outcomes.
 func (c *Core) reportBridgeSendErr(nd transport.Transport, t bridge.MessageType, err error) {
 	if err == nil {
 		return
@@ -630,11 +394,8 @@ func (c *Core) reportBridgeSendErr(nd transport.Transport, t bridge.MessageType,
 	log.Printf("core: adapter's %s could not be sent to the relay: %v", t, err)
 }
 
-// logResumeOutcome reports what a reconnect actually achieved, once, at the
-// point it is known. Worth a line: "your ghost never disappeared for anyone"
-// and "everyone saw you leave and come back" look identical from this side
-// otherwise, and only one of them is the behaviour resumption was configured
-// for.
+// logResumeOutcome reports once what a reconnect achieved: a resumed session and a fresh join look identical from this
+// side otherwise.
 func logResumeOutcome(w protocol.Welcome, hadToken bool) {
 	switch {
 	case w.Resumed:
@@ -644,13 +405,8 @@ func logResumeOutcome(w protocol.Welcome, hadToken bool) {
 	}
 }
 
-// sendGoodbye tells the relay this client is leaving deliberately, so it
-// announces a real leave rather than holding the identity for a reconnect.
-//
-// Synchronous, and sent before the Close that follows it: transport.Send
-// writes the line to the socket before returning, so a goodbye that raced its
-// own hangup would put us straight back to the behaviour this removes. Same
-// send-before-close reasoning as rejectBridge.
+// sendGoodbye tells the relay this leave is deliberate, so it announces a real leave instead of holding the identity
+// for a reconnect. Synchronous, so the line is on the socket before the Close that follows.
 func sendGoodbye(relay transport.Transport) {
 	payload, err := json.Marshal(protocol.Leave{})
 	if err != nil {
@@ -661,9 +417,6 @@ func sendGoodbye(relay transport.Transport) {
 		return
 	}
 	if err := relay.Send(env); err != nil {
-		// Only worth a line at all because its absence changes what every
-		// other player sees: without a goodbye they watch a frozen ghost until
-		// the grace window expires instead of seeing a clean departure.
 		log.Printf("core: could not tell the relay this was a deliberate leave (%v) — peers will see this session time out instead", err)
 	}
 }

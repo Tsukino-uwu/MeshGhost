@@ -2878,3 +2878,7 @@ record held went to [verified.md](../verified.md), same date; a doc pointer a co
 - `core/` tests, first half of each list (47 files): comment lines 3,838 → 1,441. Stale claims fixed: the schedule fuzzer's
   curve said picked by two bits (one), its stale window said 60 ms (200), recordings said to ship gzipped (plain is the
   default), and the Hz-ceiling test's shipped delay and rate said 250 ms and 20 Hz (450 ms and 15 Hz).
+- `core/`'s other 22 files: comment lines 3,171 → 970. Stale claims fixed: `Welcome.RosterNames` (the field is
+  `Nametags`), a nil known-relays store said to act in-memory (`verify` refuses it; the Core holds the in-memory one), a
+  writer's empty queue said to mean everything reached the transport, a saved room or relay said to move a running
+  session (relaunch-only), and tcp called unencrypted. The replay and recording files are in `phase11.md`'s note.

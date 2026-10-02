@@ -1,12 +1,8 @@
 package core
 
-// Choosing which transport this core actually talks to the relay over.
-//
-// Split out of core.go on 2026-08-25. The handshake is ALWAYS tcp and nothing here
-// changes that -- these functions decide only what the session MOVES to once
-// connected, by asking the relay what it serves (a query-only hello) and picking
-// from the answer. Any failure falls back to tcp at the configured address, so
-// discovery can only improve a connection, never prevent one.
+// Choosing which transport this core talks to the relay over. The handshake is always tcp; these functions decide only
+// what the session moves to once connected, by asking the relay what it serves (a query-only hello). Any failure falls
+// back to tcp at the configured address, so discovery can only improve a connection, never prevent one.
 
 import (
 	"encoding/json"
@@ -22,28 +18,13 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// resolveTransport decides what this Core actually dials.
+// resolveTransport decides what this Core dials. Core.Transport is not how to connect but what to move to once
+// connected: a client never needs to know which port a transport lives on, the leg that must work is the one that works
+// everywhere, and a misconfigured preference degrades to a working tcp session instead of a timeout. A tcp preference
+// short-circuits, having nothing to upgrade to.
 //
-// **The handshake is always tcp, and no config setting can change that.**
-// Core.Transport is not "how to connect" but "what to move to once
-// connected": tcp means stay put, and udp or quic mean upgrade if the relay
-// offers them. That inversion buys three things at once — a client never
-// needs to be told which port a transport lives on (quic's differs, and
-// guessing is impossible), the one leg that must work is always the
-// transport that works everywhere and is readable while debugging, and a
-// misconfigured preference degrades to a working tcp session instead of a
-// timeout.
-//
-// A tcp preference short-circuits: there is nothing to upgrade to, so the
-// single connection made is already the tcp one, and asking would cost a
-// round trip to learn nothing.
-//
-// The returned error is non-nil only when the relay could not be reached
-// over tcp at all — which is exactly the error the caller would have
-// produced itself, so it is passed up rather than papered over. Every other
-// failure (old relay, refused room code, malformed answer) returns tcp at
-// the configured address, letting the real connect attempt surface the real
-// problem.
+// The error is non-nil only when the relay is unreachable over tcp; every other failure (old relay, refused room code,
+// malformed answer) returns tcp at the configured address and lets the real connect attempt surface the problem.
 func (c *Core) resolveTransport(addr, gameID, room, displayName, roomCode, gameVersion string) (netx.Kind, string, netx.TLSOptions, error) {
 	opts := c.tlsOptions(addr)
 	if c.Transport == netx.TCP {
@@ -56,28 +37,21 @@ func (c *Core) resolveTransport(addr, gameID, room, displayName, roomCode, gameV
 	}
 	kind, dialAddr := c.chooseTransport(addr, offers)
 	if kind == netx.UDP {
-		// ON A TRANSPORT THAT CANNOT CARRY TLS AT ALL, say so. udp has no DTLS
-		// in Go, so a session there is plaintext -- the one such session left,
-		// and only in the meshghost_devudp build (ADR 0065). Found by
-		// internal/e2e's transport matrix the moment `auto` became the default
-		// (2026-08-19).
+		// udp has no DTLS in Go, so a session there is plaintext; it exists only in the meshghost_devudp build.
 		log.Printf("core: -transport udp cannot be encrypted (Go has no DTLS) -- this session " +
 			"is PLAINTEXT. Use quic for the same loss behaviour with encryption, or tcp.")
 	}
 	return kind, dialAddr, opts, nil
 }
 
-// tlsOptions is this Core's TLS configuration for every leg to the relay
-// configured as addr. Kept in one place so the discovery leg and the session
-// leg can never disagree: both verify against the same known-relays entry,
-// keyed by the CONFIGURED address, whatever port the session leg dials.
+// tlsOptions is this Core's TLS configuration for every leg to the relay configured as addr, so the discovery and
+// session legs verify against the same known-relays entry, keyed by the configured address whatever port is dialled.
 func (c *Core) tlsOptions(addr string) netx.TLSOptions {
 	return netx.TLSOptions{Verify: c.knownRelays().Verifier(addr)}
 }
 
-// knownRelays is Core.KnownRelays, or the in-memory store a Core without one
-// gets on first use (see the field's doc). Under c.mu so two legs racing to
-// the first connect share one store rather than each trusting on its own.
+// knownRelays is Core.KnownRelays, or the in-memory store a Core without one gets on first use. Under c.mu so two legs
+// racing to the first connect share one store.
 func (c *Core) knownRelays() *KnownRelays {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -87,24 +61,15 @@ func (c *Core) knownRelays() *KnownRelays {
 	return c.KnownRelays
 }
 
-// queryTransports performs the tcp handshake leg: connect, ask what the
-// relay serves, hang up without joining.
-//
-// Not joining is the whole point. Joining first and upgrading afterwards
-// would make every other player in the room watch this one leave and
-// rejoin, because the relay assigns a fresh player_id per connection and a
-// discovery query is never issued a resume token, so there is nothing for
-// the upgraded connection to reclaim.
-//
-// An error is returned only for an unreachable relay. Anything else yields
-// a nil list, meaning "nothing to upgrade to".
+// queryTransports performs the tcp handshake leg: connect, ask what the relay serves, hang up without joining. Joining
+// and then upgrading would show the room this player leave and rejoin: the relay assigns a fresh player_id per
+// connection, and a query gets no resume token. An error means an unreachable relay; anything else yields a nil list.
 func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVersion string, opts netx.TLSOptions) ([]protocol.TransportOffer, error) {
 	netConn, err := netx.DialWithTLS(netx.TCP, addr, discoverTransportTimeout, opts)
 	if err != nil {
 		return nil, err
 	}
-	// The discovery leg proves the room code too (it always carried it):
-	// a relay with a code answers the query only after KE3.
+	// The discovery leg proves the room code too: a relay with a code answers the query only after KE3.
 	proof, err := newRoomProof(roomCode, netConn)
 	if err != nil {
 		_ = netConn.Close()
@@ -115,8 +80,7 @@ func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVe
 
 	replies := make(chan protocol.Envelope, 1)
 	conn.OnReceive(func(payload []byte) {
-		// A refused proof on this leg closes it; the real connect attempt
-		// then surfaces the reason, as any other refusal here does.
+		// A refused proof closes this leg; the real connect attempt then surfaces the reason.
 		if proof.intercept(conn, payload, func(protocol.Reject) {}) {
 			return
 		}
@@ -160,18 +124,12 @@ func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVe
 			}
 			return t.Offers, nil
 		case protocol.TypeWelcome:
-			// An older relay: it does not know query_only, so it treated
-			// this as a real hello and joined us. Nothing to upgrade to, so
-			// use tcp. The connection is closed on return, which such a
-			// relay reports to the room as a leave — one spurious
-			// join/leave against pre-2026-08-16 relays only, and the price
-			// of the field being additive rather than a version bump.
+			// An older relay that does not know query_only joined us; nothing to upgrade to, so tcp. Closing makes it
+			// report one spurious leave, the price of the field being additive rather than a version bump.
 			log.Printf("core: relay at %s does not support transport discovery (older build) — using tcp", addr)
 			return nil, nil
 		default:
-			// A reject (wrong room code, wrong version, ...). Let the real
-			// connect attempt surface it, with its reason, rather than
-			// duplicating that logic here.
+			// A reject: the real connect attempt surfaces it with its reason.
 			return nil, nil
 		}
 	case <-time.After(discoverTransportTimeout): // wall-clock: waiting on a real dial
@@ -179,9 +137,7 @@ func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVe
 	}
 }
 
-// udpPossible answers "can this machine create a udp socket at all", through
-// udpProbe so a test can say no without needing a machine that actually
-// cannot. Production leaves udpProbe nil and gets netx.UDPUsable.
+// udpPossible answers whether this machine can create a udp socket at all, through udpProbe so a test can say no.
 func (c *Core) udpPossible() bool {
 	if c.udpProbe != nil {
 		return c.udpProbe()
@@ -189,9 +145,7 @@ func (c *Core) udpPossible() bool {
 	return netx.UDPUsable()
 }
 
-// logUDPImpossibleOnce explains the downgrade the first time it is applied.
-// Once per process: chooseTransport runs on every connect attempt, and the
-// answer cannot change while the process lives.
+// logUDPImpossibleOnce explains the downgrade once per process: the answer cannot change while the process lives.
 func (c *Core) logUDPImpossibleOnce() {
 	c.udpImpossibleLogged.Do(func() {
 		reason := "unknown"
@@ -206,13 +160,8 @@ func (c *Core) logUDPImpossibleOnce() {
 	})
 }
 
-// chooseTransport picks the best offered transport and rebuilds the address
-// to dial.
-//
-// Only the port comes from the relay; the host is always the one the user
-// configured. That is what lets discovery work through NAT and port
-// forwarding — a relay bound to 0.0.0.0 has no idea which address reaches
-// it, but the client just connected to one, so it already knows.
+// chooseTransport picks the best offered transport and rebuilds the address to dial. Only the port comes from the
+// relay; the host is the one configured, which is what lets discovery work through NAT and port forwarding.
 func (c *Core) chooseTransport(addr string, offers []protocol.TransportOffer) (netx.Kind, string) {
 	if len(offers) == 0 {
 		return netx.TCP, addr
@@ -229,19 +178,15 @@ func (c *Core) chooseTransport(addr string, offers []protocol.TransportOffer) (n
 		}
 	}
 
-	// An explicit preference is honoured exactly, and only that one is
-	// considered — a client asking for quic must not silently land on udp,
-	// which would swap an encrypted session for one that cannot be
-	// encrypted at all. netx.Auto is the only value that ranks.
+	// An explicit preference is honoured exactly: a client asking for quic must not land on udp, which cannot be
+	// encrypted. Only netx.Auto ranks.
 	wants := []netx.Kind{c.Transport}
 	if c.Transport == netx.Auto {
 		wants = netx.AutoPreference
 	}
 
-	// A transport that already failed to DIAL on this machine is skipped in automatic mode.
-	// See Core.unusableTransports: without this, a platform that cannot do quic at all --
-	// Wine being the case that found it -- re-picks quic on every retry and never connects,
-	// while tcp was sitting there the whole time.
+	// A transport that already failed to dial on this machine is skipped in automatic mode, or a platform that cannot
+	// do quic re-picks it on every retry and never connects.
 	c.mu.Lock()
 	unusable := make(map[string]bool, len(c.unusableTransports))
 	for k := range c.unusableTransports {
@@ -249,25 +194,10 @@ func (c *Core) chooseTransport(addr string, offers []protocol.TransportOffer) (n
 	}
 	c.mu.Unlock()
 
-	// A machine that cannot open a udp socket has neither quic nor plain udp, and
-	// dialling them to find that out is pure cost: quic.DialAddr and udpconn both
-	// begin with net.ListenUDP, so the failure is local and identical every time.
-	// Skipping them here is what stops a Proton client paying two doomed dials and
-	// several seconds of connect delay on EVERY launch -- Core.unusableTransports
-	// is per-process, and the core exits with the game, so it otherwise relearns
-	// the same impossibility from scratch each time.
-	//
-	// AUTOMATIC MODE ONLY, like every other entry in unusable: somebody who wrote
-	// transport "quic" still gets told, repeatedly and clearly, that it is failing
-	// rather than being moved without being asked.
-	//
-	// netx.UDPUsable probes rather than detecting Wine, and that is deliberate --
-	// it makes this right for a native Linux client sharing the same config.json
-	// (its socket opens, so it keeps quic) and for a future Wine that implements
-	// the ioctls. See its doc comment.
-	// Only when the relay actually offers one of them. A relay serving tcp alone
-	// leaves nothing to downgrade FROM, and announcing a downgrade there would be a
-	// false alarm in the log of a player whose setup is entirely fine.
+	// A machine that cannot open a udp socket has neither quic nor udp, and both dials fail locally in net.ListenUDP,
+	// so in automatic mode they are skipped rather than relearned on every launch; an explicit transport is never
+	// moved. It probes the capability rather than detecting the platform, which keeps quic for a native client sharing
+	// the same config.json. Only when the relay offers one of them, or the log would announce a downgrade from nothing.
 	offersUDPBased := false
 	for _, k := range []netx.Kind{netx.QUIC, netx.UDP} {
 		if _, ok := byKind[k.String()]; ok {
@@ -282,14 +212,7 @@ func (c *Core) chooseTransport(addr string, offers []protocol.TransportOffer) (n
 
 	for _, want := range wants {
 		if want == netx.TCP {
-			// SAY SO. This return used to be silent, and the log below ran only
-			// for a non-tcp choice, so a session that ended up on tcp -- whether
-			// because tcp was asked for or because everything above it was
-			// condemned -- never once named the transport it was actually using.
-			// A Proton tester's log showed sixteen "using quic" lines and no
-			// record of the tcp the session actually ran on; the only trace was
-			// the "read tcp ..." in a later DISCONNECT message, which means the
-			// transport could be learned only from a failure.
+			// Named in the log like any other choice, or a session on tcp never says which transport it runs on.
 			log.Printf("core: relay offers %s — using tcp at %s", offerList(offers), addr)
 			return netx.TCP, addr
 		}
@@ -305,10 +228,8 @@ func (c *Core) chooseTransport(addr string, offers []protocol.TransportOffer) (n
 		return want, chosen
 	}
 
-	// Asked for something this relay does not serve. Staying on tcp is
-	// right — the session works, which a timeout would not — but say so,
-	// because otherwise a user who deliberately chose quic for encryption
-	// would silently get an unencrypted session with nothing to indicate it.
+	// Asked for something this relay does not serve: tcp keeps the session working, which a timeout would not, and the
+	// log tells the player why they did not get what they chose.
 	log.Printf("core: this relay does not offer %s (it offers %s) — staying on tcp",
 		c.Transport, offerList(offers))
 	return netx.TCP, addr
