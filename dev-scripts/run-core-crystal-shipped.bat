@@ -1,12 +1,7 @@
 @echo off
-REM Crystal core at SHIPPED settings: no flags past the ones that pick the game and the bridge, so
-REM interpolation is core.DefaultInterpolationDelay (450ms since 2026-09-02, ADR 0046; 250ms before) and min-send is the default.
-REM
-REM The COMPLEMENT of `run-core.bat crystal`, which forces -interp=0ms to judge the renderer against
-REM the player 1:1. This one judges the opposite thing -- what a real player receives -- and the
-REM shipped delay is the subject of the test rather than a nuisance in it. Relying on the adapter's
-REM AUTOSTART to get here is what made two sessions' worth of stutter work ambiguous (`phase9.md`):
-REM the settings were right by accident and unlogged, so nothing recorded which rig had produced
-REM which reading. Launch it explicitly instead. Pair with run-relay-loopback-shipped.bat.
+REM Crystal core at shipped settings: no flags past game and bridge, so interp and min-send are the core's defaults.
+REM The complement of `run-core.bat crystal`: it judges what a real player receives, so the shipped delay is the
+REM subject. Launched explicitly rather than through autostart, so the rig behind a reading is on record.
+REM Pair with run-relay-loopback-shipped.bat.
 ..\meshghost.exe -game=crystal -bridge=127.0.0.1:7778 -name=player1
 pause

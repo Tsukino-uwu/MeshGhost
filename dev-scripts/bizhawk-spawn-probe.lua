@@ -1,24 +1,10 @@
--- MeshGhost -- DEV PROBE, final round: is a luanet spawn INVISIBLE?
---
--- Established already, machine-checked:
---   * os.execute / io.popen always flash, in every shape tried (plain, `start /b`,
---     powershell -WindowStyle Hidden, wscript + hidden .vbs). They run `cmd /c ...`, so the
---     window belongs to the shell doing the launching -- hiding the child cannot help.
---   * luanet (NLua's .NET bridge) CAN reach System.Diagnostics.Process once
---     luanet.load_assembly("System") has been called. All three routes started a real process
---     and wrote their marker file.
---
--- What a machine cannot answer: whether the hidden ones show anything. So this run is three
--- spaced phases, each announced and counted down, and it ends with a DELIBERATE positive
--- control that SHOULD show a window.
---
--- Phases:
---   1. CreateNoWindow=true, UseShellExecute=false   -- expected INVISIBLE
---   2. same, launching meshghost.exe -h             -- the real thing, expected INVISIBLE
---   3. CONTROL: Process.Start("cmd.exe", args)      -- SHOULD FLASH
---
--- If phase 3 does not flash, discard the run: it means a flash is not visible here today and
--- phases 1-2 proved nothing.
+-- Is a luanet spawn invisible? os.execute and io.popen always flash (they run cmd /c, whose window is the shell's), and
+-- luanet reaches System.Diagnostics.Process once System is loaded; only a person watching can say whether a hidden
+-- spawn shows anything. Three counted-down phases:
+--   1. cmd.exe, CreateNoWindow=true, UseShellExecute=false   expected invisible
+--   2. the same, launching meshghost.exe -h                  expected invisible
+--   3. control: Process.Start("cmd.exe", args)               should flash
+-- If phase 3 does not flash, discard the run: phases 1-2 proved nothing.
 
 local DIR = os.getenv("MESHGHOST_SCRIPT_DIR")
 if not DIR or DIR == "" then

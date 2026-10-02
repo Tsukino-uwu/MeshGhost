@@ -2361,3 +2361,11 @@ comment in the file named by each heading, at `f64560cc`.
 
 - Traces cast by the planner this frame: the search stops for the frame at TRACE_BUDGET. Thirty cells a frame (~500 traces) took the game from 144 to ~89 frames a second while a plan was made (2026-09-23; the user asked whether the drop could be fixed).
 - And by time: the Lua around the traces (a leap's candidate cells) cost as much as the traces, and a trace budget alone still left ~90 frames a second while planning, against 142 idle (2026-09-23). os.clock is wall time under MSVC. Raised to 4 when routes grew past the slide: at 1.5 a plan to the dungeon's east exit (30000 cells) outran a reflex's 3600 frames, and every plan is made standing still, where a lower frame rate costs the least (2026-09-23).
+
+**`dev-scripts/ci-fuzz.sh`**
+
+- WHY THIS EXISTS. `go test -fuzz` can exit non-zero with nothing but --- FAIL: FuzzX (45.09s) context deadline exceeded when its own -fuzztime elapses while workers are still mid-execution. No input crashed, nothing is written to testdata, and the same target passes on the next run -- it is the engine reporting its own stop signal as a failure. Seen on CI 2026-08-17: 45s, 3.98M executions, 273 new interesting inputs, no failing input, and the identical target passed locally at the same -fuzztime.
+
+**`dev-scripts/stage-release.ps1`**
+
+- replay/ and replay/active/, EMPTY, beside the client. The client creates them at startup too, but shipping them means a player sees where a clip goes on the first unzip rather than after a first run -- and docs/config.md's "drop a file into replay/active/" then names a folder that is already there. Compress-Archive does preserve an empty directory (checked 2026-09-03: the nested entry survives as `replay\active\`), so these reach the zip rather than being quietly dropped.

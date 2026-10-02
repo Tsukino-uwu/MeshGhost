@@ -1,10 +1,4 @@
--- MeshGhost — what does this core call its buttons? (READ-ONLY)
--- joypad.set silently did nothing for two directions. Rather than guess a third button spelling,
--- ask the host: joypad.get() returns the CURRENT input as a table, so its KEYS are the exact
--- names this core expects. Also dumps joypad.getimmediate() for comparison.
--- Resolve this script's own directory instead of hardcoding one developer's
--- checkout. A tracked absolute path is unusable on anyone else's machine and is
--- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+-- Dumps the keys of joypad.get() and joypad.getimmediate(), read-only: the exact button names this core expects.
 local MESHGHOST_DIR = (function()
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then

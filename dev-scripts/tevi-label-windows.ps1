@@ -1,14 +1,5 @@
-# MeshGhost -- labels each running TEVI window with which INSTALL it is, for dual-instance testing.
-#
-# WHY THIS EXISTS. Two TEVI copies are visually identical, and on 2026-08-28 that cost a whole
-# measurement round: a charged-attack probe run was performed on one instance and read from the
-# other's log, so a clean-looking result proved nothing. The user, asked which one: *"hard to keep
-# track as they are identical"*. An instrument that cannot say WHICH subject it measured is not an
-# instrument, and this is the cheapest possible fix for that.
-#
-# NOTHING SHIPS. The title is set from OUTSIDE the game with SetWindowText -- no game code, no
-# plugin change, nothing in packaging/release. The label is gone the moment the game restarts,
-# which is why this is a script you re-run rather than a setting.
+# Labels each running TEVI window with which install it is, for dual-instance testing: two copies look identical.
+# The title is set from outside the game with SetWindowText, so nothing ships and the label is gone on relaunch.
 #
 #   .\tevi-label-windows.ps1          label whatever TEVI processes are running
 #
@@ -16,8 +7,7 @@
 
 [CmdletBinding()]
 param(
-    # Matched against the process path to decide which label a window gets. Anything not matching
-    # is labelled by its own folder name rather than guessed at.
+    # Matched against the process path; a window matching neither install is labelled by its own folder name.
     [string]$StandalonePathMatch = $(if ($env:MESHGHOST_TEVI_DIR2) { $env:MESHGHOST_TEVI_DIR2 } else { 'tevi-14778703' })
 )
 
@@ -45,7 +35,6 @@ foreach ($p in $procs) {
     } elseif ($path -like '*steamapps*') {
         $label = 'TEVI  [A: STEAM]'
     } elseif ($path) {
-        # Named by its own folder rather than assigned a letter it might not deserve.
         $label = "TEVI  [$((Get-Item $path).Directory.Name)]"
     } else {
         $label = "TEVI  [pid $($p.Id)]"

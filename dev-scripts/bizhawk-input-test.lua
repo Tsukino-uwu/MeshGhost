@@ -1,19 +1,5 @@
--- MeshGhost — BizHawk input drive test (DEVELOPMENT TOOL, never shipped)
---
--- Question: can a script actually MOVE the player, or does joypad.set merely exist? The API
--- surface says "userdata", which only means callable -- BizHawk has already shipped one function
--- here whose doc string existed while the function was nil at runtime, so presence is not proof.
---
--- Method, and the discipline matters more than the result:
---   1. Checkpoint to slot 3 first, so anything this does is undoable.
---   2. Read the player's map coordinates from memory.
---   3. Hold RIGHT for a fixed number of frames -- joypad.set applies to the NEXT frame only, so
---      it has to be re-issued every frame, not once.
---   4. Read the coordinates again and report the DELTA.
--- Step 4 is the whole point: "joypad.set did not raise an error" proves the call happened, not
--- that the game moved. The player's own coordinates are an independent witness.
---
--- Restores the checkpoint at the end, so the session is left where it started.
+-- Can a script move the player? Checkpoints to slot 3, holds RIGHT, reports the coordinate delta and restores the
+-- slot. The coordinates are the witness: a call that raised no error proves only that the call happened.
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local CHECKPOINT_SLOT = 3

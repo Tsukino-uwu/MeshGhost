@@ -1,22 +1,13 @@
-# Triggers UE4SS's Lua hot reload in a running game, so the AGENT reloads a probe rather than
-# asking the user to press a key.
-#
-# The user's rule, 2026-08-31: "you should do as much as possible on your own. making me press f10
-# every single time wouldn't be any better than me having to manually restart the game, it adds
-# friction and slows down the intended workflow." Live reload only pays off if the whole loop is
-# automatic -- edit the probe, call this, read the log.
-#
-# UE4SS reads its hot-reload key with a keyboard hook on the focused window, so the key has to be
-# sent to the game window as a real keystroke. This activates the window, sends it, and then puts
-# focus back where it was, which keeps the interruption to a fraction of a second.
+# Triggers UE4SS's Lua hot reload in a running game, so a probe reloads with nobody pressing a key.
+# UE4SS reads the key through a keyboard hook on the focused window, so this activates the game window, sends a real
+# keystroke, and gives focus back.
 #
 # Usage:
 #   pwsh dev-scripts/hot-reload-lua.ps1                 # every running pseudoregalia
 #   pwsh dev-scripts/hot-reload-lua.ps1 -Key F10        # if HotReloadKey differs
 #   pwsh dev-scripts/hot-reload-lua.ps1 -ProcessName TEVI
 #
-# HotReloadKey lives in each install's UE4SS-settings.ini and must match -Key. It is F10 for
-# Pseudoregalia here: the default R is the sword-throw key, so every throw would reload every mod.
+# -Key must match HotReloadKey in that install's UE4SS-settings.ini, and must not collide with a game or UE4SS binding.
 
 param(
     [string]$ProcessName = "pseudoregalia-Win64-Shipping",
@@ -56,7 +47,6 @@ foreach ($p in $targets) {
     }
 }
 
-# Give the user their window back.
 if ($previous -ne [IntPtr]::Zero) {
     [void][Win32Focus]::SetForegroundWindow($previous)
 }

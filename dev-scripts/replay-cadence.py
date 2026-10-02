@@ -94,9 +94,7 @@ def report(path):
         c = sum(1 for g in gaps if lo <= g <= hi)
         if c:
             print("    %-8s %5d %5.1f%% %s" % (name + "ms", c, 100.0 * c / n, "#" * int(46.0 * c / n)))
-    # A floor only means something once there are enough stalls to have one; a
-    # handful of wide gaps in an otherwise clean clip is just the player standing
-    # still, and calling that a timer signature would be a confident wrong answer.
+    # A floor needs enough stalls to mean anything: a few wide gaps in a clean clip are the player standing still.
     if len(over) >= 20:
         print("  stall floor %dms, median stall %dms  (a hard floor is a TIMER, not load;"
               " Linux delayed-ACK minimum is 40ms)" % (min(over), median(over)))
@@ -106,10 +104,7 @@ def report(path):
     if near and far:
         print("  move per sample: %.2f units across a <=5ms gap, %.2f across a >%dms gap"
               % (median(near), median(far), LOCAL_INTERP_MS))
-        # Three readings, and the idle one has to be checked FIRST: a clip whose
-        # wide gaps are the player standing still has near-zero movement across
-        # them, which would otherwise read as "the same move either way" and give
-        # a confident wrong answer on a perfectly healthy clip.
+        # Idle first: standing still moves near zero across the wide gaps, which would read as "the same move either way".
         if median(far) < 0.1 * median(near):
             print("    -> barely any movement across the wide gaps: those are IDLE moments, not"
                   " stutter. A clip like this is fine.")

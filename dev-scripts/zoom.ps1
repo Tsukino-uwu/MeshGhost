@@ -1,15 +1,10 @@
-# MeshGhost - crop and upscale a region of the last screenshot so sprites are legible.
-# A 240x160 GBA frame is too small to judge a sprite in; nearest-neighbour upscaling keeps the
-# pixels honest (no smoothing inventing detail that is not there).
+# Crops and upscales a region of the last screenshot, so a sprite in a 240x160 GBA frame is legible.
+# Nearest-neighbour, so no smoothing invents detail that is not there.
 param([int]$X = 96, [int]$Y = 48, [int]$W = 96, [int]$H = 64, [int]$Scale = 4,
       [string]$Game = "emerald",
       [string]$In = "",
       [string]$Out = "")
-# Screenshots live in dev-scripts/shots/<game>/ so a session on one adapter cannot bury another's.
-# Resolved from this script's own directory, never a hardcoded clone path: this is a public repo,
-# and an absolute path here worked only on the machine it was written on. It also evaded every
-# privacy scanner in the repo -- .githooks/pre-commit, ci.yml, release.yml and preflight.ps1 all
-# matched only home-directory forms, and an absolute path to the clone is none of those.
+# Per game, so a session on one adapter cannot bury another's; from the script's own folder, never an absolute path.
 if (-not $In)  { $In  = Join-Path $PSScriptRoot "shots\$Game\shot.png" }
 if (-not $Out) { $Out = Join-Path $PSScriptRoot "shots\$Game\zoom.png" }
 Add-Type -AssemblyName System.Drawing
@@ -19,8 +14,7 @@ $g = [System.Drawing.Graphics]::FromImage($crop)
 $g.DrawImage($src, (New-Object System.Drawing.Rectangle 0,0,$W,$H), (New-Object System.Drawing.Rectangle $X,$Y,$W,$H), [System.Drawing.GraphicsUnit]::Pixel)
 $g.Dispose()
 $ow = $W * $Scale; $oh = $H * $Scale
-# NOTE: PowerShell variables are CASE-INSENSITIVE, so a bitmap named $out and the path
-# parameter $Out are the same variable -- which silently made the bitmap a string.
+# Not $out: PowerShell variables are case-insensitive, so it would be the $Out path parameter.
 $dest = New-Object System.Drawing.Bitmap -ArgumentList $ow, $oh
 $g2 = [System.Drawing.Graphics]::FromImage($dest)
 $g2.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor

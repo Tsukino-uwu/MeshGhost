@@ -1,21 +1,6 @@
 @echo off
-REM Runs the race detector locally -- the exact command CI's "Build, vet, test (race)" job runs,
-REM which run-gotests.bat CANNOT run and therefore cannot vouch for. CI caught a real relay race
-REM on 2026-08-16 that 300 local runs of the same test never reproduced, so "run-gotests.bat is
-REM green" has never meant "CI will be green".
-REM
-REM The race detector needs cgo, and cgo needs a C compiler Go can actually use. On this project's
-REM dev machine the gcc on PATH is devkitPro's MSYS2 copy, which fails with "stddef.h: No such
-REM file or directory" -- the same wrong-install-on-PATH trap CLAUDE.md warns about.
-REM
-REM MSYS2's own GCC 15 was ALSO recorded as failing, and that was wrong -- it works, and this
-REM script's own probe is what made it look otherwise. Setting CC is not enough: the compiler
-REM needs the rest of its toolchain (as, ld, its headers) resolvable, so its bin directory has
-REM to go on PATH ahead of the devkitPro copy. The probe below set CC only, so every candidate
-REM failed the same way and the conclusion drawn was "no compiler works" rather than "the probe
-REM is missing a step" -- two failures with an identical symptom, which CLAUDE.md says to treat
-REM as a signal rather than bad luck. Fixed and verified working 2026-08-18; see
-REM agent_docs/testing.md's Race detector section.
+REM The race detector, the exact command CI's race job runs, which run-gotests.bat does not.
+REM cgo needs a C compiler Go can use, and the gcc first on PATH may be devkitPro's MSYS2 copy, whose headers fail.
 setlocal
 cd /d "%~dp0\.."
 
@@ -57,12 +42,8 @@ exit /b 0
 :try
 if defined RACE_CC exit /b 0
 if not exist "%~1" exit /b 0
-REM Probe by actually building something that needs cgo. A compiler that exists is not the
-REM same as a compiler Go can use, which is the entire lesson of the two failures above.
-REM
-REM PATH first, then CC: cgo shells out to the compiler, which shells out to its own as/ld and
-REM reads its own headers. Without its bin directory ahead of devkitPro's on PATH, a perfectly
-REM good compiler fails exactly like a broken one.
+REM Probe with a real cgo build: a compiler that exists is not one Go can use.
+REM PATH before CC: the compiler runs its own as/ld and reads its own headers, so its bin directory must come first.
 set "PATH=%~dp1;%PATH%"
 set "CC=%~1"
 set "CGO_ENABLED=1"

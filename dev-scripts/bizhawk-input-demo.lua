@@ -1,15 +1,6 @@
--- MeshGhost — BizHawk input demo: can a script actually move the player?
---
--- joypad.set being "callable" is not the same as it working -- this build already has one API
--- whose doc string exists while the function is nil at runtime. So the test is behavioural:
--- read the player's coordinates, hold a direction, read them again, and report the DELTA.
--- Screenshots either side are for looking at, NOT for proof (see agent_docs/testing.md).
---
--- Checkpoints to slot 4 first and restores it at the end, so the session is left untouched.
+-- Can a script move the player? Checkpoints to slot 4, holds Down, reports the coordinate delta and restores the
+-- slot; the screenshots either side are for looking at, not proof.
 
--- Resolve this script's own directory instead of hardcoding one developer's
--- checkout. A tracked absolute path is unusable on anyone else's machine and is
--- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
 local MESHGHOST_DIR = (function()
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then
@@ -51,10 +42,8 @@ MESHGHOST_DEV_TICK = function()
     end
 
     if phase == "hold" then
-        -- Must be re-issued every frame: joypad.set applies only to the frame about to run.
-        -- NO controller index. joypad.get() reports this core's buttons as bare names ("Right",
-        -- not "P1 Right"), and passing a player number makes BizHawk look for the prefixed form,
-        -- which does not exist here -- so the call succeeds and does nothing.
+        -- Every frame (joypad.set covers the next frame only), with no controller index: this core's buttons are
+        -- bare names ("Down", not "P1 Down"), and an index makes the call succeed and do nothing.
         pcall(function() joypad.set({ [DIR] = true }) end)
         if frames >= HOLD then
             local ex, ey = pos()
@@ -62,9 +51,7 @@ MESHGHOST_DEV_TICK = function()
             log(string.format("held %s for %d frames: (%d,%d) -> (%s,%s), delta=(%s,%s)",
                 DIR, HOLD, sx, sy, tostring(ex), tostring(ey),
                 tostring((ex or sx) - sx), tostring((ey or sy) - sy)))
-            -- Check BOTH axes. The first version tested x only and reported "no movement" for a
-            -- run that had moved three tiles down -- the data was right and the verdict was wrong,
-            -- which is the same shape as every "the log looked healthy" bug this project has hit.
+            -- Both axes: a run that moved only down still moved.
             local moved = ex and ey and (ex ~= sx or ey ~= sy)
             log(moved and "RESULT: input works -- the script moved the player."
                 or "RESULT: no movement (blocked, or input is not drivable this way).")

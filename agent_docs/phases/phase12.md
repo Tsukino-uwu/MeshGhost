@@ -1131,3 +1131,19 @@ paste the records, prove, commit; then the ratchet gate commit (floors to their 
 then a hard FAIL at 0), and the second pass. Open items found on the way are in `private/a5/notes-session2.md`, "For the
 user / later"; three code defects are offered as separate tasks (the netsim partition stretch, two in `Plugin.cpp`,
 two in the Crystal adapter).
+
+## 2026-10-02 — A5 resumed: dev-scripts trimmed, and a test that anchored on a comment
+
+Resumed in the same chat after the pause. `dev-scripts/` (77 files: the Lua tools, the PowerShell, Python and shell
+scripts, and the `.bat` launchers) lost their history comments; code unchanged by each language's proof (`luac -l -l`
+listings without line numbers, PowerShell parser tokens, Python ASTs without docstrings, and comment-only line checks for
+bat and sh). Stories, two measurements and the doc pointers went where the rest did. Stale claims fixed on the way,
+among them: the dev loader said to resolve a relative path against the control file's folder (it uses its own), four
+tools said to log beside themselves (they write `../dev-logs/`), `run-relay.bat` said the default room rate is 20 Hz
+(15), `run-relay-online.bat` said quic does not authenticate the relay (TLS is always on, with trust on first use),
+and `build-pseudoregalia.bat` said it builds `main.dll` only (it builds the UE4SS runtime too). Found and not changed
+(code): `run-relay-loopback.bat` and `run-core.bat <game> udp` ask for udp, which a relay built without the dev tag
+refuses; `tevi-hotreload.ps1` copies `meshghost.exe` to folders the TEVI core launcher no longer reads;
+`hot-reload-lua.ps1` defaults its key to F10, which the README says froze UE4SS. The Emerald comment pass had removed
+the comment `adapters/emulator/tests/spans_reuse.lua` used to find the end of the code it lifts, so that test would
+have failed in CI; it now anchors on the next function (`c35d1b3b`), and all three emulator tests pass.

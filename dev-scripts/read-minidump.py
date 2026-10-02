@@ -1,35 +1,21 @@
-"""Minimal MINIDUMP reader: what faulted, where, in which module -- and, since 2026-09-01,
-whose CODE was on the crashed thread's stack and what our own PDB calls it.
+"""Minimal minidump reader: what faulted, where, in which module, and whose code was on the crashed thread's stack.
 
-Written 2026-08-30 because Pseudoregalia's "reset to last save" crash produces an
-EXCEPTION_ACCESS_VIOLATION with an empty CallStack element in CrashContext.runtime-xml, no
-debugger is installed, and six hypotheses have already been refuted by measurement. The one thing
-the dump can settle cheaply is whether the faulting address lies inside the mod's own DLL or in
-the game's executable -- which decides who the next question is for.
-
-Extended 2026-09-01, the day that lesson was completed (pitfalls/by-lesson.md, "The
-reset-to-save crash"): a use-after-free crashes WHEREVER the garbage points, so "the fault is in
-the game's code" exonerates nothing. What IS attributable is the crashed thread's STACK, and the
-dump carries it:
+The faulting module alone exonerates nothing: a use-after-free faults wherever the garbage points. The crashed
+thread's stack is what attributes it:
 
   --stack       scavenge the crash thread's stack for return addresses that land inside any
                 loaded module, printed in stack order as module+offset. Not a real unwind (stale
                 frames appear), but your own module showing up near the top is the lead.
   --symbolize <dll> <offset...>
-                resolve module offsets to function+line via dbghelp against the PDB next to the
-                given DLL image. Works with zero tools installed -- dbghelp ships with Windows.
-                Use the build-output DLL (e.g. build/Mod/Game__Shipping__Win64/main.dll), whose
-                .pdb sits beside it; hash-match it against the deployed copy first.
+                resolve module offsets to function+line via dbghelp (it ships with Windows) against
+                the PDB next to the given DLL. Use the build-output DLL (e.g.
+                build/Mod/Game__Shipping__Win64/main.dll), whose .pdb sits beside it, hash-matched
+                against the deployed copy first.
 
-The one-move version of the 2026-09-01 diagnosis:
   python read-minidump.py UEMinidump.dmp --stack
-  python read-minidump.py --symbolize <path>/main.dll 0x55564 0x5DCF0
+  python read-minidump.py --symbolize <path>/main.dll <offset...>
 
-Format per Microsoft's MINIDUMP_HEADER / MINIDUMP_DIRECTORY / MINIDUMP_MODULE /
-MINIDUMP_THREAD documentation. (The module-name RVA lives at offset 20 of MINIDUMP_MODULE, after
-BaseOfImage/SizeOfImage/CheckSum/TimeDateStamp -- the first version of this read it at 12, which
-"worked" by printing the bytes the checksum pointed at, i.e. garbage that looked like a broken
-dump rather than a broken reader.)
+Format per Microsoft's MINIDUMP_HEADER / MINIDUMP_DIRECTORY / MINIDUMP_MODULE / MINIDUMP_THREAD documentation.
 """
 import re
 import struct
@@ -90,8 +76,7 @@ def load_modules(b, streams):
             try:
                 name = sanitize(read_minidump_string(b, name_rva))
             except Exception:
-                # Some dumps carry a stripped name RVA. That module is still usable for the
-                # address-range test, which is the part that matters.
+                # A stripped name RVA: the module still serves the address-range test.
                 name = '<unnamed module #%d>' % i
             modules.append((base, size, name))
     return modules

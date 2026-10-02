@@ -9320,3 +9320,109 @@ is the file the comment sat in at `f64560cc`.
 - A driven ghost plays no mirrored montage (the chair sit reached it through this door, 22:57 run); the counters are consumed so nothing replays later.
 - Outfit/costume mirror -- see RemoteGhost::target_outfit_mesh's comment. Edge-gated like the weapon calls above (only resolve/assign on an actual change, not every redraw tick) -- unlike weapon, this is a pure direct-property mesh-asset swap, no function call involved, so there's no call-order hazard to worry about here. Retry throttle (see RemoteGhost::last_failed_outfit_mesh's comment): a target that previously failed to resolve (e.g. a peer's modded outfit this machine doesn't have) only gets retried once per LOG_INTERVAL_TICKS, not every tick -- a genuinely new target is still tried immediately regardless of the throttle. **THE THROTTLE IS ON THE FAILURE, NOT ON THE NAME (review I12, fixed 2026-09-11).** It used to require `target == last_failed`, which a peer defeats by ALTERNATING two unresolvable paths: each frame the target differs from the one that failed last frame, so it counts as a genuinely new target, and the result is a StaticFindObject plus an `Output::send` per ghost per frame, driven from another machine and free to the sender. The log becomes the problem, which is the failure the throttle existed to prevent in the first place. What this trades: a peer who switches from a MISSING outfit to a real one now waits up to one LOG_INTERVAL_TICKS (~1.5 s) instead of applying on the next tick. That is the right way round -- a second of a stale outfit against an unbounded remotely triggered flood -- and a peer whose last attempt SUCCEEDED is unaffected, because the last_failed_* string is cleared on success.
 - **Only a component the game is currently SHOWING gets a new mesh.** A tester's dump on 2026-09-05 puts the fault 21 seconds into the game, at the first ghost spawn, in this very call on a hand the game had not yet shown (the sword mirror shows it once the peer's equipped flag arrives) and may not have finished registering. The engine's reset chain read a garbage pointer there. Hidden means "not yet": the target stays pending and the edge gate retries next tick, so the model lands the moment the sword appears -- which is also the first moment anyone could see it. Read through mg_read_bool: bVisible is a bitfield (the 2026-09-05 audit). `bRegistered` gates only when the build reflects it (2026-09-06): a flag that is not a property reads as its fallback, and a fallback of false deferred every modded sword forever -- two instances each saw the stock sword on the other's ghost while the outfits synced fine.
+
+### dev-scripts/bizhawk-capabilities.lua
+
+- Written 2026-08-18 after savestates and input turned out to be available and useful, on the reasoning that if two capabilities were sitting unused there are probably others.
+
+### dev-scripts/bizhawk-dev-loader.lua
+
+- Clear the failure memory on every change: editing the file is how you say "I fixed it, try again". Without this the loader silently ignored the retry, which looks exactly like the fix not working -- found live 2026-08-18, chasing a path bug that had already been fixed.
+
+### dev-scripts/bizhawk-input-demo.lua
+
+- Check BOTH axes. The first version tested x only and reported "no movement" for a run that had moved three tiles down -- the data was right and the verdict was wrong, which is the same shape as every "the log looked healthy" bug this project has hit.
+
+### dev-scripts/fish-sequence.lua
+
+- Menu route, from the screenshots of the first attempt: Start opens a menu whose FIRST entry is BAG (the earlier run pressed Down twice and landed on SAVE, which is how we know). Then the bag opens on ITEMS and KEY ITEMS is the last pocket, and the rod is the third key item because the test kit added Mach Bike, Acro Bike, Super Rod in that order.
+- PREAMBLE: reach a neutral overworld state before assuming anything. A previous run of this very script left the bag open, and the run after it pressed Start into a menu -- so this is not hypothetical tidiness. B backs out one level and does nothing in the overworld; ending on B matters because Start would re-open the menu we just closed.
+
+### dev-scripts/profile-emerald.lua
+
+- Sets MESHGHOST_EMERALD_PROFILE, which makes the adapter time its Lua frame and five named sections -- send, drain, sync, shadows, draw -- and report the window's average and WORST frame every 300 frames. Since 2026-09-11 that report goes to the adapter's log file as well as the console, so it can be collected without a person reading the emulator's GUI.
+
+### dev-scripts/shot-fast.lua
+
+- THE FOLDER IS RESOLVED FROM THIS SCRIPT, never written out: a machine path in a public repo stays in every clone and fork, and .githooks/pre-commit refuses the commit -- as it did for the first version of this file.
+
+### dev-scripts/slot10.lua
+
+- Slot 10 is the user's ACRO bike position (given 2026-09-13), so a gait comparison starts from the same mounted state every run rather than from wherever the last one finished. List it BEFORE load_slot.lua, and load_slot.lua before the adapter -- a savestate load was recorded killing the adapter on 2026-08-26, which is why the order is not a preference.
+
+### dev-scripts/slot2.lua
+
+- Slot 2 is the user's four-Emerald town setup, where every instance can see the others (2026-09-11). Slot 1 is the user's own and is never written or loaded by tooling.
+
+### dev-scripts/slot5.lua
+
+- Slot 5 is the user's SEAM position: one tile to the right of the Route/Town connection this adapter's seam work is measured on, saved 2026-09-12 so a run always starts adjacent to the boundary. Pair it with probes/seam_shuttle.lua, whose first leg then crosses immediately instead of searching. Slot 1 is the user's own and is never written or loaded by tooling.
+
+### dev-scripts/slot9.lua
+
+- Slot 9 is the user's MACH bike position (given 2026-09-13), so a gait comparison starts from the same mounted state every run rather than from wherever the last one finished. List it BEFORE load_slot.lua, and load_slot.lua before the adapter -- a savestate load was recorded killing the adapter on 2026-08-26, which is why the order is not a preference.
+
+### dev-scripts/square-2run.lua
+
+- Settings for probes/square_drive.lua: a 2x2 square, RUN the whole way, corners flowing. The user's ask, 2026-09-12: *"2tile up, 2tile left, 2tile down, 2tile right, run for all of it"*. List it BEFORE square_drive.lua in the control file.
+
+### dev-scripts/ci-fuzz.sh
+
+- A NAME THAT MATCHES NOTHING IS A FAILURE, NOT A PASS. -fuzz takes a REGEXP, and `go test` treats "no fuzz tests to fuzz" as a warning and exits 0 -- so a renamed or deleted target silently stopped being campaigned while its CI step stayed green and kept reporting the time it did not spend. Every step pass a bare name, so any one of them could go quiet this way; this repo has already found two targets that existed and were wired to nothing (2026-09-03, 2026-09-05), and this is the same class one layer up. Checked before the exit-0 branch, because that is the branch it would otherwise take. Found by the 2026-09-07 review.
+
+### dev-scripts/hot-reload-lua.ps1
+
+- The user's rule, 2026-08-31: "you should do as much as possible on your own. making me press f10 every single time wouldn't be any better than me having to manually restart the game, it adds friction and slows down the intended workflow." Live reload only pays off if the whole loop is automatic -- edit the probe, call this, read the log.
+
+### dev-scripts/lua-forward-refs.py
+
+- FILE-SCOPE only (no leading whitespace). A local inside a function cannot be referenced from outside it, so it can never be the nil-global trap; and treating parameters as definitions produced nothing but noise on the first run.
+- Remove string literals and comments before searching for a use. Every false positive on the first real run came from one of these: `log` matching inside "..._%s.log", `drainBridge` inside a trailing comment, `send` inside prose. Searching the raw line finds words, not references.
+
+### dev-scripts/pseudo-hotreload.ps1
+
+- Wildcard, because the WINDOW belongs to 'pseudoregalia-Win64-Shipping' while a plain 'pseudoregalia' launcher stub also exists with no window at all -- the exact-name default matched only the stub and reported "no window" with the game running (2026-08-29).
+- Reports through $script:ReloadOk rather than a return value. A PowerShell function emits EVERYTHING it writes as its output, so a `return $false` alongside Write-Output lines hands the caller an ARRAY -- which is truthy, and swallows the messages so nothing prints. Found by running it: the first version printed nothing at all and reported success on a game that was not running.
+
+### dev-scripts/read-minidump.py
+
+- The one-move version of the 2026-09-01 diagnosis: python read-minidump.py UEMinidump.dmp --stack python read-minidump.py --symbolize <path>/main.dll 0x55564 0x5DCF0
+- Format per Microsoft's MINIDUMP_HEADER / MINIDUMP_DIRECTORY / MINIDUMP_MODULE / MINIDUMP_THREAD documentation. (The module-name RVA lives at offset 20 of MINIDUMP_MODULE, after BaseOfImage/SizeOfImage/CheckSum/TimeDateStamp -- the first version of this read it at 12, which "worked" by printing the bytes the checksum pointed at, i.e. garbage that looked like a broken dump rather than a broken reader.)
+
+### dev-scripts/stage-release.ps1
+
+- .gitignore has referred to "a local dry run" since the Emerald entry was written; this is it.
+- Accepted for release.yml's sake and currently a no-op. It used to remove the client config template after staging; since 2026-09-02 there is no template -- every game's config.json is cut from the root config.json's "client" block -- so there is nothing to remove.
+- Each game gets its own config.json, but NOT its own copy of the client -- shipping a 9 MB binary per game was rejected on 2026-08-18. The player copies meshghost.exe in once per game, which is the one manual step in the install and is called out in each game's README.txt. WHERE the per-game config is staged changed on 2026-09-05 (the user's call): for TEVI and Pseudoregalia it sits in games\<game>\ beside that game's README.txt, NOT inside the mod folder a player drags into the game. The mods now look for meshghost.exe and config.json in the GAME'S ROOT folder only (CoreLauncher.cs / CoreLauncher.cpp), so a config staged inside the mod folder would be dragged in with the mod and then read by nothing -- the exact trap a player editing "the config.json in the mod folder" would fall into. The player copies this file up with the exe. Emerald and Crystal are unchanged: their scripts run from the release folder and read the config beside the script (joined 2026-09-02; plans.md "Settings" step 3).
+- A per-game file carries only what a player might touch: the basics, collision and the render group. Everything else (keepalive, rate caps, transport, the machine-local bridge, diagnostics, the protocol-level trio) is ABSENT and takes the built-in default, which equals the shipped value; the root config.json keeps the complete set for the server and the hand-run client, and README.txt's ADVANCED list says a missing key can be added to a game's file. The user's call, 2026-09-03: no good reason for a player to pick udp. ('tls' and 'tls_fingerprint' stay in the list only so a stale root config carrying them is still stripped; both keys are obsolete since 2026-09-15, ADR 0066.) 'offline' and 'local_interp' joined the list on 2026-09-03 (ADR 0049 and its sibling): offline is a deliberate advanced choice the user asked to keep out of the per-game files, and local_interp is a render knob for a ghost this client invented that nobody should need to touch -- 'interp', the one a player really does tune, stays.
+- A string value is emitted quoted, a number bare (2026-09-06: Pseudoregalia's three distance-tier ranges are the first numeric per-game keys; before this every override became a quoted string, which is wrong for a number a player is meant to edit). A string is emitted quoted, a number bare (2026-09-06: Pseudoregalia's three distance-tier ranges are the first numeric per-game keys). A BOOLEAN needs its own case: [string]$true is "True", which is not JSON and would have produced a file no client could read. Nothing had overridden a bool yet, so it had never fired (2026-09-13).
+- A real match test, not "did the text change": an override whose value equals the source's (Pseudoregalia's local_game_bridge, once the root config carried it) used to read as "not found" and be INSERTED a second time -- a duplicate key that JSON parsers resolve silently. Found by the dry run on 2026-09-02.
+- Not in the template. INSERT it into the client block rather than failing, because a game may legitimately need a setting the shared template deliberately omits -- local_game_bridge is exactly that: honoured by Pseudoregalia, meaningless for TEVI, so it must not sit in the file every game gets. The old behaviour here was to throw, which protected against a typo silently doing nothing. That protection is kept in a different form: an addition is REPORTED as "(added)" in this script's output, so a misspelled key shows up as a new setting appearing rather than an existing one changing. Watch that line. Appended as the LAST key of the client block, so an added key lands in the advanced tier at the bottom (the tiers are the user's, 2026-08-30) rather than at the top of the basics, which is where the old "connect_to" anchor put it. Anchored on the block's closing brace rather than on a named key: the previous anchor was `"features"`, which the hidden-key pass above had already deleted, so every addition threw (found 2026-09-06 by the first numeric addition). The comma pass above has already stripped the last key's comma, so the added line brings its own.
+- Remove any staged lib\ from a previous run first: Copy-Item -Recurse into an EXISTING directory copies the source INTO it, so a re-run used to leave a doubled lib\lib\ nesting in the staged tree (found 2026-09-01; CI stages into a clean checkout and never saw it).
+
+### dev-scripts/tevi-hotreload.ps1
+
+- Already identical is the common case, and copying over a RUNNING core throws -- the exe is locked while a core is up, which is most of the time during a live session. Compare first, and treat a locked file as information rather than as a failure: an adapter reload does not need the core replaced, and aborting the deploy over it would stop the thing that actually was going to reload. Found live 2026-08-28, when this aborted a deploy mid-session.
+
+### dev-scripts/tevi-label-windows.ps1
+
+- WHY THIS EXISTS. Two TEVI copies are visually identical, and on 2026-08-28 that cost a whole measurement round: a charged-attack probe run was performed on one instance and read from the other's log, so a clean-looking result proved nothing. The user, asked which one: *"hard to keep track as they are identical"*. An instrument that cannot say WHICH subject it measured is not an instrument, and this is the cheapest possible fix for that.
+
+### dev-scripts/hot-reload-lua.ps1
+
+- HotReloadKey lives in each install's UE4SS-settings.ini and must match -Key. It is F10 for Pseudoregalia here: the default R is the sword-throw key, so every throw would reload every mod.
+
+### dev-scripts/run-core-pseudoregalia-online.bat
+
+- Pseudoregalia client with the two capabilities that help a REAL two-machine session, for testing with the Linux tester. Pair with run-relay-online.bat.
+
+### dev-scripts/run-core.bat
+
+- TWO BATCH TRAPS THIS FILE WAS WRITTEN INTO AND OUT OF, 2026-08-25, both silent:
+  - This file MUST keep CRLF line endings. cmd.exe mis-parses labels and `goto` in an LF-only .bat, and the first draft ran straight past its own argument validation and launched a core with an empty -game. The short 3-line scripts this replaces were LF too and never showed it, because they had no labels to mis-parse.
+  - `if COND set A & set B` does NOT put `set B` inside the condition -- cmd parses it as `(if COND set A) & set B`, so the tail runs unconditionally. Hence the plain goto dispatch below rather than anything more compact.
+- auto is the client's own default, so it is expressed by passing no flag at all rather than by -transport=auto -- keeping the command line identical to the old per-game scripts, which passed none.
+
+### dev-scripts/run-loadtest-peers.bat
+
+- Second argument spreads the peers over N areas, which is the only room SHAPE where the relay's cross-area filter (ADR 0041) can save anything -- a single-area room is its worst case by construction. Default 1 = every peer in one area, exactly the old behaviour, so a number recorded before -areas existed is still comparable. Run the relay with -introspect to read the filtered share. Measured 2026-08-28: 16 peers over 8 areas suppresses 93% of offered state bytes; the same 16 over 1 area suppresses 0%.

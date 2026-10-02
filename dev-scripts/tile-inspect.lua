@@ -1,10 +1,5 @@
--- MeshGhost — DEV: what does the game think the tile in front of the player IS? (READ-ONLY)
--- The rod was refused with "not usable here", so either the edited tile is not where the player
--- faces, or its behaviour is not water. This reads the tile the same way the game does and says
--- which.
--- Resolve this script's own directory instead of hardcoding one developer's
--- checkout. A tracked absolute path is unusable on anyone else's machine and is
--- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+-- What does the game think the tile in front of the player is? Reads it the way the game does and names its behaviour,
+-- read-only: when the rod is refused as "not usable here", it says whether the edited tile or the facing is wrong.
 local MESHGHOST_DIR = (function()
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then
@@ -53,8 +48,7 @@ MESHGHOST_DEV_TICK = function()
     local width = s32(GBACKUPMAPLAYOUT + 0x00)
     local map = u32(GBACKUPMAPLAYOUT + 0x08)
     log(string.format("player at (%d,%d) facing %d; backup map %dw at %08X", px, py, dir, width, map))
-    -- The tile under the player and all four neighbours, so a facing/coordinate mistake is visible
-    -- rather than inferred.
+    -- The tile under the player and all four neighbours, so a facing or coordinate mistake is seen, not inferred.
     for _, probe in ipairs({ {0,0,"under"}, {0,1,"south"}, {0,-1,"north"}, {-1,0,"west"}, {1,0,"east"} }) do
         local x, y = px + probe[1], py + probe[2]
         local raw = u16(map + (x + width * y) * 2)

@@ -1,9 +1,5 @@
--- DEV: does the game treat the edited tile as water? Walk into it and see.
--- Grass is walkable, water is not (without surfing), so "blocked" is the answer we are looking
--- for -- a behavioural test that needs no redraw and no menus.
--- Resolve this script's own directory instead of hardcoding one developer's
--- checkout. A tracked absolute path is unusable on anyone else's machine and is
--- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+-- Does the game treat the edited tile as water? Walks into it: grass lets the player through and water, without
+-- surfing, does not, so "blocked" is the answer, with no redraw and no menus.
 local MESHGHOST_DIR = (function()
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then

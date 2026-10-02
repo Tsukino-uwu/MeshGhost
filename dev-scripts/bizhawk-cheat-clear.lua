@@ -1,13 +1,5 @@
--- MeshGhost — BizHawk: remove the cheats the probe added (DEVELOPMENT TOOL, never shipped)
---
--- Written 2026-08-18 the moment a screenshot showed why it was needed. bizhawk-cheat-probe.lua
--- added six codes and left them listed so the Cheats dialog could be read. The dialog showed that
--- BizHawk had accepted two of them and decoded them to NONSENSE -- "F89BD08B ED8D449E" became
--- address 0x0000000E, value 0x8B, one byte -- and marked them ACTIVE. Those are not GBA addresses
--- (EWRAM starts at 0x02000000), so this build did not decrypt the codes, it parsed the hex.
---
--- An active cheat writing an arbitrary byte to an arbitrary low address every frame is exactly the
--- kind of thing that later gets blamed on the adapter, so it is removed rather than left.
+-- Removes the six codes bizhawk-cheat-probe.lua added. BizHawk can decode one to a nonsense address and mark it
+-- active, and a cheat writing an arbitrary byte every frame gets blamed on the adapter.
 local CODES = {
 	"F89BD08B ED8D449E",
 	"7DE5E94F 91EB4C93",

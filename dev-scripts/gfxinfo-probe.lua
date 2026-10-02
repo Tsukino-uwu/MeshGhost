@@ -1,9 +1,5 @@
--- MeshGhost — dump ObjectEventGraphicsInfo for a few graphics ids (READ-ONLY)
--- The ghost renders as garbage when built from a non-player graphic, so compare the entries
--- field by field: a different size, OAM shape or subsprite table is the likely cause.
--- Resolve this script's own directory instead of hardcoding one developer's
--- checkout. A tracked absolute path is unusable on anyone else's machine and is
--- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+-- Dumps ObjectEventGraphicsInfo for a few graphics ids, read-only: a ghost built from a non-player graphic renders as
+-- garbage, so compare size, OAM shape and subsprite table field by field against the player's.
 local MESHGHOST_DIR = (function()
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then

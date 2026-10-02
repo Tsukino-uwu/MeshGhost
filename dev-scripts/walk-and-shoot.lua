@@ -1,10 +1,5 @@
--- MeshGhost — DEV: walk the player a few tiles, then screenshot.
--- The surf blob is only repositioned by the engine when its rider MOVES
--- (SynchronizeSurfPosition), so a stationary frame cannot show whether an initial placement
--- error corrects itself. This drives real input to find out.
--- Resolve this script's own directory instead of hardcoding one developer's
--- checkout. A tracked absolute path is unusable on anyone else's machine and is
--- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+-- Walks the player a few tiles, then screenshots: the engine repositions the surf blob only when its rider moves
+-- (SynchronizeSurfPosition), so a still frame cannot show whether a placement error corrects itself.
 local MESHGHOST_DIR = (function()
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then

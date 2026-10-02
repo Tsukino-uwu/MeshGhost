@@ -1,19 +1,10 @@
--- MeshGhost — DEV: prove client.openrom loads an ARBITRARY rom, measuring both in one run.
---
--- The first attempt compared "before" against "after" across two SEPARATE runs and got identical
--- readings -- because the earlier run had already left the other rom loaded, so both samples were
--- the same cartridge. A carried-over state made a real difference invisible. Measure both inside
--- one run, from a known starting point you set yourself.
--- Both ROMs come from the environment, never from a literal. You supply your own copies:
--- MESHGHOST_ROM_VANILLA is an unmodified Emerald cartridge, MESHGHOST_ROM_PATCHED is any
--- patched seed (Archipelago or otherwise). Set them before launching BizHawk, or edit the
--- fallbacks below to point at wherever you keep yours. Nothing about a ROM path belongs in
--- this repo -- the paths are personal, and the seed filenames are too.
+-- Proves client.openrom loads an arbitrary ROM, fingerprinting both inside one run from a start it sets: across two
+-- runs, a ROM left loaded by the first makes both samples the same cartridge. MESHGHOST_ROM_VANILLA (unmodified
+-- Emerald) and MESHGHOST_ROM_PATCHED (any patched seed) are your own copies; no ROM path or seed name enters the repo.
 local ROM_VANILLA = os.getenv("MESHGHOST_ROM_VANILLA") or "<set MESHGHOST_ROM_VANILLA>"
 local ROM_AP = os.getenv("MESHGHOST_ROM_PATCHED") or "<set MESHGHOST_ROM_PATCHED>"
 
--- The cartridge header title is the same on both (a patch keeps it), so fingerprint CODE: the
--- region around CB2_Overworld is recompiled by the Archipelago patch (verified.md 2026-08-14).
+-- A patch keeps the header title, so fingerprint code around CB2_Overworld, which the Archipelago patch recompiles.
 local function fingerprint()
     local parts = {}
     for _, addr in ipairs({ 0x08085e5c, 0x08086800, 0x080867f0 }) do
@@ -22,8 +13,6 @@ local function fingerprint()
     return table.concat(parts, " ")
 end
 
--- Derived from this script's own location, the same way bizhawk-dev-loader.lua does it, so a
--- clone anywhere on disk works without editing.
 local function scriptDir()
     local info = debug.getinfo(1, "S")
     if info and info.source and info.source:sub(1, 1) == "@" then

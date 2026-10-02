@@ -1,21 +1,6 @@
--- ghostobjs_probe.lua -- READ-ONLY: which of the game's object events and hardware OAM entries
--- are MeshGhost's right now, and what each is drawing from.
---
--- Question (2026-09-02): after several hot reloads of the Emerald adapter with a crowd up, one
--- ghost stands still while its facing keeps changing, with the top of its hat cut off and the
--- wrong colours. That is either an orphan object from an earlier script instance that the fresh
--- one is still writing facing into, or a hardware entry pointing at tiles somebody else now
--- owns. This lists both tables once a second so the count of objects carrying the adapter's own
--- marker can be compared with the adapter's `status: ... ghosts=N` line, and each entry's tile
--- and palette read against the others.
---
--- Addresses and offsets are the adapter's own (adapters/emulator/pokemon/emerald/meshghost_emerald.lua):
---   gObjectEvents 0x02037350 (line 84), OBJECTEVENT_SIZE 0x24 (85), 16 entries; active = bit 0 of
---   +0x00, spriteId +0x04, graphicsId +0x05, localId +0x08 (GHOST_LOCAL_ID 255, line 3986),
---   currentCoords +0x10/+0x12 (spawnGhost writes them); gSprites 0x02020630 x 0x44 (86-87),
---   inUse bit 0 of +0x3e, attr2 at +0x04 (tile = & 0x3ff, palette = >> 12);
---   gMain.oamBuffer[64] at 0x030022f8 + 64*8 (line 8292), entries 64..119, dummy encoding
---   d0=0x00a0 d1=0x0130 d2=0x0c00 (line 8331) means "free". Reads only.
+-- Read-only, once a second: every Emerald object event wearing the adapter's marker (localId 255) and every hardware
+-- OAM entry 64..119 not in the engine's dummy encoding, with tile and palette. Compare ours= with the adapter's
+-- status ghosts=; a tile inside another owner's range is corruption.
 local dir = (debug.getinfo(1, "S").source:match("^@(.*)[/\\]") or ".")
 local f = io.open(dir .. "/../dev-logs/ghostobjs.log", "a")
 local frames = 0

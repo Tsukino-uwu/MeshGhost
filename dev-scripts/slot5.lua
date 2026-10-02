@@ -1,14 +1,3 @@
--- Set the savestate slot for load_slot.lua, which reads it as a global. DEV TOOL.
---
--- The dev loader shares one Lua environment per emulator, and load_slot.lua takes its slot from
--- MESHGHOST_LOAD_SLOT -- an environment variable fixed at emulator launch, or this global. So this
--- one line is how a running instance is told which state to load without a relaunch.
---
--- List it BEFORE load_slot.lua in the control file, and load_slot.lua before the adapter (its own
--- header says why: a savestate load was recorded killing the adapter on 2026-08-26).
---
--- Slot 5 is the user's SEAM position: one tile to the right of the Route/Town connection this
--- adapter's seam work is measured on, saved 2026-09-12 so a run always starts adjacent to the
--- boundary. Pair it with probes/seam_shuttle.lua, whose first leg then crosses immediately instead
--- of searching. Slot 1 is the user's own and is never written or loaded by tooling.
+-- Slot 5, the seam position one tile right of the connection the seam work is measured on, for load_slot.lua; with
+-- probes/seam_shuttle.lua the first leg crosses at once. List it before load_slot.lua, and that before the adapter.
 MESHGHOST_LOAD_SLOT = 5

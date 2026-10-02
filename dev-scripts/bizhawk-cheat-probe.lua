@@ -1,29 +1,7 @@
--- MeshGhost — BizHawk cheat-API probe (DEVELOPMENT TOOL, never shipped)
---
--- WHAT AND WHY
--- Reaching the game states an adapter still cannot handle -- surfing, both bikes, a specific map
--- on the far side of the region -- costs real play time per test. The emulator can shortcut
--- that with cheat codes, and BizHawk exposes its cheat engine to Lua (client.addcheat /
--- client.removecheat / client.opencheats, found in BizHawk.Client.Common.dll's API surface), so
--- the shortcut can be driven from here instead of typed into a dialog by hand.
---
--- This probe answers the question that has to come first: WHICH CODE FORMATS DOES THIS BUILD
--- ACTUALLY ACCEPT? BizHawk ships a `GbaGameSharkDecoder` and no CodeBreaker decoder that I can
--- find, while the surf/dive codes we have are documented as CodeBreaker-type. That is a real
--- difference, not a naming quibble: the two formats use different encryption, so a CodeBreaker
--- code fed to a GameShark decoder does not fail loudly -- it decodes to a DIFFERENT address and
--- writes there.
---
--- SAFETY
--- Each code here needs its own button combination to fire, and this probe presses nothing, so an
--- accepted code sits inert in the list. Codes are left added so the Cheats dialog can be read;
--- clear them there when done. The
--- MeshGhost adapter itself never touches cheats; this is the emulator's own feature, used by a
--- tester, and it is deliberately a separate file from any adapter.
---
--- HOW TO RUN
---   Point dev-scripts/bizhawk-dev-loader.target at this file. Results go to the Lua Console and
---   to bizhawk-cheat-probe.log beside this script, then it goes quiet.
+-- Asks which cheat-code formats this build's client.addcheat accepts, before cheats are used to reach a game state.
+-- The build has a GameShark decoder and no CodeBreaker one, and a code fed to the wrong decoder does not fail: it
+-- decodes to a different address and writes there. Presses nothing; the codes stay in the list for the Cheats dialog
+-- to be read, and bizhawk-cheat-clear.lua removes them.
 
 local CODES = {
 	{ name = "Littleroot Town warp (GameShark-style pair)", code = "F89BD08B ED8D449E" },
@@ -54,9 +32,7 @@ end
 log("=== MeshGhost BizHawk cheat-API probe ===")
 log("Codes are added and LEFT in the list so the Cheats dialog can be read. None is armed.")
 
--- Report the API surface before using it. A doc string in the DLL is not proof a function is
--- callable at runtime -- that exact trap was found live here on 2026-08-14, when
--- memory.hash_region turned out to be nil despite having a doc string (agent_docs/environment.md).
+-- A doc string in the DLL is not proof a function is callable, so report what exists first.
 for _, name in ipairs({ "addcheat", "removecheat", "opencheats" }) do
 	log(string.format("  client.%-12s -> %s", name, type(client and client[name])))
 end
@@ -67,9 +43,7 @@ if type(client) ~= "table" and type(client) ~= "userdata" then
 	return
 end
 
--- NLua exposes a .NET method as `userdata`, not `function`, and it is still callable -- so the
--- type name alone cannot decide this. Call it and see, which is the same posture the memory-API
--- trap above teaches.
+-- NLua exposes a .NET method as userdata, still callable, so only nil rules it out.
 if client.addcheat == nil then
 	log("client.addcheat does not exist in this build -- cheats would have to be entered by hand")
 	log("in the Cheats dialog (Tools -> Cheats), or loaded from a .cht file.")
@@ -77,10 +51,7 @@ if client.addcheat == nil then
 	return
 end
 
--- addcheat's own doc string reads: client.addcheat("NNNPAK") -- "adds a cheat code, IF
--- SUPPORTED". That last clause is the whole question: a pcall returning true only means the Lua
--- call did not throw, and an unsupported format is a silent no-op. So the verdict cannot come
--- from this script -- it comes from the Cheats dialog, which is opened at the end.
+-- addcheat adds a code "if supported": true only means no throw, so the Cheats dialog opened at the end is the verdict.
 for _, entry in ipairs(CODES) do
 	local ok, err = pcall(client.addcheat, entry.code)
 	log(string.format("  %-46s called -> %s%s", entry.name, tostring(ok),

@@ -1,17 +1,4 @@
--- MeshGhost — BizHawk syntax check (DEVELOPMENT TOOL, never shipped)
---
--- Loads each named Lua file with loadfile() and reports whether it COMPILES. It never runs any of
--- them, so an adapter's own socket/frame loop is not started and nothing touches the game.
---
--- WHY THIS EXISTS
--- BizHawk embeds Lua 5.4; the machine has no standalone Lua binary, so before this there was no
--- way to answer "does this file even parse?" short of loading it into a real emulator session and
--- watching it either work or fail. Editing an adapter's connect path and finding out from a live
--- session is a slow and destructive way to catch a missing `end`.
---
--- HOW TO RUN
---   Point dev-scripts/bizhawk-dev-loader.target at this file. Results go to the Lua Console and
---   to bizhawk-syntax-check.log beside this script, then it goes quiet.
+-- loadfile()s each file in FILES and reports whether it compiles under this build's embedded Lua, running none of them.
 
 local FILES = {
 	"../adapters/emulator/pokemon/emerald/meshghost_emerald.lua",
@@ -80,5 +67,4 @@ if logfile then
 	logfile = nil
 end
 
--- Nothing to do per frame; the loader just holds an idle tick.
 MESHGHOST_DEV_TICK = function() end

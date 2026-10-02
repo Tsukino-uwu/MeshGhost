@@ -1,8 +1,5 @@
--- MeshGhost — BizHawk input API probe (READ-ONLY: reports, presses nothing)
---
--- If input can be driven from Lua, an unattended test can do more than restore a savestate: it
--- could walk the player, open a menu, trigger a warp. This only asks what the host HAS -- it
--- presses nothing, because doing so while someone is playing would fight them for the controller.
+-- Reports what the joypad and input libraries expose. Presses nothing: input driven while someone plays fights them
+-- for the controller.
 local out = { "=== input API, as this host actually reports it ===" }
 for _, lib in ipairs({ "joypad", "input" }) do
     local t = _G[lib]

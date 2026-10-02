@@ -1,21 +1,9 @@
 @echo off
-rem MeshGhost -- builds the Pseudoregalia UE4SS C++ mod (main.dll) and stages it under
-rem packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\,
-rem mirroring the real Steam install's own folder layout (see stage-ue4ss-runtime.bat's
-rem comment) so the whole "pseudoregalia" folder is one drag-and-drop, ready to be zipped by
-rem .github\workflows\release.yml.
-rem
-rem CI cannot do this build itself: it needs a locally configured CMake build tree against
-rem RE-UE4SS (git submodule, pinned to this machine's installed UE4SS SHA) plus the private
-rem UEPseudo dependency, which isn't publicly cloneable (see agent_docs/phases/phase7.md's
-rem 7.2 entry). Our own output (main.dll) is fine to distribute -- it just has to be built
-rem locally and committed. Requires: the build tree already configured once under
-rem adapters\pseudoregalia\MeshGhostPseudo\build\ (CMake 4.x, VS 2022 Build Tools, C++
-rem workload -- see phase7.md for the one-time setup).
-rem
-rem Run this whenever Plugin.cpp/hpp, BridgeClient.cpp/hpp, dllmain.cpp, or CMakeLists.txt
-rem change, then commit the result -- release.yml refuses to cut a release if the committed
-rem DLL is older than those sources (staleness gate, compares against built-from.txt below).
+rem Builds main.dll and the UE4SS runtime, and stages main.dll in the game install's own folder layout, so the
+rem "pseudoregalia" folder under packaging\release\games\pseudoregalia\ is one drag-and-drop.
+rem CI cannot build it (the UEPseudo dependency is access-gated), so the output is committed, and the CMake
+rem tree under adapters\pseudoregalia\MeshGhostPseudo\build\ must already be configured once.
+rem Re-run and commit whenever a source hashed below changes: release.yml refuses sources that no longer match.
 
 setlocal enabledelayedexpansion
 
@@ -24,14 +12,7 @@ set SRC=%ROOT%\adapters\pseudoregalia\MeshGhostPseudo
 set GAMEDIR=%ROOT%\packaging\release\games\pseudoregalia
 set DEST=%GAMEDIR%\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo
 
-rem CLAUDE.md: "A build tool on PATH may silently resolve to the wrong install." Confirmed
-rem live 2026-08-15: a bare `cmake` on this project's dev machine resolves first to msys2's
-rem older bundled copy (C:\devkitPro\msys2\usr\bin\cmake.exe, 4.0.2), not the real install
-rem the build tree was actually configured with (C:\Program Files\CMake\bin\cmake.exe,
-rem 4.4.2) -- silently using the wrong one can produce a build that looks successful but
-rem doesn't match the configured tree. Prefer the real install explicitly if it's present;
-rem fall back to whatever's on PATH otherwise (e.g. a machine where CMake was installed
-rem somewhere else).
+rem A bare cmake can resolve to another install on PATH than the one the build tree was configured with.
 set CMAKE_EXE=cmake
 if exist "C:\Program Files\CMake\bin\cmake.exe" set CMAKE_EXE=C:\Program Files\CMake\bin\cmake.exe
 

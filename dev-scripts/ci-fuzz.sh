@@ -3,55 +3,21 @@
 #
 # Usage: dev-scripts/ci-fuzz.sh <package> <FuzzTarget> <fuzztime>
 #
-# WHY THIS EXISTS. `go test -fuzz` can exit non-zero with nothing but
-#
-#     --- FAIL: FuzzX (45.09s)
-#         context deadline exceeded
-#
-# when its own -fuzztime elapses while workers are still mid-execution. No input
-# crashed, nothing is written to testdata, and the same target passes on the next
-# run -- it is the engine reporting its own stop signal as a failure. Seen on CI
-# 2026-08-17: 45s, 3.98M executions, 273 new interesting inputs, no failing input,
-# and the identical target passed locally at the same -fuzztime.
-#
-# Left alone, that turns a green pipeline into an occasionally-red one for a reason
-# that means nothing -- and a build that is red for no reason is worse than no build,
-# because it trains everyone to stop reading it. CLAUDE.md's rule is to go and look
-# at what CI did with a push; that rule only survives if a red run is always worth
-# looking at.
-#
-# WHAT IT DOES NOT DO: swallow real failures. A genuine find always leaves evidence,
-# and both forms are checked for explicitly below --
-#
-#   * "Failing input written to testdata/..." -- a new crasher, and the file it names
-#     is what gets committed as a regression case.
-#   * "failure while testing seed corpus entry" -- an already-committed reproducer
-#     (or seed) failing, which is a regression in exactly the case a previous find
-#     was pinned against.
-#
-# Anything else non-zero -- a build error, a panic in the harness, a plain test
-# failure -- is still a failure. Only the bare deadline is forgiven, and it is
-# reported as a warning so it stays visible rather than silent.
+# `go test -fuzz` can exit non-zero with only "context deadline exceeded" when its own -fuzztime elapses
+# mid-execution, with no failing input. That bare deadline is forgiven, as a warning; anything else non-zero fails.
 set -uo pipefail
 
 pkg=${1:?usage: ci-fuzz.sh <package> <FuzzTarget> <fuzztime>}
 target=${2:?usage: ci-fuzz.sh <package> <FuzzTarget> <fuzztime>}
 fuzztime=${3:?usage: ci-fuzz.sh <package> <FuzzTarget> <fuzztime>}
 
-# -run=XXX so the package's ordinary tests do not run again here; the test job has
-# already run them under -race.
+# -run=XXX: the race job has already run the package's ordinary tests.
 out=$(go test "$pkg" -run=XXX -fuzz="$target" -fuzztime="$fuzztime" 2>&1)
 code=$?
 printf '%s\n' "$out"
 
-# A NAME THAT MATCHES NOTHING IS A FAILURE, NOT A PASS. -fuzz takes a REGEXP, and
-# `go test` treats "no fuzz tests to fuzz" as a warning and exits 0 -- so a renamed
-# or deleted target silently stopped being campaigned while its CI step stayed
-# green and kept reporting the time it did not spend. Every step pass a bare
-# name, so any one of them could go quiet this way; this repo has already found
-# two targets that existed and were wired to nothing (2026-09-03, 2026-09-05), and
-# this is the same class one layer up. Checked before the exit-0 branch, because
-# that is the branch it would otherwise take. Found by the 2026-09-07 review.
+# -fuzz takes a regexp and go test exits 0 on a non-match, so a renamed target would pass without running; checked
+# before the exit-0 branch.
 if printf '%s' "$out" | grep -q "no fuzz tests to fuzz"; then
   echo "::error::$target matched no fuzz target in $pkg -- the name is a regexp and a non-match is a WARNING to go test, so this step was passing without running anything. Fix the name or delete the step."
   exit 1
@@ -61,6 +27,7 @@ if [ "$code" -eq 0 ]; then
   exit 0
 fi
 
+# A real find: a new crasher written to testdata, or a committed seed corpus entry failing.
 if printf '%s' "$out" | grep -qE "Failing input written to|failure while testing seed corpus entry"; then
   echo "::error::$target found a real failing input -- download that shard's fuzz-failure-corpus-<shard> artifact and commit it under testdata/fuzz/$target/"
   exit 1

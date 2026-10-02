@@ -1,18 +1,7 @@
 @echo off
-REM The dormant plain-udp transport's own tests, run by hand -- the one place they run at all.
-REM
-REM Since 2026-09-15 (ADR 0065) netx/udpconn compiles only under the meshghost_devudp build tag:
-REM no release serves or dials udp, run-gotests.bat never compiles it, and CI only vets it
-REM (the "Vet the dev-only udp build" step) so a refactor cannot rot it silently. It is kept as a
-REM comparison tool against quic -- the same datagram-shaped path without QUIC's congestion
-REM control -- so before a quic comparison, or after touching anything netx/udpconn shares with
-REM the other transports, this is the script to run.
-REM
-REM What it covers, under the tag: netx/udpconn itself, netx's conformance suite with udp in
-REM transportsUnderTest, relay's mixed-transport room test in its three-way form, and cmd/. What it
-REM does NOT cover: internal/e2e, which builds the release binaries from source and therefore
-REM never has udp -- a udp round trip through real binaries would need a tagged build, and nobody
-REM ships one. Same output discipline as run-gotests.bat: the whole run lands in a file.
+REM The dev-only plain-udp transport's tests: netx/udpconn compiles only under the meshghost_devudp tag, CI only vets
+REM it, and run-gotests.bat never builds it. Run it after touching what udpconn shares with the other transports.
+REM internal/e2e is not covered: it builds release binaries, which have no udp.
 cd /d "%~dp0.."
 
 echo === go vet (tagged) ===

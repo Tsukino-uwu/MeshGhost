@@ -1,29 +1,21 @@
 <#
 .SYNOPSIS
-Cuts a release the only way that has not failed: preflight, rebuild what it calls stale, preflight
-again, push, wait for CI, then dispatch release.yml -- and refuse at the first red.
+Cuts a release: preflight, rebuild what it calls stale, preflight again, push, wait for CI, then
+dispatch release.yml -- and refuse at the first red.
 
 .DESCRIPTION
-v1.2.6's first dispatch (2026-09-10) was refused by release.yml's staleness gate: the Pseudoregalia
-DLL postdated a comment-only Plugin.cpp change. Preflight had ALREADY printed "Pseudoregalia DLL
-is STALE" that evening and the dispatch was a bare `gh workflow run` that never asked -- and the
-user said it was the second time a release had been cut into that gate.
-The user, 2026-09-10: *"can we make it a preflight thing to rebuild dll things before a release
-or something? this is the 2nd time this happened"*. This script is that: the dispatch is behind
-the checks, so a release cannot be cut past a FAIL that was on screen.
-
-ONE IMPLEMENTATION: nothing here re-derives a check. preflight.ps1 decides what is stale and what
-is wrong; this script reads its verdicts, runs the repo's own build scripts for what it names,
-and stops on anything else. A check added to preflight is a check on releases from then on.
+The dispatch sits behind the checks, so a release cannot be cut past a preflight FAIL. Nothing here
+re-derives a check: preflight.ps1 decides what is stale and what is wrong, this script runs the
+repo's own build scripts for what it names and stops on anything else, so a check added to
+preflight is a check on releases too.
 
 .PARAMETER Version
 The tag, e.g. v1.2.6. Refused if it already exists on origin.
 
 .PARAMETER HighlightsFile
-A file whose contents become the release body above the generated changelog. Passed to gh with
-the `@` that makes gh read the file (without it gh sent the PATH as the body, 2026-09-07). Draft
-it in chat with the user; their scope rule: relay/client-specific changes, or something big for
-one game -- never QoL lines.
+A file whose contents become the release body above the generated changelog, passed to gh with
+`@` so gh reads the file rather than sending its path. Scope: relay/client-specific changes, or
+something big for one game, never QoL lines.
 
 .PARAMETER Prerelease
 Mark the release a pre-release.
@@ -34,7 +26,7 @@ the default.
 
 .EXAMPLE
 & $env:ComSpec /c is not needed: this is PowerShell. From the repo root:
-    powershell -NoProfile -ExecutionPolicy Bypass -File dev-scripts\release.ps1 -Version v1.2.6 -HighlightsFile C:\path\highlights.md
+    powershell -NoProfile -ExecutionPolicy Bypass -File dev-scripts\release.ps1 -Version v1.2.6 -HighlightsFile <highlights file>
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Version,
@@ -49,17 +41,14 @@ $ErrorActionPreference = "Continue"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $root
 
-# git BY PATH, never by name: in PowerShell on this machine `git` resolves to the devkitPro/MSYS2
-# shadow (CLAUDE.md, Method: "anything on PATH may resolve to the wrong install"), whose diff of
-# a CRLF working copy against an LF index reported 3,167 phantom lines and refused the second run.
+# git by path, never by name: `git` on PATH can resolve to a devkitPro/MSYS2 shadow with its own line-ending view.
 $git = @("C:\Program Files\Git\cmd\git.exe", "C:\Program Files\Git\bin\git.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $git) { Write-Host "no Git for Windows under Program Files -- falling back to whatever 'git' on PATH is" -ForegroundColor Yellow; $git = "git" }
 
 function Step($msg) { Write-Host ""; Write-Host "== $msg ==" -ForegroundColor Cyan }
 function Refuse($msg) { Write-Host ""; Write-Host "RELEASE REFUSED: $msg" -ForegroundColor Red; exit 1 }
 function Cmd($file, $argList) {
-    # Every .bat goes through ComSpec: a bare name on PATH has resolved to a devkitPro/MSYS2
-    # shadow three times (CLAUDE.md, Method).
+    # Every .bat goes through ComSpec: a bare name on PATH can resolve to a devkitPro/MSYS2 shadow.
     & $env:ComSpec /c "`"$file`" $argList"
     if ($LASTEXITCODE -ne 0) { Refuse "$file exited $LASTEXITCODE" }
 }
@@ -70,12 +59,8 @@ if ($HighlightsFile -ne "" -and -not (Test-Path -LiteralPath $HighlightsFile)) {
 Step "Repository state"
 $branch = (& $git rev-parse --abbrev-ref HEAD).Trim()
 if ($branch -ne "master") { Refuse "on branch '$branch'; releases are cut from master" }
-# CONTENT, not status: on this machine `git status` lists files whose only difference is the line
-# ending the .gitattributes would give them on the next touch (the first run of this script refused
-# on nine such phantoms, every one with an empty `git diff`). A release cares that no edit is
-# uncommitted, and `git diff --quiet --ignore-cr-at-eol HEAD` answers exactly that (a CRLF-only
-# working copy is not a change either). Submodules are ignored because a
-# dirty submodule checkout is not a change to this repository's content.
+# Content, not status: `git status` lists files whose only difference is a line ending, and a dirty submodule
+# checkout is not a change to this repository either.
 & $git diff --quiet --ignore-cr-at-eol --ignore-submodules HEAD -- 2>$null
 if ($LASTEXITCODE -ne 0) {
     & $git --no-pager diff --ignore-cr-at-eol --ignore-submodules --stat HEAD -- 2>$null | ForEach-Object { Write-Host $_ }
@@ -147,13 +132,11 @@ if (-not $SkipCI) {
     Step "Waiting for CI on $($sha.Substring(0,8))"
     Start-Sleep -Seconds 25
     $deadline = (Get-Date).AddMinutes(40)
-    # `--json` and ConvertFrom-Json, never a `-q` jq expression: the first run of this script
-    # quoted one through PowerShell into gh's usage text, every 30 s, for the whole deadline.
+    # `--json` and ConvertFrom-Json, never a `-q` jq expression: PowerShell's quoting turns one into gh's usage text.
     while ($true) {
         $json = & gh run list --commit $sha -L 20 --json status,conclusion,workflowName | Out-String
         $runs = @()
-        # Windows PowerShell 5.1 hands a JSON array back as ONE object; the ForEach-Object
-        # unrolls it (checked live: without it the two runs printed as one line of joined fields).
+        # Windows PowerShell 5.1 hands a JSON array back as one object; the ForEach-Object unrolls it.
         if ($json.Trim() -ne "") { $runs = @($json | ConvertFrom-Json | ForEach-Object { $_ }) }
         $pending = @($runs | Where-Object { $_.status -ne "completed" })
         if ($runs.Count -gt 0 -and $pending.Count -eq 0) { break }
@@ -165,13 +148,9 @@ if (-not $SkipCI) {
     if ($red.Count -gt 0) { Refuse "CI is red on HEAD -- read it (gh run view <id> --log-failed), fix, run this again" }
     Write-Host "every workflow on HEAD is green"
 
-    # HEAD's runs are only the workflows HEAD's own push triggered, and every workflow but hygiene
-    # is path-filtered: a .go commit whose race or fuzz run went red, then a .md-only commit on
-    # top, left only docs and hygiene on HEAD, and this check said green (pass 5 of the
-    # adversarial review, 2026-09-16, X2-4). So also refuse when the NEWEST COMPLETED run of any
-    # workflow on master is red, whichever commit it ran for. The release workflow itself is
-    # excluded (it is what this script is about to dispatch), and so are cancelled and skipped
-    # runs, which say nothing about the code.
+    # HEAD's runs are only what its own push triggered, and every workflow but hygiene is path-filtered, so a red race
+    # run under a docs-only commit would pass: also refuse when any workflow's newest completed run on master is red.
+    # Release (about to be dispatched), cancelled and skipped runs say nothing about the code.
     $json = & gh run list --branch master -L 200 --json workflowName,status,conclusion,headSha,createdAt | Out-String
     $all = @()
     if ($json.Trim() -ne "") { $all = @($json | ConvertFrom-Json | ForEach-Object { $_ }) }

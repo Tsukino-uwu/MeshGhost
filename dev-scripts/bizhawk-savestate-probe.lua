@@ -1,8 +1,5 @@
--- MeshGhost — BizHawk savestate API probe (READ-ONLY: reports, changes nothing)
---
--- A doc string in BizHawk's DLL is not proof a function is callable -- memory.hash_region had one
--- and was nil at runtime (agent_docs/environment.md). So before relying on savestates for
--- testing, ask the live host what it actually has. This SAVES NOTHING and LOADS NOTHING.
+-- Reports which savestate functions this build has, since a doc string in the DLL is not proof one is callable.
+-- Saves nothing and loads nothing.
 local names = { "save", "load", "saveslot", "loadslot", "saveslots" }
 local out = { "=== savestate API, as this host actually reports it ===" }
 if savestate == nil then
