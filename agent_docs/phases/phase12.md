@@ -1186,3 +1186,23 @@ one-second rate would read 50; `README.md`, `crowd-limits.md` and `phase8.md` ca
 measurement), `hot-reload-lua.ps1`'s TEVI example would send F10 (ScriptEngine's key is F6), and `run-netsim.bat` said
 a seed replays the same fault sequence (the same distribution). `scaling.md`'s pointer into `stage-release.ps1` now
 names the loop. Proofs: `luac -l -l` listings, PowerShell tokens and comment-only lines identical.
+
+## 2026-10-03 (pause) — A5: the first pass committed everywhere, the gate commit and the second pass in flight
+
+Committed this session: the workflows (`555960fc`), the probes of all three adapters (`1aa067d2`, `a171a0ec`,
+`43dd73ba`), and the second pass over the Go side bar core's tests (`f8a99a29`), Emerald (`db32d368`), Crystal
+(`3f9b321b`), TEVI and dev-scripts (`84ec0940`, DLL rebuilt `5609829d` and deployed to both TEVI installs). Left in the
+tree, uncommitted:
+- the gate commit: `preflight.ps1` makes comment traces a hard FAIL (no floors) and lowers the probe folders'
+  decomp-citation floors to 0 and 3; `negative-test-preflight.ps1` renames the fixture's section; `dev-scripts/README.md`
+  says so; `status.md`'s PINNED line is shortened. Preflight passes both sections; `negative-test-preflight.ps1` was at
+  fixture 38 of about 61 with no FAIL when the session paused; re-run it, then commit as a gate commit;
+- core's tests, second pass (`private/a5/p2-coreT.txt`, proved token-identical): `run-gotests.bat` failed two
+  timing-bound tests under heavy load (the session flap's sample count, the chaser's lag), code identical to HEAD; re-run
+  on a quiet machine before committing, and chase it per `testing.md` if it reproduces;
+- `Plugin.cpp`'s second pass in three parts (`private/a5/parts/plugincpp2/`; part 2 done, parts 1 and 3 were running):
+  `parts.py check`, `parts.py join`, C++ tokens, rebuild `main.dll` with `build-pseudoregalia.bat`, deploy;
+- autoplay's second pass (`p2-autoplay.txt`) was running.
+Not started: `p2-pseudoB` (the other Pseudoregalia sources), `p2-gate` (workflows, hooks, the two gate scripts), and
+the probes' second pass. Then A6. Every batch's line pointers to fix at commit time, and the code questions found on
+the way (each a code change for a decision), are in `private/a5/notes-session3.md`.
