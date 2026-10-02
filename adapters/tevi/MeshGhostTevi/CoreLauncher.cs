@@ -8,34 +8,20 @@ using BepInEx;
 
 namespace MeshGhostTevi
 {
-    // Starts meshghost.exe alongside TEVI, and takes it down again with the game.
-    //
-    // MeshGhost is meant to feel like part of starting the game, not a second program the player
-    // has to remember. Pseudoregalia's mod has done this since 2026-08-16 (CoreLauncher.cpp,
-    // confirmed working under Proton with a Linux tester); this is the same design in C#, and the
-    // decisions below are its decisions -- they were paid for once already and are not re-derived
-    // here.
-    //
-    // AUTO-CLOSE is the half that is easy to forget. The child gets -exit-with-pid=<our pid>, so it
-    // exits on its own if this process dies in any way at all, including a crash where no shutdown
-    // hook runs. Stop() is the clean path on a normal quit: killing it there means the player's
-    // ghost leaves the room immediately rather than when the relay's idle timeout eventually
-    // notices. Belt and braces, because a leftover core holds the bridge port and the next launch
-    // then attaches to a core with no game behind it.
+    // Starts meshghost.exe alongside TEVI and takes it down with the game. The child gets -exit-with-pid, so it exits
+    // even after a crash that runs no shutdown hook; Stop() on a clean quit makes the ghost leave the room at once. A
+    // leftover core would hold the bridge port, and the next launch would attach to a core with no game behind it.
     internal sealed class CoreLauncher
     {
-        // Opting out is a supported configuration, not a debug switch: an antivirus that objects to
-        // one program starting another is a real thing that happens to real players, and the
-        // documented answer is to set this and start the core yourself.
+        // Opting out is a supported configuration: an antivirus may object to one program starting another.
         private const string NoAutostartEnv = "MESHGHOST_NO_AUTOSTART";
 
-        // A core needs a moment to bind its listener. Spawning again before then is how you end up
-        // with a pile of processes fighting over one port.
+        // A core needs a moment to bind; spawning again sooner piles up processes fighting over one port.
         private static readonly TimeSpan SpawnCooldown = TimeSpan.FromSeconds(5);
 
         private readonly Action<string> log;
         private Process child;
-        // The port the child was told to serve. The walk moving off it is the signal below.
+        // The port the child was told to serve; a busy answer from it means another game took the child.
         private int childPort;
         private DateTime lastSpawn = DateTime.MinValue;
         private bool disabled;
@@ -46,22 +32,12 @@ namespace MeshGhostTevi
             this.log = log;
         }
 
-        // Called every frame while the bridge is NOT connected. Cheap: it returns immediately in
-        // every case except the one where a spawn is actually due.
+        // Every frame while the bridge is not connected; returns at once unless a spawn is due.
         internal void TickDisconnected(int bridgePort, int lastBusyPort)
         {
-            // OUR OWN CHILD'S PORT ANSWERED "BUSY" WHILE THE CHILD IS STILL ALIVE. That means
-            // another game reached it first (two copies launched close together: the second's
-            // core bound the shared base port before the first's, and the first attached to it).
-            // "My child is running" was read as "I have a core" and no spawn ever followed, so the
-            // walk found silence on every other port and looped forever -- the standalone copy
-            // sat like that for minutes on 2026-09-02. The child is not killed: a game is using
-            // it. It is FORGOTTEN, so a fresh core is started at the cursor.
-            //
-            // ONLY on "busy", never because the cursor moved on: the first version of this also
-            // forgot the child when the walk left its port on silence, and two instances
-            // restarting together then chased each other's fresh cores round the range (watched
-            // on Emerald the same night: three cores for two games).
+            // Our own child's port answered busy while the child lives: another game reached it first. The child is
+            // forgotten, not killed, so a fresh core starts at the cursor. Only on busy, never on silence: forgetting
+            // on silence made two restarting instances chase each other's fresh cores round the range.
             if (ChildStillRunning() && childPort != 0 && lastBusyPort == childPort)
             {
                 log($"MeshGhost: the core this adapter started (pid {child.Id}, port {childPort}) is serving " +
@@ -94,8 +70,7 @@ namespace MeshGhostTevi
             string exe = FindCoreExe();
             if (exe == null)
             {
-                // Said once, not every frame, and it names the folder rather than the failure:
-                // "meshghost.exe not found" with no location is the least useful form of this.
+                // Said once, and naming the folder: "not found" with no location helps nobody.
                 disabled = true;
                 log("MeshGhost: meshghost.exe was not found -- not starting a core. Put it in the TEVI " +
                     "folder (the one with TEVI.exe) alongside config.json; if it was there, check " +
@@ -109,14 +84,10 @@ namespace MeshGhostTevi
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = exe,
-                    // No relay settings passed. The child reads config.json out of its own
-                    // directory, which is the file a player edits -- passing -relay here would
-                    // silently override it and make that file look broken.
+                    // No relay settings: the child reads the config.json a player edits, which -relay would override.
                     Arguments = $"-exit-with-pid={Process.GetCurrentProcess().Id} -bridge=127.0.0.1:{bridgePort}",
                     WorkingDirectory = Path.GetDirectoryName(exe),
-                    // The console app never gets a console at all, so there is no window to flash
-                    // and hide. A player who wants one back sets show_console in config.json, which
-                    // the core acts on itself by allocating one after the fact.
+                    // No console at all, so no window flashes; show_console in config.json makes the core allocate one.
                     UseShellExecute = false,
                     CreateNoWindow = true,
                 };
@@ -132,9 +103,7 @@ namespace MeshGhostTevi
             }
         }
 
-        // Called once per connection. "Did it start its own core or find mine?" is the first
-        // question worth asking when someone reports two processes or a stale config, and with no
-        // console window anywhere this log line is where they would look.
+        // Logged once: whether it started its own core or found one is the first question when two processes appear.
         internal void TickConnected()
         {
             if (child == null && !loggedReuse)
@@ -158,7 +127,7 @@ namespace MeshGhostTevi
             }
             catch (Exception e)
             {
-                // Not worth failing a shutdown over -- -exit-with-pid gets it a moment later.
+                // Not worth failing a shutdown over: -exit-with-pid ends it a moment later.
                 log($"MeshGhost: could not stop the core ({e.Message}); it will exit on its own.");
             }
             child = null;
@@ -177,31 +146,8 @@ namespace MeshGhostTevi
             }
         }
 
-        // Resolved from THIS ASSEMBLY's location, not the working directory and not the game's
-        // install path. Neither of those is reliable: the plugin is dropped into the game's
-        // BepInEx/plugins tree, and a game's working directory is whatever its launcher chose. The
-        // one thing that is always true is that meshghost.exe ships beside this DLL.
-        // Where the bridge port range starts, from the config.json the player actually edits.
-        //
-        // Until 2026-08-28 this adapter's only port setting was BepInEx's own BridgePort, so
-        // "local_game_bridge" in config.json moved the CORE and not the adapter, and the two then
-        // never found each other -- the setting did not fail loudly, it silently broke the
-        // connection. Reported on Pseudoregalia as "setting the config to 7780 it still starts at
-        // 7778"; the same defect, in a different language, and all four adapters had a version.
-        //
-        // Searched in CoreSearchDirs order, because config.json travels WITH meshghost.exe --
-        // "the client reads the config.json in its own folder" is what every game's README says,
-        // so the first directory holding the exe is the one holding the config that governs it.
-        //
-        // Parsed by hand rather than with a JSON library: the shape is fixed ("host:port", quoted)
-        // and this assembly deliberately carries no JSON dependency. Anything unrecognised falls
-        // through to the caller's fallback rather than throwing.
-        // "autostart": false in the config.json beside meshghost.exe says "do not start a client;
-        // use whichever one is running". The user's call 2026-09-03: the environment variable
-        // above did the same job, but "environment variable" means nothing to most players and
-        // a line in the file they already edit does. Same search order and the same hand parse
-        // as ResolveBridgeBasePort, for the same reasons; absent, or anything but false, means
-        // autostart. The variable still works -- either one saying no is a no.
+        // "autostart": false in the config.json beside meshghost.exe: use whichever core is running, never start one.
+        // Absent, or anything but false, means autostart; the environment variable saying no is still a no.
         public static bool ConfigSaysNoAutostart()
         {
             try
@@ -226,12 +172,8 @@ namespace MeshGhostTevi
             return false;
         }
 
-        // "map_markers": false in the same config.json hides peers' markers on the pause-menu map
-        // (user, 2026-09-10: "can we add that as a client config setting? to toggle it on/off. on by
-        // default"). Same file, same search order, same hand parse as autostart above: this is the
-        // one file a player already edits, and the key means the same thing for any adapter that
-        // draws a map marker. Absent, or anything but false, means markers on. Re-read by the
-        // plugin when the file's timestamp changes, so a save takes effect without a restart.
+        // "map_markers": false in the same config.json hides peers' markers on the pause-menu map; absent, or anything
+        // but false, means on. The stamp lets the plugin re-apply it when the file changes, without a restart.
         public static bool ConfigSaysNoMapMarkers(out System.DateTime stamp)
         {
             stamp = System.DateTime.MinValue;
@@ -258,10 +200,11 @@ namespace MeshGhostTevi
             return false;
         }
 
+        // Where the bridge port range starts, from the config.json the player edits, so local_game_bridge moves the
+        // adapter and the core together.
         public static int ResolveBridgeBasePort(int fallback)
         {
-            // The environment wins, and it is the same variable name the two Lua adapters use, so
-            // one launcher setting moves every game's range the same way.
+            // The environment wins: the variable every adapter reads, so one launcher setting moves every game's range.
             try
             {
                 string env = Environment.GetEnvironmentVariable("MESHGHOST_BRIDGE_PORT");
@@ -298,8 +241,7 @@ namespace MeshGhostTevi
                     {
                         return port;
                     }
-                    // The first config.json found wins even without the key: a later one belongs
-                    // to a different install, and silently preferring it is worse than the default.
+                    // The first config.json found wins even without the key: a later one belongs to another install.
                     break;
                 }
             }
@@ -334,20 +276,8 @@ namespace MeshGhostTevi
             }
         }
 
-        // Where the client, its config.json, its log and its replay folder live: the game's ROOT
-        // folder -- the one holding TEVI.exe and BepInEx\ -- and nowhere else. The user's call,
-        // 2026-09-05, a full swap: the DLL has to sit where BepInEx loads it, but the file a player
-        // edits does not, and five folders deep is where nobody looks. Until v1.1.5 this searched
-        // the plugin folder (and, for the hot-reload tool, BepInEx\scripts); those are deliberately
-        // NOT a fallback now, so there is exactly one place a config can be and the log names it.
-        //
-        // Paths.GameRootPath is BepInEx's own; a wrong name here is a build error, not a silent
-        // miss, since this project compiles against BepInEx.Core (agent_docs/access-models.md),
-        // and the installed BepInEx.dll carries the property (checked 2026-09-05).
-        //
-        // The environment override stays, ahead of the root: it is the dev escape hatch for
-        // running against a dev-built meshghost.exe (adapters/tevi/FLAGS.md), and it is not the
-        // mod folder.
+        // The client, its config.json, log and replays live in the game's root folder, the one holding TEVI.exe, and
+        // nowhere else, so a config has one place to be. MESHGHOST_CORE_DIR is the dev override for a dev-built client.
         private static IEnumerable<string> CoreSearchDirs()
         {
             yield return Environment.GetEnvironmentVariable("MESHGHOST_CORE_DIR");

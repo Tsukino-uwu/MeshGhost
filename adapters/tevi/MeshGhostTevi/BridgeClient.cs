@@ -9,15 +9,9 @@ using Newtonsoft.Json.Linq;
 
 namespace MeshGhostTevi
 {
-    // Phase 6, step 6.4/6.5: the adapter side of the bridge wire protocol
-    // (internal/bridge/bridge.go), written from adapters/_template/PROTOCOL.md's pseudocode --
-    // "local_state" out, "render_remote"/"despawn_remote" in, NDJSON framing, core listens,
-    // adapter dials. No handshake, no auth, localhost only, per contract.md.
-    //
-    // Connect and read happen on a background thread because NetworkStream.Read blocks; Unity's
-    // Update() runs on the main thread and must never block on it. Sending is done directly from
-    // Update() on the main thread -- small, infrequent, localhost writes, matching the Lua
-    // adapter's own "the bridge is localhost, that cost is free" reasoning in contract.md.
+    // The adapter side of the bridge: NDJSON over loopback TCP, local_state out, render_remote and despawn_remote in.
+    // Connect and read run on a background thread because NetworkStream.Read blocks and Unity's main thread must not;
+    // sends are small loopback writes straight from Update() on the main thread.
     public sealed class BridgeClient
     {
         public sealed class RemoteState
@@ -27,128 +21,66 @@ namespace MeshGhostTevi
             public string Orientation;
             public string Anim;
 
-            // Room-grid coordinates (TEVI's map is room-based, not continuous-position-based --
-            // see agent_docs/phases/phase6.md's 6.7 entry), carried in the wire protocol's
-            // free-form "extras" dict (contract.md) rather than a schema change. Null means
-            // "not present on this message" (e.g. an older peer, or a state with no room data
-            // yet), distinct from a real 0,0 room.
+            // Room-grid coordinates for the map marker. Null means absent from this message, never room 0,0.
             public int? RoomX;
             public int? RoomY;
 
-            // WHICH afterimage trail this character is currently spawning, as TEVI's own
-            // SpriteAnimation decides it: 0 none, 1 the trailcolor trail (slide and quickdrop),
-            // 2 the dodge trail. Carried in `extras` for the same reason RoomX/RoomY are -- it is
-            // game-specific and the core must never interpret it (contract.md: opaque outside the
-            // adapter that produced it).
-            //
-            // A MODE, not a colour and not a move name. The game keys its own trail off a byte
-            // computed each frame from three public values, and mirroring that DECISION is what
-            // makes every move using the system work at once instead of one move at a time --
-            // see Plugin.ReadTrailMode. Null means "not present on this message", i.e. a peer
-            // that predates this field, which must render as no trail rather than as mode 0
-            // asserted.
+            // Which afterimage trail the game's own decision spawns: 0 or null none, 1 slide or quickdrop, 2 dodge.
             public int? TrailMode;
-            // The trail's own parameters, read off SpriteAnimation when TrailMode is 1: anything in
-            // the game may call SetTrail with its own rate, decay, colour and order, and a ghost
-            // that assumed the defaults spawned the wrong count and the wrong look (2026-09-10).
+            // Mode 1's own parameters: anything in the game may call SetTrail with its own rate, decay, colour, order.
             public float? TrailRate;
             public float? TrailDecay;
             public int? TrailRgba;
             public int? TrailOrder;
             public bool? TrailHaveEffect;
 
-            // A ONE-SHOT pooled VFX the game spawned for this character, as a monotonic counter
-            // plus which effect it was. A counter rather than a flag because the state plane is
-            // latest-wins: a boolean impulse can be missed entirely between two frames, while a
-            // counter survives a dropped frame and cannot double-fire on a repeated one. The
-            // effect id is an index into the game's own CommonEffectsPooler -- opaque to the core,
-            // meaningful only between two TEVI clients, exactly like Anim and TrailMode.
+            // A one-shot pooled effect, as a monotonic counter plus its CommonEffectsPooler index. A counter, not a
+            // flag: on a latest-wins plane a flag can be missed between two frames, and a counter cannot double-fire.
             public int? VfxSeq;
             public int? VfxEffect;
 
-            // Facing AT THE MOMENT the effect fired, not when it is rendered. The attack can be
-            // performed while turning, so by the time a peer draws it the character's current
-            // facing may already be the other one -- which mirrored the effects onto the wrong
-            // side when moving left/right mid-move. An impulse carries its own context.
+            // Facing when the effect fired, not when it renders: the attack can turn mid-move.
             public bool? VfxFacingLeft;
 
-            // Seconds of HITSTOP this character's game is currently holding
-            // (`GameSystem.GetTempPause()`). Carried because the hitstop is not only feedback to
-            // the person swinging: it freezes THEIR animation, so a second real player watching
-            // over a network would see a frozen character. We sync the clip NAME, not the clip
-            // TIME, so without this the ghost's Animator keeps advancing through a pause the peer
-            // is actually holding -- the attack reads as rushed. The watcher's own game is never
-            // paused; only the ghost's Animator is.
+            // Seconds of hitstop the peer is in: it freezes the attacker's animation, so it freezes the ghost's
+            // Animator, never the watcher's game.
             public float? TempPause;
 
-            // WHERE IN THE CLIP this character is, 0..1. Anim carries WHICH clip; without this the
-            // ghost's Animator starts whenever the name changed and then advances on its own, so
-            // the two drift out of phase. That was invisible until the hitstop arrived: freezing
-            // the ghost when the peer pauses freezes it at ITS phase, not the peer's, so the hold
-            // lands early or late and the star fired at that instant inherits the error.
-            // Also what makes a REPEATED identical clip replay: Anim alone cannot express
-            // "the same attack again", because the name never changed.
+            // Where in the clip the peer is, 0..1. Without it the ghost drifts out of phase, so a hitstop freezes the
+            // wrong pose, and a repeated identical clip never replays because Anim never changes.
             public float? AnimTime;
 
-            // The WEAPON layer's strobe color, packed 0xAARRGGBB, 0/absent = plain white. TEVI
-            // tints the character's effectsprite -- the slash/weapon frames -- by alternating it
-            // between white and a color every frame during some combos. The DECISION travels, not
-            // the frames: sampling a 60Hz strobe through a 20Hz state stream would alias into a
-            // slow flicker, so the sender says "strobing with color C" and the ghost strobes
-            // locally. Found 2026-08-28: a clone froze on whichever strobe frame it was created
-            // during, so every ghost's weapon was permanently white or permanently blue.
+            // The weapon layer's strobe colour, packed 0xAARRGGBB, 0 or absent for plain white. The decision travels,
+            // not the frames: the strobe sampled through the state stream would alias, so the ghost strobes locally.
             public int? WeaponRgba;
 
-            // THE ORBITARS, one row per orb the peer's game is currently DISPLAYING (a hidden orb is
-            // simply absent). Each row is what that orb's renderers show this frame, read off the
-            // peer's own OrbBall and applied to a logic-stripped clone on the watcher's side:
-            //   [ index, dx, dy, sprite, sortingOrder, glowSprite, glowAlpha*100,
-            //     crystalRgb (-1 off), crystalAlpha*100, crystalRotationDeg, chargeScale*100 (0 off) ]
-            // dx/dy are relative to the peer's root transform. Sprite values are indices into the
-            // game's own CommonResource orb tables (-1 hidden, -2 visible but not a table sprite),
-            // opaque to the core and meaningful only between two TEVI clients. State plane on
-            // purpose: the orbs move every frame, so latest-wins is the right delivery.
+            // One row per orb the peer's game shows, read off its OrbBall: root-relative offsets, and sprites as
+            // indices into the game's own orb tables (-1 hidden, -2 not a table sprite).
             public float[][] Orbs;
 
-            // CORE EXPANSIONS (the game's name for the orbitar summons): one row per summoned
-            // Celia/Sable the peer currently has out, read off that character's own sprite rig:
-            //   [ type, animatorControllerName, x, y, direction, clip, clipPhase, scaleX, scaleY, visible, animatorSpeed ]
-            // `visible` is false during the first ~0.3s, while the game's humanoid exists but is
-            // Invisible() and the orb-to-humanoid trail is still flying toward it.
-            // x/y are the summon's SPRITE position in ABSOLUTE world coordinates (it stands still
-            // while the peer moves, so a root-relative offset inherits the ghost's motion). The controller
-            // name is the key the game itself resolves a look with (AreaResource.GetNPC compares
-            // controller names), which is what lets the watcher show the peer's skin, not its own.
+            // One row per summoned Celia or Sable, read off its sprite rig. Absolute positions, since a summon stands
+            // still while the peer moves; the controller name lets the watcher show the peer's skin, not its own.
             public object[][] Summons;
 
-            // The orb-to-human flash the moment an orbitar turns into its summon: a one-shot,
-            // counter-deduped like the VFX impulse. Which orb, and whether it is the white one
-            // (the game picks one of two pooled effects by that).
-            // THE BOOST SHIELD (the barrier a core expansion raises around the humanoid) and the two
-            // platform sprites under it. Present only while the peer's shield is up or animating:
-            //   Shield:    [ x, y, z, scale, rotX, rotY, rotZ, mainRGBA, texRGBA, patternRGBA, up ]
-            //   Platforms: [ index, x, y, RGBA ] per enabled platform
-            // Positions are ABSOLUTE world coordinates (these sit on the world-fixed humanoid).
-            // Colours travel as 8-hex-digit strings so they survive the float-only number path.
+            // The boost shield around a summon and the platforms under it, while up or animating. Absolute positions;
+            // colours travel as 8-hex-digit strings to survive the float-only number path.
             public object[] Shield;
             public object[][] Platforms;
 
-            // PROJECTILES, spawn-and-fly (agent_docs/ideas.md, the orbitar entry; 2026-09-10). One
-            // row per BIRTH of a visible bullet the peer owns, kept for ~300ms so a lossy sample
-            // still carries it; the receiver dedupes on seq and flies the bullet itself:
-            //   [ seq, bulletType, spriteType, x, y, angle, speed, scale, effectPool, effectKind,
-            //     effectScale, effectColorRGBA, facingLeft ]
-            // and the seqs of bullets that DIED early (a wall, a hit), same 300ms window.
+            // Projectiles, spawn-and-fly: one row per birth of a visible bullet the peer owns, repeated for a short
+            // window so a lossy sample still carries it; the receiver dedupes on seq and flies the bullet itself.
             public object[][] Bullets;
+            // Seqs of bullets that died early (a wall, a hit), over the same window.
             public float[] BulletDeaths;
-            // x,y pairs, same order as BulletDeaths: where each bullet STOPPED (key "buldp").
+            // x,y pairs, in BulletDeaths' order: where each bullet stopped.
             public float[] BulletDeathPos;
-            // seq,flags pairs for bullets whose flags changed after birth (key "bulf").
+            // seq,flags pairs for bullets whose flags changed after birth.
             public float[] BulletFlagUpdates;
-            // MUZZLE FLASHES at the orb (pooled effects #7 OrbShootFlash, #12 OrbChargeFlash), not
-            // tied to a bullet: [ seq, pool, x, y, facingLeft, colorRGBA ], same 150ms ring.
+            // Muzzle flashes at the orb, not tied to a bullet.
             public object[][] Flashes;
 
+            // The flash of an orbitar turning into its summon: a one-shot, counter-deduped like the VFX impulse.
+            // OrbFxWhite says which of the game's two pooled flashes it was.
             public int? OrbFxSeq;
             public int? OrbFxOrb;
             public bool? OrbFxWhite;
@@ -156,140 +88,65 @@ namespace MeshGhostTevi
 
         private readonly string host;
 
-        // THE PORT WALK, 2026-08-27. A core serves exactly one adapter, so two games (or two
-        // copies of one game) on one machine each need their own -- and before this, TEVI dialled
-        // a single fixed port and the second instance silently shared or failed. basePort is the
-        // configured start; the walk covers basePort .. basePort + BridgePortCount - 1.
-        //
-        // The constants match the other three adapters deliberately, and preflight.ps1 checks
-        // that they still agree: 7778, eight ports. Shape copied from Pseudoregalia's
-        // BridgeClient, which is the version that has been tested live.
+        // A core serves exactly one adapter, so two games on one machine need two cores: the walk covers basePort ..
+        // basePort + BridgePortCount - 1. The range matches the other three adapters, and preflight checks they agree.
         public const int BridgePortCount = 8;
 
         private readonly int basePort;
         private int walkOffset;
 
-        // The port the LIVE CONNECTION is on, as opposed to CurrentPort, which is where the walk
-        // CURSOR sits. They are not the same thing and conflating them was a real bug (fixed
-        // 2026-08-27, measured): DrainInto runs on the main thread and handles a `reject` some
-        // frames after it arrived, by which time the cursor may have moved on -- so the reject was
-        // attributed to the wrong port. That meant the genuinely busy port was never cooled down
-        // and innocent free ports were, and the walk churned until a spawn landed somewhere free
-        // by luck. Set when a connection is published, read wherever a received message has to
-        // name the port it came from.
+        // The port of the live connection, as opposed to CurrentPort, the walk's cursor: DrainInto handles a reject
+        // frames after it arrived, when the cursor may have moved, so a received message names its port from this.
         private volatile int connectedPort;
 
-        // A port whose core answered "busy" is a live core that simply is not ours; re-dialling it
-        // every two seconds is noise. Ten seconds, matching the other adapters' cooldown. Touched
-        // from both threads -- the read loop marks a port on reject, TryConnect reads it -- hence
-        // the concurrent map.
+        // A port whose core answered busy is a live core that is not ours; re-dialling it every two seconds is noise.
         private static readonly TimeSpan BusyPortCooldown = TimeSpan.FromSeconds(10);
 
-        // How long to wait on the SAME core after it says IT cannot reach the relay -- which is a
-        // different thing from a busy port and must not be treated as one.
-        //
-        // A core that cannot reach the relay is a perfectly good core. Cooling its port and walking
-        // on finds nothing, cools every port in turn, and then leaves the adapter with nowhere to
-        // go -- and on adapters that autostart, spawning fresh cores nobody can use. Crystal has
-        // guarded against this since 2026-08-19 and its comment names the measurement: Emerald at
-        // 5fps doing exactly that while a relay was full. Emerald and Pseudoregalia got the guard
-        // on 2026-08-28; TEVI is the fourth and last adapter to get it. The fix existed in one of
-        // four for nine days, which is what adapters/CLAUDE.md's sibling-divergence sweep is about.
+        // How long to stay on a core that says it cannot reach the relay. That core is fine: walking on would cool
+        // every port in turn and, with autostart, spawn cores nobody can use.
         private static readonly TimeSpan RelayDownBackoff = TimeSpan.FromSeconds(10);
 
-        // Set when a core rejects us because the RELAY is unreachable. Until it passes, the walk
-        // does not advance and no port is cooled: there is nothing to walk to. Touched from the
-        // read loop and read by TryConnect, hence the volatile-by-lock convention used for
-        // portCooldownUntil above -- a DateTime write is not atomic on 32-bit, so it is guarded by
-        // the same object.
+        // Until this passes the walk does not advance and no port is cooled: there is nothing to walk to.
         private DateTime relayDownUntil = DateTime.MinValue;
         private readonly ConcurrentDictionary<int, DateTime> portCooldownUntil =
             new ConcurrentDictionary<int, DateTime>();
 
-        // A port that REFUSES the connection outright -- nothing listening -- also has to release
-        // the walk, and until 2026-08-28 nothing did. The walk advanced on a core that answered
-        // "busy", and on one that accepted then went silent, but a refusal only logged and left the
-        // cursor where it was. That is a DEADLOCK in combination with CoreLauncher, which returns
-        // early while the child it spawned is still running: an adapter could own a live core on
-        // one port, have its cursor parked on a different, empty one, and neither side could move.
-        // The launcher thought its job was done; the walk had nothing to move it. Found live that
-        // day, and invisible before it because the adapter's own core had always won the base port,
-        // so the cursor never sat anywhere empty.
-        //
-        // Counted rather than immediate, and that is the whole design of it. A refusal is the
-        // NORMAL first thing that happens on a cold start -- the adapter dials before its core has
-        // bound -- so advancing on the first one would walk the cursor off the base port every
-        // launch and the whole range would creep upward run after run. At ReconnectInterval (2s)
-        // this waits ~8s, comfortably past CoreLauncher's 5s spawn cooldown plus a bind, so a core
-        // that is merely still starting keeps its port and only a genuinely dead one loses it.
+        // Consecutive refused dials before the walk leaves a port. Not one: a cold start refuses until our own core
+        // binds, and this many at ReconnectInterval outlast CoreLauncher's spawn cooldown plus a bind.
         private const int RefusalsBeforeWalking = 4;
         private readonly ConcurrentDictionary<int, int> portRefusals =
             new ConcurrentDictionary<int, int>();
 
-        // SILENCE IS NOT ACCEPTANCE. Something that accepts a TCP connection and never answers a
-        // hello is far more likely an unrelated program holding a port in our range than a core,
-        // and committing to it would strand the session with no ghosts and no explanation. 1.5s,
-        // the same bound the Lua adapters use (90 frames).
+        // Silence is not acceptance: a listener that never answers hello is likelier an unrelated program than a core.
         private static readonly TimeSpan HelloAnswerTimeout = TimeSpan.FromSeconds(1.5);
         private DateTime helloSentAt = DateTime.MinValue;
 
-        // ...AND SILENCE IS NOT SILENCE IF NOBODY IS LISTENING. Found live 2026-08-28, with two
-        // TEVI instances and two cores already running and healthy: both adapters walked the whole
-        // 7778-7785 range spawning a core per port, reporting that every one of them "accepted a
-        // connection but never answered hello", while the cores' own logs showed each hello
-        // ACCEPTED (`core: ghost collision enabled -- told the adapter`) at exactly that moment.
-        //
-        // The answer had arrived and had not been READ. `bridge_ready` is parsed in DrainInto,
-        // which runs on the main thread -- and Plugin.Update called DrainInto only BELOW its
-        // play-session gate, so at the main menu, on the loading screen, and through every scene
-        // load, nothing consumed it. The deadline meanwhile ran on wall clock. TEVI always starts
-        // at a main menu, so the walk churned on every launch until the player reached play.
-        //
-        // The wall clock alone cannot express what this bound means. The Lua adapters' equivalent
-        // is 90 FRAMES, which cannot expire while the emulator is paused; the equivalent here is to
-        // require that the main thread has actually had its chances to see an answer. So both must
-        // be true: the time has passed AND the drain has run this many times since the hello went
-        // out. Plugin.Update now drains every frame, discarding remote state while out of play, so
-        // in a healthy session this count climbs immediately.
+        // The answer is read by DrainInto on the main thread, so a wall-clock deadline alone can expire against an
+        // answer that arrived unread: the hello timeout also needs this many drains since the hello went out.
         private const int MinDrainsBeforeHelloTimeout = 20;
         private int drainsSinceHello;
 
-        // Set when the core answers our hello with bridge_ready; the gate SendLocalState waits on.
-        // MUST be cleared on every fresh connection, or a reconnect that misses the ready silences
-        // the adapter completely -- which is the hazard the old code's own comment named as the
-        // reason this gate had not been closed yet.
-        // Bridge message types this adapter knowingly ignores, remembered so the "not acted
-        // on" line is written once per run rather than once per message. See the dispatch.
+        // Bridge message types this adapter knowingly ignores, so the "not acted on" line is written once per run.
         private readonly HashSet<string> noOpMessagesLogged = new HashSet<string>();
 
+        // Set by bridge_ready, the answer to our hello; SendLocalState waits on it. Cleared on every fresh connection.
         private volatile bool bridgeReady;
 
         private readonly ConcurrentQueue<string> incoming = new ConcurrentQueue<string>();
 
-        // Log lines from the background connect/read thread are queued, never written directly
-        // via a callback into BepInEx's logger from that thread. BepInEx's ManualLogSource isn't
-        // documented as safe for concurrent cross-thread calls, and Unity's own API is main-
-        // thread-only besides -- DrainLogsInto (called from Update, on the main thread) is the
-        // only place these actually get logged.
+        // The background thread's log lines, written on the main thread: BepInEx's logger is not known thread-safe.
         private readonly ConcurrentQueue<string> pendingLogs = new ConcurrentQueue<string>();
 
         private volatile bool connected;
-        // Set true whenever ConnectAndReadLoop establishes a fresh connection, cleared once
-        // SendHelloIfNeeded actually sends -- a Hello is per-connection, not per-process, since
-        // TryConnect/ConnectAndReadLoop can reconnect after a dropped bridge (see the "fresh
-        // bridge connection means a fresh core process" reasoning the Lua adapter documents for
-        // the same situation).
+        // Set on every fresh connection, cleared once SendHelloIfNeeded sends: a hello is per connection.
         private volatile bool needsHello;
         private TcpClient client;
         private NetworkStream stream;
         private DateTime lastConnectAttempt = DateTime.MinValue;
         private static readonly TimeSpan ReconnectInterval = TimeSpan.FromSeconds(2);
 
-        // Bumped by TryConnect before spawning a new ConnectAndReadLoop thread. A stale thread's
-        // `finally` compares its own captured generation against the current one before clearing
-        // connected/stream/client -- without this, a slow-to-unwind old thread (e.g. blocked in
-        // stream.Read on a connection that's already been superseded by a newer TryConnect) can
-        // null out a newer, live connection's state after the fact.
+        // Bumped before each dial and by Disconnect. A reader's finally clears connected/stream/client only if its own
+        // generation is still current, so an old thread still blocked in Read cannot null out a newer connection.
         private int connectionGeneration;
 
         public bool IsConnected => connected;
@@ -300,16 +157,13 @@ namespace MeshGhostTevi
             this.basePort = port;
         }
 
-        // The port this instance is currently dialling or connected to. Logged, because "which
-        // core am I talking to" is the first question a two-instance session asks.
+        // The walk's cursor: the port dialled next, and the one CoreLauncher starts a core on.
         public int CurrentPort => basePort + walkOffset;
-        // The last port whose core answered "busy" (another game is attached), 0 until one does.
-        // CoreLauncher compares it with the port it spawned on: that, and only that, is the
-        // signal its child now belongs to someone else. Volatile: written on the read thread.
+        // The last port whose core answered busy (another game is attached), 0 until one does. CoreLauncher compares
+        // it with the port it spawned on: that, and only that, is the signal its child now serves another game.
         public volatile int LastBusyPort;
 
-        // True once the core has answered our hello with bridge_ready. Nothing may be sent before
-        // this: _template/PROTOCOL.md requires local_state to wait for it.
+        // True once the core has answered our hello with bridge_ready; no local_state goes out before it.
         public bool IsReady => connected && bridgeReady;
 
         private void Log(string message)
@@ -317,8 +171,7 @@ namespace MeshGhostTevi
             pendingLogs.Enqueue(message);
         }
 
-        // Call once per frame from the main thread to actually emit anything the background
-        // thread queued since the last call.
+        // Once per frame, on the main thread: writes what the background thread queued.
         public void DrainLogsInto(Action<string> logger)
         {
             while (pendingLogs.TryDequeue(out string message))
@@ -327,18 +180,14 @@ namespace MeshGhostTevi
             }
         }
 
-        // Call once per frame from the main thread. Non-blocking: starts a background connect
-        // attempt at most once per ReconnectInterval and returns immediately either way, per
-        // PROTOCOL.md's "try to connect (non-blocking, retry next frame on failure)".
+        // Once per frame, on the main thread. Non-blocking: starts a background dial at most every ReconnectInterval.
         public void TryConnect()
         {
             DateTime now = DateTime.UtcNow;
 
             if (connected)
             {
-                // Connected but never answered: not a core, or not one that wants us. Give up on
-                // this port and let the walk move on rather than sitting here forever with no
-                // ghosts and nothing in the log saying why.
+                // Connected but never answered: not a core, or not one that wants us, so walk on.
                 if (!bridgeReady && helloSentAt != DateTime.MinValue &&
                     now - helloSentAt >= HelloAnswerTimeout &&
                     drainsSinceHello >= MinDrainsBeforeHelloTimeout)
@@ -359,23 +208,17 @@ namespace MeshGhostTevi
             }
             lastConnectAttempt = now;
 
-            // A port that has refused us this many times running has nothing on it. Release the
-            // cursor BEFORE the cooldown scan below, so the freed port is a candidate for that
-            // scan rather than being reconsidered next tick.
+            // Move off a dead port before the cooldown scan below, so the scan starts from the next port this tick.
             if (portRefusals.TryGetValue(CurrentPort, out int refusals) && refusals >= RefusalsBeforeWalking)
             {
                 int dead = CurrentPort;
                 portRefusals[dead] = 0;
                 AdvanceWalkPast(dead);
-                // Named, because the refusal message itself cannot name it -- see the catch in
-                // ConnectAndReadLoop. A walk with no port in the log is what made the 2026-08-27
-                // churn so hard to attribute.
                 Log($"MeshGhost: nothing has answered on bridge port {dead} in {refusals} attempts " +
                     $"-- walking on to {CurrentPort}.");
             }
 
-            // A core has told us the relay is unreachable: do not walk, do not cool a port, do not
-            // dial. There is nothing to walk TO, and walking is the defect this guard exists for.
+            // A core said its relay is unreachable: no walking, cooling or dialling until the backoff passes.
             lock (portCooldownUntil)
             {
                 if (now < relayDownUntil)
@@ -384,9 +227,7 @@ namespace MeshGhostTevi
                 }
             }
 
-            // Skip ports a core has already refused us on, unless every port is cooling down --
-            // in which case dial anyway rather than going silent, since a cooldown is an
-            // optimisation and never a reason to stop trying.
+            // Skip cooling ports, unless all are: a cooldown is an optimisation, never a reason to stop trying.
             for (int tried = 0; tried < BridgePortCount; tried++)
             {
                 if (!portCooldownUntil.TryGetValue(CurrentPort, out DateTime until) || now >= until)
@@ -402,37 +243,28 @@ namespace MeshGhostTevi
             thread.Start();
         }
 
-        // One step from the cursor. Correct for scanning PAST cooled-down ports, where the cursor
-        // is exactly what is being advanced and no specific port is implicated.
+        // One step from the cursor, for scanning past cooled ports, where no specific port is implicated.
         private void AdvanceWalk()
         {
             walkOffset = (walkOffset + 1) % BridgePortCount;
         }
 
-        // Move the cursor to just past a SPECIFIC port -- the one that refused us or went silent --
-        // rather than one step from wherever the cursor happens to sit. Those differ for the same
-        // reason connectedPort exists: a refusal is handled frames after it arrived. Advancing from
-        // the cursor made the walk's next target arbitrary, which is half of why it churned.
+        // Moves the cursor just past the port that refused or went silent, not one step from wherever the cursor sits:
+        // those differ because a refusal is handled frames after it arrived.
         private void AdvanceWalkPast(int port)
         {
             int offset = port - basePort;
             if (offset < 0 || offset >= BridgePortCount)
             {
-                // A port outside our own range should be impossible; treat it as "no information"
-                // and take one step rather than computing a nonsense cursor.
+                // Out of range should be impossible; take one step rather than compute a nonsense cursor.
                 walkOffset = (walkOffset + 1) % BridgePortCount;
                 return;
             }
             walkOffset = (offset + 1) % BridgePortCount;
         }
 
-        // The longest partial line this adapter will hold before deciding the core is not
-        // speaking NDJSON any more: 16 KiB, Pseudoregalia's MAX_RECV_BUFFER_BYTES. It was
-        // protocol.MaxLineBytes (4096) on the belief that every core line is bounded by it, which
-        // is false for render_remote: the relay bounds a peer's STATE line at 4095 and the core
-        // re-wraps it with the player_id again and re-encoded positions, so a peer padding its
-        // state to the relay's limit, landing in the tail of a coalesced read, made this adapter
-        // drop its bridge over and over (pass 5 of the adversarial review, 2026-09-16, P2t-1).
+        // The longest partial line held before deciding the core is not speaking NDJSON. Above protocol.MaxLineBytes on
+        // purpose: render_remote re-wraps a peer's state line of up to 4095 bytes, so a core line can be longer.
         private const int MaxLineChars = 16 * 1024;
 
         private void ConnectAndReadLoop(int generation, int dialPort)
@@ -442,45 +274,22 @@ namespace MeshGhostTevi
             try
             {
                 c = new TcpClient();
-                // Nagle off, for the reason measured on Pseudoregalia 2026-09-06: this bridge
-                // writes one small line per frame, and Nagle holds each one until the previous
-                // is acknowledged -- on Linux that is a 40 ms floor, and a Linux tester's frames
-                // arrived in 46 ms bunches. .NET leaves NoDelay false by default.
+                // Nagle off: the bridge writes one small line per frame, and Nagle holds each until the last is acked.
                 c.NoDelay = true;
-                // A BOUND ON THE WRITE, because this one happens on Unity's MAIN THREAD (review
-                // I21, 2026-09-11). .NET's default SendTimeout is infinite, so a core that stops
-                // reading the bridge froze the GAME for as long as it took -- and the shipped core
-                // could stop reading for up to ten seconds, because its own relay write was
-                // synchronous and bounded by that same number (fixed today as E5, but an adapter
-                // that is only safe when paired with a fixed core is not safe).
-                //
-                // Two seconds, not ten: a frame's state is worthless long before then -- the plane
-                // is latest-wins and the next frame restates it -- so the only thing a longer
-                // timeout buys is a longer freeze. A timeout throws, which the catch below already
-                // treats as a dead connection and redials, and that is the right answer: a core
-                // that has not drained a 4KB line in two seconds is not coming back this frame.
-                //
-                // The other three adapters are all non-blocking (FIONBIO, settimeout(0)); this is
-                // the one that was not.
+                // Writes happen on Unity's main thread and .NET's default SendTimeout is infinite, so a core that stops
+                // reading would freeze the game. A timeout throws into the catch below, which redials: a frame's state
+                // is worthless long before two seconds, since the next frame restates it.
                 c.SendTimeout = 2000;
                 c.Connect(host, dialPort);
                 if (generation != connectionGeneration)
                 {
-                    // Superseded by a newer TryConnect while this one was still dialing --
-                    // don't publish this connection as the live one.
+                    // Superseded by a newer dial while this one connected: don't publish it.
                     c.Close();
                     return;
                 }
-                // **THE PER-CONNECTION STATE IS RESET BEFORE `connected` IS PUBLISHED, since
-                // 2026-09-11 (review I28).** These used to be set after it, and the main thread
-                // ticks independently: a tick landing in that gap saw a live connection with the
-                // PREVIOUS one's bridgeReady/helloSentAt/needsHello, decided the fresh connection
-                // had gone quiet, and cooled its port for ten seconds. The order is the whole fix.
+                // The per-connection state is reset before connected is published: the main thread ticks
+                // independently, and a tick in the gap would see a fresh connection wearing the last one's flags.
                 needsHello = true;
-                // Cleared on EVERY fresh connection. A reconnect that inherited a stale true here
-                // would send state to a core that had not accepted it; a reconnect that inherited
-                // a stale false and never got another ready would go silent forever. Both are why
-                // this gate was left open until now.
                 bridgeReady = false;
                 helloSentAt = DateTime.MinValue;
                 drainsSinceHello = 0;
@@ -488,23 +297,9 @@ namespace MeshGhostTevi
                 stream = c.GetStream();
                 connected = true;
                 establishedThisDial = true;
-                // Something answered here, so this port is not dead. Reset rather than decrement:
-                // the counter means "consecutive failures", and one success ends the run.
                 portRefusals[dialPort] = 0;
-                // The hello itself is not written here: NetworkStream isn't safe for concurrent
-                // writes from this background thread and the main thread's SendLocalState, so the
-                // actual send is deferred to SendHelloIfNeeded, called from Update() on the main
-                // thread, same as every other outbound message. The flags it reads were set above,
-                // before this connection was published.
-                // A DEAD SESSION'S MESSAGES MUST NOT OUTLIVE IT. Lines are parsed on the main
-                // thread, so whatever the previous connection had queued is still sitting here
-                // when the next one is published -- and Plugin.Update drains it AFTER it has
-                // despawned everything for the session change, which promptly recreates a ghost
-                // for a player id that no longer exists. It is then tracked, so the orphan sweep
-                // will not touch it either, and it stands there forever.
-                //
-                // Found live 2026-08-28: a static ghost survived both the despawn-everything fix
-                // and the sweep, and the log showed it being created one line after the despawn.
+                // No hello from here: NetworkStream is not safe for concurrent writes, so SendHelloIfNeeded sends it.
+                // A dead session's queued lines must go, or Plugin.Update's drain recreates a ghost it just despawned.
                 DiscardQueuedMessages();
                 connectedPort = dialPort;
                 Log($"MeshGhost: connected to bridge at {host}:{dialPort}.");
@@ -512,18 +307,11 @@ namespace MeshGhostTevi
                 var buffer = new StringBuilder();
                 var readBuf = new byte[4096];
                 var charBuf = new char[4096];
-                // THIS CONNECTION'S OWN STREAM, not the `stream` FIELD (review I24, 2026-09-11).
-                // The field is reassigned by the next dial, so a reader that has not noticed its
-                // socket died yet would start consuming the NEW connection's bytes -- two threads
-                // splitting one byte stream into two buffers, each seeing half of every line.
-                // Captured once, here, and never re-read.
+                // This connection's own stream, never the field, which the next dial reassigns: a reader that has not
+                // seen its socket die would otherwise split the new connection's bytes with the new reader.
                 var myStream = c.GetStream();
-                // A DECODER HELD ACROSS READS (review I26). Encoding.UTF8.GetString per chunk
-                // turns a multi-byte character split across a TCP read boundary into U+FFFD on
-                // BOTH sides -- and the line stays valid JSON, so nothing downstream notices. A
-                // non-ASCII anim or area_id silently mutates, and that peer's marker quietly
-                // stops matching anything. A Decoder keeps the partial sequence between calls,
-                // which is the whole reason it exists.
+                // A decoder held across reads: decoding per chunk turns a multi-byte character split across a read into
+                // U+FFFD, and the line stays valid JSON, so a non-ASCII anim or area_id silently changes.
                 var decoder = Encoding.UTF8.GetDecoder();
                 int n;
                 while ((n = myStream.Read(readBuf, 0, readBuf.Length)) > 0)
@@ -540,13 +328,7 @@ namespace MeshGhostTevi
                             incoming.Enqueue(line);
                         }
                     }
-                    // A BOUND ON THE PARTIAL LINE (review I25). Without it, a core that sends
-                    // bytes and never a newline -- a desynced one, or a connection stuck
-                    // mid-line -- grows this buffer until the game runs out of memory. The
-                    // number is protocol.MaxLineBytes, because a line longer than the core will
-                    // ever send is by definition not a line we are waiting for. Pseudoregalia's
-                    // BridgeClient has had the same guard, with the same "drop and reconnect
-                    // cleanly" answer.
+                    // Bounded, or a core that never sends a newline grows this until the game runs out of memory.
                     if (buffer.Length > MaxLineChars)
                     {
                         Log($"MeshGhost: bridge buffered {buffer.Length} characters with no " +
@@ -557,15 +339,9 @@ namespace MeshGhostTevi
             }
             catch (Exception e)
             {
-                // The port belongs in this line. Without it the log said only "actively refused"
-                // over and over, which cannot distinguish "the cursor is stuck on one dead port"
-                // from "the walk is sweeping a range that is genuinely empty" -- and those want
-                // opposite responses. That ambiguity is what made the 2026-08-28 deadlock read as
-                // a networking problem for several minutes.
+                // The port belongs in this line: without it a stuck cursor and an empty range log the same.
                 Log($"MeshGhost: bridge connection ended on port {dialPort}: {e.Message}");
-                // Only a dial that never got a live connection counts as a refusal. A connection
-                // that established and later dropped says nothing about whether the port is dead,
-                // and counting it would eventually walk the cursor off a perfectly good core.
+                // Only a dial that never connected counts: a connection that later dropped says nothing about the port.
                 if (!establishedThisDial)
                 {
                     portRefusals.AddOrUpdate(dialPort, 1, (_, prev) => prev + 1);
@@ -583,35 +359,24 @@ namespace MeshGhostTevi
             }
         }
 
-        // A peer's float reaches the Animator (speed, normalized time). Newtonsoft's float
-        // cast turns "NaN"/"Infinity" strings and out-of-range doubles into non-finite
-        // values without throwing, and a NaN there freezes that ghost's Animator. Treated
-        // as absent. Found by the 2026-09-02 adversarial review of the peer-to-adapter path.
+        // A peer's float bound for the Animator: Newtonsoft's float cast turns "NaN"/"Infinity" and out-of-range
+        // doubles into non-finite values without throwing, and a NaN freezes that ghost's Animator. Treated as absent.
         private static float? FiniteOrNull(float? v)
         {
             return v.HasValue && !float.IsNaN(v.Value) && !float.IsInfinity(v.Value) ? v : null;
         }
 
-        // A normalised animation phase: finite AND within 0..1, else absent (2026-09-16; SYNCED.md
-        // said the range was not checked). The sender wraps its own value before sending, so
-        // anything outside is a peer's invention, and the drift correction on the other side
-        // assumes both phases live on the same unit circle. REFUSED, not clamped: the first cut
-        // clamped, and the fuzz test's standing rule (2026-09-08) caught it in CI the same day --
-        // a clamp is a phase the peer never sent, and absent means the ghost keeps the phase it
-        // has for that update.
+        // A normalised phase: finite and within 0..1, else absent. The sender wraps its own value, so anything outside
+        // is a peer's invention; refused rather than clamped, because a clamp is a phase the peer never sent.
         private static float? UnitOrNull(float? v)
         {
             float? f = FiniteOrNull(v);
             return f.HasValue && f.Value >= 0f && f.Value <= 1f ? f : null;
         }
 
-        // A peer's enum ORDINAL, as a float off the wire: the value when this build's enum defines it,
-        // else -1. Enum.IsDefined THROWS unless the value is boxed as the enum's own underlying type,
-        // and TEVI's are narrow (Bullet.BulletType is Int16, Bullet.SpriteType is Byte, read from
-        // lib/Assembly-CSharp.dll 2026-09-16): the first guard passed an int, so every peer bullet
-        // threw before it spawned. Range-checked against the underlying type first, then boxed as the
-        // enum itself, which IsDefined accepts whatever the width. Here, not in Plugin.cs, so the
-        // harness can reach it. A fraction is refused: no ordinal has one.
+        // A peer's enum ordinal, as a float off the wire: the value when this build's enum defines it, else -1.
+        // Enum.IsDefined throws on a value not boxed as the enum's own type, and the game's bullet enums are narrower
+        // than int. Here, not in Plugin.cs, so the harness can reach it.
         public static int DefinedOrdinalOrMinusOne(Type enumType, float value)
         {
             if (float.IsNaN(value) || float.IsInfinity(value) || value != Math.Floor(value)) return -1;
@@ -630,18 +395,8 @@ namespace MeshGhostTevi
             return Enum.IsDefined(enumType, Enum.ToObject(enumType, ordinal)) ? ordinal : -1;
         }
 
-        // The position is the ONE peer float that never got the FiniteOrNull treatment the
-        // animator floats got in the 2026-09-02 review (found by the next one -- review I23,
-        // 2026-09-11). Newtonsoft turns "NaN"/"Infinity" and out-of-range doubles into non-finite
-        // floats without throwing, and this array reaches transform.position, OverlapPoint and
-        // Vector3.Distance -- a NaN transform propagates into the physics state of whatever it
-        // touches and does not come back out.
-        //
-        // The WHOLE array is refused rather than the offending component, for the reason the C++
-        // adapter refuses a whole orientation triple: a half-applied position is a ghost somewhere
-        // meaningless, which is harder to recognise than a ghost that did not move. Null here is
-        // already the "this state carries no position" case every caller handles -- it is what an
-        // older peer build produces.
+        // The position reaches transform.position and Vector3.Distance, where a NaN spreads into the physics state of
+        // whatever it touches. Refused whole: null is already the "no position" case, and half of one is meaningless.
         private static float[] FinitePositionOrNull(float[] p)
         {
             if (p == null)
@@ -670,35 +425,12 @@ namespace MeshGhostTevi
             return -1;
         }
 
-        // Actively drops the bridge connection -- distinct from a connection failure or the
-        // core going away, this is the adapter choosing to leave (returning to TEVI's main
-        // menu, confirmed live 2026-08-13 to be a real, detectable transition, unlike the
-        // pause menu -- see agent_docs/phases/phase6.md). The core observes this as a bridge
-        // disconnect and closes its own relay connection in response (2026-08-13 ADR in
-        // architecture.md), which the relay turns into a real Leave for any peer -- the same
-        // despawn path a real game-close already took. TryConnect() redials automatically on a
-        // later frame once IsConnected is false, the same as any other dropped connection.
-        // Which bridge SESSION this is. Every dial and every Disconnect bumps it, so a change
-        // means "everything the last connection told us is now unverifiable" -- most importantly
-        // which peers exist. A watcher outside this class (Plugin.Update) uses it to drop the
-        // ghosts it built, because nothing else can: despawn_remote arrives over the very
-        // connection that just died, so a core that goes away takes the despawns with it.
-        //
-        // Found live 2026-08-28 while restarting cores under running games: each restarted core
-        // came back with a fresh relay identity, so a NEW ghost appeared for the same player while
-        // the previous one stood there forever. The user saw several static ghosts per game.
+        // Which bridge session this is: every dial and every Disconnect bumps it. Plugin.Update drops the ghosts it
+        // built when it changes, because despawn_remote arrives over the very connection that just died.
         public int SessionEpoch => Interlocked.CompareExchange(ref connectionGeneration, 0, 0);
 
-        // Empties the receive queue. Called wherever a session ends or a new one begins -- see
-        // the call site in ConnectAndReadLoop for what a leftover line does.
-        //
-        // PUBLIC because the connection-side calls are not enough on their own. The read loop and
-        // Disconnect both run off the main thread, and the epoch a watcher sees changes when a
-        // DIAL STARTS, not when it completes -- so Plugin.Update can despawn everything for a new
-        // session and then drain the dead session's leftovers in the same frame, recreating what
-        // it just removed. The main thread clearing this itself, at the moment it notices, is the
-        // only version with no window. Found live 2026-08-28, twice, the second time after the
-        // background-thread clear alone was thought sufficient.
+        // Public because the epoch changes when a dial starts, not when it completes: Plugin.Update clears the queue
+        // itself when it despawns for a new session, or the dead session's leftovers recreate what it removed.
         public void DiscardQueuedMessages()
         {
             while (incoming.TryDequeue(out _))
@@ -706,11 +438,10 @@ namespace MeshGhostTevi
             }
         }
 
+        // The adapter leaving on purpose (a main menu return, a quit, or a port that never answered). The core closes
+        // its relay connection in response, which the relay turns into a real leave; TryConnect redials later.
         public void Disconnect()
         {
-            // Also invalidates any in-flight ConnectAndReadLoop's generation, so if that thread
-            // is still dialing or blocked in stream.Read, its eventual finally block won't
-            // clobber the state of whatever TryConnect() dials next.
             Interlocked.Increment(ref connectionGeneration);
             DiscardQueuedMessages();
             TcpClient c = client;
@@ -727,11 +458,8 @@ namespace MeshGhostTevi
             }
         }
 
-        // Call once per frame from the main thread, before SendLocalState. Must be the first
-        // message on a fresh connection -- see internal/bridge.Hello -- so it's sent from here
-        // rather than the background connect thread, ahead of any local_state Update() sends
-        // this same frame. No-op once already sent for the current connection, or before one
-        // exists.
+        // Once per frame, on the main thread, before SendLocalState: the hello must be a connection's first message. A
+        // no-op once sent for this connection, or before one exists.
         public void SendHelloIfNeeded(string gameId, string gameVersion)
         {
             if (!needsHello || !connected || stream == null)
@@ -743,10 +471,7 @@ namespace MeshGhostTevi
             string json = JsonConvert.SerializeObject(new
             {
                 type = "hello",
-                // min_protocol_version is the STARTING floor, set by hand 2026-09-11 (the user): the same move the
-                // wire floor made on 2026-09-08 -- break what came before once, so there is a
-                // floor to reason from -- applied per adapter. It sits at this number until the
-                // maintainer raises it, and it is never raised automatically. ADR 0059.
+                // min_protocol_version is this adapter's floor: raised by hand, never automatically.
                 payload = new { game_id = gameId, game_version = gameVersion, min_protocol_version = 2 },
             });
 
@@ -754,9 +479,7 @@ namespace MeshGhostTevi
             {
                 byte[] bytes = Encoding.UTF8.GetBytes(json + "\n");
                 stream.Write(bytes, 0, bytes.Length);
-                // Starts the clock the hello-answer timeout measures. Stamped on the SEND,
-                // not on the connect: a core slow to accept is fine, one that never answers
-                // is not.
+                // The hello timeout runs from the send: a core slow to accept is fine, a silent one is not.
                 helloSentAt = DateTime.UtcNow;
                 drainsSinceHello = 0;
             }
@@ -767,29 +490,22 @@ namespace MeshGhostTevi
             }
         }
 
-        // "state" is null when the local player isn't in a renderable state (matches
-        // get_local_state() returning nil in the contract) -- sent every frame regardless per
-        // PROTOCOL.md: "send it anyway". player_id/seq/timestamp are stamped by the core, never
-        // sent by the adapter.
+        // A null state means the local player is not renderable, and is still sent every frame. player_id, seq and
+        // timestamp are stamped by the core, never sent by the adapter.
         public void SendLocalState(RemoteState state)
         {
             if (!connected || stream == null)
             {
                 return;
             }
-            // THE SEND GATE, closed 2026-08-27. _template/PROTOCOL.md requires local_state to wait
-            // for bridge_ready; TEVI recognised that message from 2026-08-18 and sent anyway, which
-            // is entry 5 in BANDAGES.md. Dropping these frames costs nothing: a core that has not
-            // accepted us has nowhere to forward them, and the next frame sends a fresher state
-            // than the one withheld -- the state plane is latest-wins by contract.
+            // Nothing before bridge_ready: a core that has not accepted us has nowhere to forward these, and the next
+            // frame restates a fresher state anyway.
             if (!bridgeReady)
             {
                 return;
             }
 
-            // Built as a dictionary rather than another anonymous type: room coords and the trail
-            // mode are independently present or absent, and the two-anonymous-types-in-a-ternary
-            // shape this replaced would have needed one type per combination.
+            // A dictionary, not an anonymous type: each extra is independently present or absent.
             Dictionary<string, object> extrasMap = null;
             if (state != null)
             {
@@ -801,9 +517,7 @@ namespace MeshGhostTevi
                         { "room_y", state.RoomY.Value },
                     };
                 }
-                // Only sent while a trail is actually running. Omitting it while idle keeps the
-                // common frame the same size it was, and means "absent" and "no trail" agree
-                // rather than being two states a reader has to reconcile.
+                // Only while a trail runs, so absent and no trail are one state and an idle frame stays small.
                 if (state.TrailMode.HasValue && state.TrailMode.Value > 0)
                 {
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
@@ -819,8 +533,6 @@ namespace MeshGhostTevi
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
                     extrasMap["weapon_rgba"] = state.WeaponRgba.Value;
                 }
-                // Sent every frame once non-zero, not only on the frame it changed: the receiver
-                // dedupes on the counter, so repeating it is what makes a dropped frame harmless.
                 if (state.AnimTime.HasValue)
                 {
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
@@ -831,6 +543,8 @@ namespace MeshGhostTevi
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
                     extrasMap["pause"] = state.TempPause.Value;
                 }
+                // Sent every frame once non-zero, not only when it changes: the receiver dedupes on the counter, so
+                // repeating it is what makes a dropped frame harmless.
                 if (state.VfxSeq.HasValue && state.VfxSeq.Value > 0)
                 {
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
@@ -887,9 +601,8 @@ namespace MeshGhostTevi
                     extrasMap["orbfx_white"] = state.OrbFxWhite ?? false;
                 }
             }
-            // THE 1024-BYTE EXTRAS CAP is the core's, and a state over it is dropped WHOLE -- the
-            // ghost would freeze, not just lose a bullet. Bullets are the one elastic field, so
-            // they are the first to go when a frame is over the line; the rest is unchanged.
+            // The core drops a state whose extras pass its 1024-byte cap whole, freezing the ghost. Bullets are the one
+            // elastic field, so they go first when a frame is over.
             if (extrasMap != null && (extrasMap.ContainsKey("bul") || extrasMap.ContainsKey("buld")))
             {
                 int len = JsonConvert.SerializeObject(extrasMap).Length;
@@ -946,13 +659,7 @@ namespace MeshGhostTevi
             }
         }
 
-        // Call once per frame from the main thread. Drains everything buffered since the last
-        // call and invokes the matching callback per PROTOCOL.md's "drain all buffered
-        // render_remote / despawn_remote messages". Unknown/malformed lines are logged and
-        // skipped, never thrown -- a single bad line must not take down the plugin.
-        // A malformed orbs array drops the ORBS, not the whole render_remote: the position and
-        // animation in the same message are still good, and a peer must not be able to blank its
-        // own ghost by sending one bad extras field.
+        // A malformed field drops that field, never the whole render_remote: one bad extra must not blank the ghost.
         private static float[][] ParseOrbs(JToken token)
         {
             if (token == null || token.Type != JTokenType.Array)
@@ -969,8 +676,6 @@ namespace MeshGhostTevi
             }
         }
 
-        // Mixed rows (strings and numbers), same posture as ParseOrbs: a bad shape drops the field,
-        // never the message. Numbers come out as float, strings as string, anything else as null.
         private static float[] ParseFloats(JToken token)
         {
             if (token == null || token.Type != JTokenType.Array)
@@ -997,6 +702,7 @@ namespace MeshGhostTevi
             return rows != null && rows.Length == 1 ? rows[0] : null;
         }
 
+        // Mixed rows: numbers come out as float, strings as string, bools as bool, anything else as null.
         private static object[][] ParseRows(JToken token)
         {
             if (token == null || token.Type != JTokenType.Array)
@@ -1034,11 +740,11 @@ namespace MeshGhostTevi
             }
         }
 
+        // Once per frame, on the main thread: dispatches every buffered line. A bad line is logged and skipped, never
+        // thrown, so one line cannot take down the plugin.
         public void DrainInto(Action<string, RemoteState> onRenderRemote, Action<string> onDespawnRemote)
         {
-            // Counted whether or not anything was queued: this is "the main thread had a chance to
-            // read an answer", which is exactly what the hello-answer deadline needs and what it
-            // was missing (see MinDrainsBeforeHelloTimeout).
+            // Counted whether or not anything was queued: it means the main thread had a chance to read an answer.
             if (drainsSinceHello < int.MaxValue)
             {
                 drainsSinceHello++;
@@ -1046,24 +752,11 @@ namespace MeshGhostTevi
 
             while (incoming.TryDequeue(out string line))
             {
-                // **WHICH SIDE OF THE BRIDGE THREW (review I27, 2026-09-11).** The catch below
-                // wraps the parse AND the callbacks, and the callbacks are Unity code -- so a
-                // NullReference inside the ghost update was reported as "bad bridge message
-                // ignored", which is the transport blaming itself for the renderer. The comment
-                // in that catch already records what it cost: most of an evening, looking in the
-                // wrong file.
-                //
-                // A marker rather than a second try/catch, because splitting them means
-                // restructuring a switch that dispatches from a dozen arms and reads clearly as
-                // it is. This names the source in the message, which is the part that was missing.
+                // Names which side threw: the catch wraps the parse and the callbacks, which are Unity code, so a fault
+                // in the ghost update must not be logged as a bad bridge message.
                 string stage = "parsing the line";
                 try
                 {
-                    // TryGetValue throughout rather than indexer + cast: an indexer miss returns
-                    // a JToken null, and a raw `(JObject)`/`(string)` cast on a shape the core
-                    // didn't actually send (or a value of the wrong JSON type) throws instead of
-                    // giving this catch a chance -- this loop must survive a malformed line, not
-                    // just a deserialization failure.
                     var env = JsonConvert.DeserializeObject<JObject>(line);
                     if (env == null || !env.TryGetValue("type", out JToken typeToken))
                     {
@@ -1136,55 +829,22 @@ namespace MeshGhostTevi
                             break;
                         }
                         case "bridge_ready":
-                            // The core accepted our hello. Recognised explicitly rather than
-                            // falling through to the unknown-type warning below, which is what
-                            // used to happen -- so every healthy session logged a warning about
-                            // the one message that means everything is fine.
-                            //
-                            // AND it is the send gate, since 2026-08-27. This comment used to say
-                            // the gate could not be closed until "the reconnect path resets the
-                            // flag too, or a missed ready silences the adapter completely" -- so
-                            // that is what ConnectAndReadLoop now does, on every fresh connection.
                             bridgeReady = true;
                             Log($"MeshGhost: bridge ready on port {connectedPort} -- the core " +
                                 "accepted this adapter.");
                             break;
                         case "reject":
                         {
-                            // The core refused us: wrong game_id, or it already has an adapter.
-                            // Previously this landed in the unknown-type default and we kept
-                            // pushing local_state at a core that had already refused and closed.
                             string reason = "unspecified";
                             if (payload != null && payload.TryGetValue("reason", out JToken reasonToken))
                             {
                                 reason = (string)reasonToken;
                             }
-                            // A refusal is information, not a dead end: this is a live core that is
-                            // not ours, so cool the port down and let TryConnect walk to the next
-                            // rather than re-dialling the same refusal every two seconds.
-                            // The port the CONNECTION is on, not the walk cursor: this runs on the
-                            // main thread, frames after the reject arrived, and the cursor may have
-                            // moved. Using the cursor cooled down innocent ports and left the busy
-                            // one hot, which is what made the walk churn.
                             int refusedPort = connectedPort;
-                            // THE CODE, NOT THE PROSE (ADR 0058; review D4/N2, fixed 2026-09-11).
-                            //
-                            // "busy" means this core already has an adapter, so walk on. Everything
-                            // else means this core is FINE and something upstream is not -- walking
-                            // cools every port in turn, leaves nowhere to go, and then starts
-                            // spawning fresh cores at the retry cadence.
-                            //
-                            // This used to search the REASON for the substring "relay", and that
-                            // heuristic is inverted: every PERMANENT refusal contains that word,
-                            // because the core renders relay refusals as "core: relay refused
-                            // connection: %s", while the one refusal that means "try the next port"
-                            // does not. So a wrong room code read as "the relay is briefly down"
-                            // and was retried forever, with the player never told why nothing
-                            // worked. bridge.Reject has carried a frozen `code` since 2026-09-08.
-                            //
-                            // An ABSENT code is a core older than that field, and only then does
-                            // the old substring rule run -- which is what keeps this adapter
-                            // working against a core the player has not updated.
+                            // Only busy and already_serving walk on; any other code means this core is fine and
+                            // something upstream is not, and walking would cool every port in turn. Never match the
+                            // reason instead: every permanent refusal's reason contains "relay" and busy's does not.
+                            // An absent code is an older core, and only then is the reason searched.
                             string code = null;
                             if (payload != null && payload.TryGetValue("code", out JToken codeToken))
                             {
@@ -1206,8 +866,6 @@ namespace MeshGhostTevi
                                 }
                                 if (!string.IsNullOrEmpty(code) && !retryable)
                                 {
-                                    // Said plainly, because this is the case the old heuristic hid:
-                                    // a refusal that will not fix itself, retried silently forever.
                                     Log($"MeshGhost: the core on port {refusedPort} refused this adapter " +
                                         $"PERMANENTLY ({code}: {reason}) -- waiting will NOT fix it; " +
                                         "check the client's config.json.");
@@ -1237,24 +895,12 @@ namespace MeshGhostTevi
                         case "session_policy":
                         case "recording_state":
                         case "remote_name":
-                            // Three core -> adapter messages this game has nothing to DO with, and
-                            // they are named here rather than left to the default below for the
-                            // reason recorded in BANDAGES.md: falling through made every healthy
-                            // session log a warning per message per peer about messages that mean
-                            // everything is fine. That was fixed once for bridge_ready/reject and
-                            // regressed the moment the core added these three (2026-09-10).
-                            //
-                            // Logged ONCE each, because the contract asks an adapter that does not
-                            // act on a shared setting to say so rather than silently appear to
-                            // comply (agent_docs/contract.md) -- and once is the whole point:
-                            // remote_name arrives per peer and recording_state on every toggle.
-                            //
-                            //   session_policy  -- ghost_collision is already satisfied here by
-                            //                      construction: a ghost clone has every Collider2D
-                            //                      and Rigidbody2D destroyed (Plugin.cs), so it can
-                            //                      never be solid whatever the room asks for.
-                            //   recording_state -- no on-screen recording indicator in this game.
-                            //   remote_name     -- nametags are not drawn in this game.
+                            // Named, or the default would warn per message per peer; logged once each, because an
+                            // adapter that does not act on a shared setting says so.
+                            //   session_policy  -- a ghost clone has every Collider2D and Rigidbody2D destroyed, so it
+                            //                      is never solid whatever the room asks for.
+                            //   recording_state -- this game draws no recording indicator.
+                            //   remote_name     -- this game draws no nametags.
                             if (noOpMessagesLogged.Add(type))
                             {
                                 Log($"MeshGhost: '{type}' received and intentionally not acted on " +
@@ -1268,14 +914,8 @@ namespace MeshGhostTevi
                 }
                 catch (Exception e)
                 {
-                    // The message alone hid a per-frame NullReference inside the ghost update for
-                    // most of an evening (2026-09-10): the same text every frame, no line number.
-                    // The full trace is logged ONCE per distinct message; the repeats stay short.
-                    //
-                    // AND THE REPEATS ARE NOW RATE-LIMITED, not merely shortened. Whatever throws
-                    // is usually a property of the peer's state, so it throws again on the NEXT
-                    // frame for the same peer: one line per peer per frame, driven from another
-                    // machine. A short line at 60 fps is still a log nobody can read.
+                    // The full trace once per distinct message, then a short line per DrainErrorRepeatInterval at most:
+                    // what throws is usually the peer's state, so it throws again next frame.
                     if (loggedTraces.Add(e.Message))
                     {
                         Log($"MeshGhost: failure while {stage}: {e}");
@@ -1291,8 +931,6 @@ namespace MeshGhostTevi
         }
 
         private readonly HashSet<string> loggedTraces = new HashSet<string>();
-        // Repeats of an already-reported drain failure are held to this, because the thing that
-        // threw usually throws again next frame for the same peer -- see the catch in DrainInto.
         private static readonly TimeSpan DrainErrorRepeatInterval = TimeSpan.FromSeconds(5);
         private DateTime lastDrainErrorAt = DateTime.MinValue;
         private const int ExtrasSoftCap = 1000;

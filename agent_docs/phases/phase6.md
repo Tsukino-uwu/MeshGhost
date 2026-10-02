@@ -916,3 +916,17 @@ BepInEx.Core pinned to 5.4.21, a restore lockfile per project, the SDK in `globa
 HEAD from two clean clones; the record is [phase12.md](phase12.md), 2026-10-01 (A3).
 
 ## 2026-10-01 (later) — pointer: the approved build-story beats written (new steps 20–21, merges into 6, 12 and 16); logged in [phase12.md](phase12.md)
+
+## 2026-10-02 — the adapter's comments cut to what and why (A5)
+
+`Plugin.cs`, `BridgeClient.cs`, `CoreLauncher.cs`, the bridge fuzz harness and the dev cheats lost their history
+comments with the rest of the repo (the account is `phase12.md`, same date): comment lines 2,471 → 639. Code unchanged:
+C# tokens minus comments identical to the parent, and each of the three projects built from the parent and from this
+tree with no pdb to byte-identical DLLs. History no record held is in `pitfalls/by-lesson.md`, "The stories behind the
+code"; game facts and adapter timings went to `MEASURED.md`, 2026-10-02 (the dev cheats' facts, read from the game's
+assembly, under "Not measured yet"; two decompiled expressions were left out). Stale claims fixed on the way: the version
+said deliberately not bumped per release (a room refuses a different `game_version`, so a bump splits old and new), the
+orphan sweep said to run on every session change (once per session that reaches ready), the core launcher said to
+resolve from its own assembly's folder (the game root and the environment variable), and the fuzz harness said seeded
+(a fixed corpus). Still open in the docs: `FLAGS.md` describes three phase constants the code never reads as live, and
+`documentation.md` says trails spawn per fixed step where `TickTrails` runs once a frame.

@@ -1,35 +1,9 @@
-// BridgeFuzz -- hostile input against TEVI's SHIPPED bridge line decoder.
-//
-// WHAT THIS REACHES, which is more than the Lua harness does. BridgeClient.DrainInto parses a line
-// AND dispatches it: the switch on "type", the payload extraction, and the RemoteState it hands to
-// the callbacks. All of that lives in one file with no Unity and no BepInEx, so the whole path from
-// bytes to callback arguments runs here. Emerald's and Crystal's decoders can only be exercised as
-// far as the decode, because their dispatch sits thousands of lines further down, past the point
-// where the file starts calling BizHawk.
-//
-// NOTHING IN THE ADAPTER IS MODIFIED to make this possible. The queue DrainInto reads is private,
-// so lines go in through reflection. That is the right trade: a test seam added to shipped code is
-// a change to shipped code, and this file is not worth one.
-//
-// A DETERMINISTIC SEEDED LOOP, not a coverage-guided fuzzer. SharpFuzz would mean a new toolchain
-// in CI for a decoder whose entire input space is "one line of text"; a fixed corpus plus a seeded
-// generator gets the same defects and reproduces exactly from the seed printed on failure.
-//
-// What a green run does NOT mean: Newtonsoft here comes from NuGet, while the plugin binds to the
-// game's own copy. This bounds our parse and dispatch, not that exact deserializer.
-//
-// WHAT A WRONG KEY COST THIS FILE, and why the counters below are assertions rather than prints.
-// Until 2026-09-08 the extreme-numerics loop fed `extras` keys named `anim_time` and `temp_pause`
-// -- the names of the C# FIELDS on RemoteState -- while the decoder reads `extras["anim_t"]` and
-// `extras["pause"]` (BridgeClient.cs:727-728). Every value therefore decoded to null, the loop
-// that exists to prove "a non-finite float reaching a callback is impossible" inspected nothing,
-// and it printed `0 reached a callback non-finite (want 0)` whatever the decoder did. The wrong-
-// type category had the same hole one level up: `anim_time`/`temp_pause` sat at STATE level, where
-// the decoder reads only area_id/position/orientation/anim/extras, so those 18 lines exercised the
-// handling of an unknown field and nothing more. That is the 2026-09-03 "passed while exercising
-// nothing" lesson quoted at the top of this file, reproduced inside the file that quotes it.
-// The fix is not a better comment. It is that each category now has an assertion that can only be
-// satisfied by a value ARRIVING at the callback, so a key nothing reads fails the run.
+// Hostile input against TEVI's shipped bridge line decoder. BridgeClient.DrainInto parses and dispatches a line with no
+// Unity or BepInEx, so the whole path from bytes to callback arguments runs here.
+// The private queue is reached by reflection, so shipped code carries no test seam. A fixed corpus, not a
+// coverage-guided fuzzer: the decoder's whole input is one line of text. Newtonsoft here comes from NuGet, while the
+// plugin binds to the game's own copy, so a green run bounds our parse and dispatch, not that exact deserializer.
+// Each category asserts that values arrive at the callback, so a key nothing reads fails the run.
 
 using System;
 using System.Collections.Concurrent;
@@ -46,9 +20,7 @@ internal static class BridgeFuzz
 
     private static void Fail(string fmt, params object[] args) => Failures.Add(string.Format(fmt, args));
 
-    // The private queue DrainInto pulls from. Reached once and cached; if the field is ever renamed
-    // this fails loudly at startup rather than silently testing nothing -- which is the failure mode
-    // that made the Go replay fuzzer pass while exercising nothing (2026-09-03).
+    // The private queue DrainInto pulls from; a rename fails loudly at startup rather than silently testing nothing.
     private static readonly FieldInfo IncomingField =
         typeof(BridgeClient).GetField("incoming", BindingFlags.NonPublic | BindingFlags.Instance)
         ?? throw new InvalidOperationException(
@@ -61,8 +33,7 @@ internal static class BridgeFuzz
         public readonly List<string> Despawned = new();
     }
 
-    // Feed returns what one line produced, or throws only if the DECODER threw -- which is itself
-    // the finding, because DrainInto's whole contract is that it survives a malformed line.
+    // Feed returns what one line produced; it throws only if the decoder threw, which is itself a finding.
     private static Drain Feed(string line)
     {
         checks++;
@@ -126,11 +97,8 @@ internal static class BridgeFuzz
     }
 
 
-    // 11. A PEER'S BULLET ORDINALS against enums as narrow as the game's (Bullet.BulletType is Int16,
-    // Bullet.SpriteType is Byte, read from lib/Assembly-CSharp.dll 2026-09-16). The first guard called
-    // Enum.IsDefined with an int, which THROWS on a narrower enum, so every peer bullet died before it
-    // spawned and the harness never saw it: the call sat in Plugin.cs. These stand-ins have the same
-    // widths; the game's enums cannot be loaded here.
+    // A peer's bullet ordinals against stand-ins as narrow as the game's bullet type and sprite enums, which cannot be
+    // loaded here: Enum.IsDefined throws on a value boxed at the wrong width.
     private enum ShortStandIn : short { Zero = 0, One = 1, Big = 300 }
     private enum ByteStandIn : byte { Zero = 0, Top = 255 }
 
@@ -161,19 +129,8 @@ internal static class BridgeFuzz
         }
     }
 
-    // 10. THE POSITION, which is the one peer float that never got the FiniteOrNull treatment the
-    // animator floats got in the 2026-09-02 review (I23, fixed 2026-09-11).
-    //
-    // Newtonsoft turns "NaN" and "Infinity" -- and a double past float range -- into non-finite
-    // floats without throwing, and this array reaches transform.position, OverlapPoint and
-    // Vector3.Distance. A NaN transform propagates into the physics state of everything it
-    // touches and does not come back out, so it is not a ghost that looks wrong, it is a scene
-    // that stays wrong.
-    //
-    // WHAT IS ASSERTED: a state either arrives with a fully finite position or arrives with none
-    // at all. Null is already the "this state carries no position" case every caller handles --
-    // it is what an older peer build produces -- so refusing the whole array costs nothing and a
-    // half-applied position would be a ghost somewhere meaningless.
+    // A state arrives with a fully finite position or with none: a NaN position spreads into the physics state of
+    // whatever it touches and stays there.
     private static void NonFinitePosition()
     {
         string[] positions =
@@ -207,7 +164,7 @@ internal static class BridgeFuzz
             }
         }
 
-        // AND A REAL POSITION STILL ARRIVES. Without this, refusing everything would pass.
+        // A real position still arrives, or refusing everything would pass.
         string good = "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p1\",\"state\":{" +
                       "\"area_id\":\"a\",\"position\":[12.5,-3.25],\"anim\":\"idle\"}}}";
         if (Survives("finite position", good, out Drain ok))
@@ -230,15 +187,10 @@ internal static class BridgeFuzz
         }
     }
 
-    // 1. THE CONTROL. Without it, "nothing crashed" reads identically whether the decoder is working
-    // or has quietly stopped decoding -- which is exactly how a Go fuzz target here spent its whole
-    // life exercising nothing (agent_docs/pitfalls/method.md, 2026-09-03).
+    // Valid input still dispatches: without it, nothing crashing reads the same as a decoder that stopped decoding.
     private static void Control()
     {
-        // The real shape: bridge.RenderRemote nests the sample under "state" (bridge/bridge.go),
-        // it is not flat in the payload. Getting this wrong the first time is exactly why the
-        // control exists -- a harness with the wrong shape reports "0 renders" for every input and
-        // looks like a broken decoder rather than a broken test.
+        // bridge.RenderRemote nests the sample under "state", not flat in the payload.
         const string render =
             "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p1\",\"state\":{" +
             "\"position\":[1.5,-2.25,3.0],\"area_id\":\"room-a\",\"anim\":\"run\"}}}";
@@ -277,8 +229,7 @@ internal static class BridgeFuzz
         }
     }
 
-    // 2. Malformed and hostile lines. The bar is only that the decoder comes back: dropping a line
-    // is the correct answer to nonsense, and dispatching it would be the bug.
+    // Malformed and hostile lines: the bar is only that the decoder comes back, since dropping nonsense is correct.
     private static void Malformed()
     {
         string[] lines =
@@ -287,7 +238,7 @@ internal static class BridgeFuzz
             "{\"type\":", "{\"type\":1}", "{\"type\":null}", "{\"type\":[]}", "{\"type\":{}}",
             "{\"type\":\"render_remote\"}",                                  // no payload at all
             "{\"type\":\"render_remote\",\"payload\":null}",
-            "{\"type\":\"render_remote\",\"payload\":\"a string\"}",         // payload of the wrong TYPE
+            "{\"type\":\"render_remote\",\"payload\":\"a string\"}",         // payload of the wrong type
             "{\"type\":\"render_remote\",\"payload\":[1,2,3]}",
             "{\"type\":\"render_remote\",\"payload\":{}}",                   // no player_id
             "{\"type\":\"render_remote\",\"payload\":{\"player_id\":null}}",
@@ -313,11 +264,7 @@ internal static class BridgeFuzz
         }
     }
 
-    // 3. DEPTH. The same exposure the Lua harness measured on the Pokemon adapters, asked of this
-    // one: `extras` is bounded by SIZE and never by SHAPE upstream, so a peer fits several hundred
-    // levels of nesting into a message the relay forwards. Since 2026-09-03 protocol.MaxJSONDepth
-    // (32) refuses those before they leave the core -- but an adapter should not be relying on the
-    // core it happens to be paired with, and this is the check that says whether it does.
+    // Deep nesting: the core refuses extras past protocol.MaxJSONDepth, but an adapter must not rely on its core.
     private static void Depth()
     {
         int deepestAccepted = 0;
@@ -334,20 +281,13 @@ internal static class BridgeFuzz
             }
         }
 
-        // Reported rather than failed. Unlike the Lua decoders, this one does not own its own depth
-        // rule -- Newtonsoft applies one and DrainInto's catch turns the refusal into a dropped
-        // line, which is the correct outcome. The number is printed so it is a KNOWN fact rather
-        // than an assumed one, and so a Newtonsoft upgrade that changes it is visible here.
+        // Reported, not failed: Newtonsoft owns the depth rule and DrainInto's catch drops the line. Printed so a
+        // Newtonsoft upgrade that moves it shows here.
         Console.WriteLine("  TEVI: deepest nesting accepted = " + deepestAccepted +
                           " (deeper input is dropped, not crashed)");
     }
 
-    // 5. WRONG TYPE FOR EVERY FIELD (shared corpus category 1, adapters/_template/README.md).
-    // Each field that should be a number arrives as a string, a bool, null, an array and an
-    // object, and each string field as a number and a container. The bar is only that DrainInto
-    // returns: rejecting a wrong-typed field is the adapter's job, crashing on one is nobody's.
-    // This is the category the Emerald gender bug lived in -- a table where a string was expected
-    // made the draw loop error every frame for every peer sorted after it.
+    // Every state field at every wrong JSON type (the shared corpus's first category): DrainInto must return.
     private static void WrongTypes()
     {
         string[] lines =
@@ -406,13 +346,7 @@ internal static class BridgeFuzz
             "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"orientation\":{\"a\":1}}}}",
             "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"orientation\":[]}}}",
             "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"orientation\":{}}}}",
-            // Two unknown STATE-level keys, kept deliberately as the one pair that stays here.
-            // They were `anim_time`/`temp_pause` × nine shapes until 2026-09-08, written in the
-            // belief that this was the timing fields' wrong-type coverage; the decoder reads
-            // neither name and reads nothing at state level beyond area_id/position/orientation/
-            // anim/extras, so all 18 lines were testing "an unknown key is ignored" twice over.
-            // That property is worth one line each, and the real coverage moved to
-            // ExtrasWrongTypes below, at the keys BridgeClient.cs:723-731 actually reads.
+            // Two unknown state-level keys, which must be ignored; the timing fields' coverage is ExtrasWrongTypes.
             "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim_time\":1}}}",
             "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"temp_pause\":{\"a\":1}}}}",
         };
@@ -423,18 +357,9 @@ internal static class BridgeFuzz
         }
     }
 
-    // 5b. THE SAME CATEGORY, AT THE KEYS THE DECODER READS. Every peer-controlled `extras` key in
-    // BridgeClient.cs:723-731 -- room_x, room_y, trail, weapon_rgba, anim_t, pause, vfx_seq,
-    // vfx_id, vfx_left -- crossed with every JSON shape a peer can put there. None of these keys
-    // was fed at its real name by any test before 2026-09-08 (review item H5), so the casts that
-    // read them had no hostile-input coverage at all: `(int?)extras["room_x"]` on a string, on a
-    // container, on a value past int, and `(bool?)extras["vfx_left"]` on a number.
-    //
-    // TWO OUTCOMES ARE BOTH CORRECT and the harness does not pick between them: Newtonsoft either
-    // coerces the value (a bool becomes 1) or throws, and a throw lands in DrainInto's per-line
-    // catch and the line is dropped. What is asserted is the pair of properties that must hold
-    // whichever way it goes -- nothing escapes to the caller, and one odd extras value never
-    // corrupts the rest of the same state.
+    // The same category at nine extras keys the decoder casts, crossed with every JSON shape a peer can put there.
+    // Newtonsoft either coerces a value or throws into DrainInto's per-line catch, and both are correct; what must hold
+    // either way is that nothing escapes to the caller and one odd value never corrupts the rest of the state.
     private static void ExtrasWrongTypes()
     {
         string[] keys =
@@ -445,10 +370,7 @@ internal static class BridgeFuzz
         {
             "1", "-1", "0", "\"text\"", "\"\"", "true", "false", "null",
             "[1,2,3]", "{\"a\":1}", "[]", "{}",
-            // Past int in both directions. -2147483648 IS a legal int, so it decodes and reaches
-            // the callback: the place it is judged is the plugin's own bound
-            // (Plugin.cs:378-380), which is where review item I22 lives -- that is plugin source
-            // and out of this harness's reach, since only BridgeClient.cs compiles here.
+            // Past int both ways. int.MinValue is a legal int and reaches the callback; the plugin's bound judges it.
             "-2147483648", "2147483648", "-2147483649",
         };
 
@@ -492,9 +414,7 @@ internal static class BridgeFuzz
             }
         }
 
-        // The harness fails if the whole category was dropped, because "every line was refused"
-        // and "every line was fed at a key nothing reads" produce the same silence -- which is the
-        // 2026-09-08 defect this category was rewritten to close.
+        // Every line refused and every line fed at a key nothing reads produce the same silence, so that fails.
         if (decoded == 0)
         {
             Fail("extras wrong types: all {0} line(s) were dropped, so not one extras cast was " +
@@ -505,18 +425,9 @@ internal static class BridgeFuzz
                           " dropped (both are correct answers for a bad value; a throw is not)");
     }
 
-    // 6. EXTREME NUMERICS, high and low (shared corpus category 2). Type boundaries and the values
-    // just past them, plus the ones a peer reaches legally -- 1e999 is VALID JSON, so infinity
-    // arrives without anyone writing "inf". Newtonsoft's float cast turns out-of-range doubles and
-    // the "NaN"/"Infinity" strings into non-finite values WITHOUT throwing, which is why
-    // BridgeClient.FiniteOrNull exists; this asserts that guard actually holds rather than
-    // assuming it, for every shape a peer can send.
-    //
-    // THE KEYS ARE `anim_t` AND `pause`, INSIDE `extras`, AND NOTHING ELSE WILL DO -- see the
-    // header. Two assertions now stand between this loop and a repeat of the 2026-09-08 defect:
-    // a finite raw MUST arrive at the callback with the value it had (a null there means the key
-    // is being ignored again), and `reached` MUST end non-zero (a category that inspects nothing
-    // is a failure, not a pass).
+    // Extreme numerics (the shared corpus's second category) at extras anim_t and pause: 1e999 is valid JSON, so
+    // infinity arrives unasked, and FiniteOrNull must hold for every shape. A finite raw must arrive with its value,
+    // and reached must end above zero.
     private static void Extremes()
     {
         string[] raws =
@@ -542,9 +453,7 @@ internal static class BridgeFuzz
             }
             if (d.Rendered.Count != 1)
             {
-                // Refusing the line outright is a legal answer -- Newtonsoft may decline to read
-                // the literal at all. Counted and printed rather than passed over in silence,
-                // because a dropped line inspects exactly as much as a wrong key does.
+                // Refusing the line is legal; counted, because a dropped line inspects as little as a wrong key does.
                 dropped++;
                 continue;
             }
@@ -568,10 +477,7 @@ internal static class BridgeFuzz
 
                 if (finite && key == "anim_t" && !v.HasValue && (expected < 0f || expected > 1f))
                 {
-                    // A refusal, not a missing key: anim_t is a normalised phase and the decoder
-                    // drops a finite value outside 0..1 (BridgeClient.cs UnitOrNull, 2026-09-16).
-                    // The first cut CLAMPED, and the rewrite check below caught it in CI. In-range
-                    // values still have to arrive, which is what keeps the 2026-09-08 check alive.
+                    // A refusal, not a missing key: UnitOrNull drops a finite anim_t outside 0..1.
                     refused++;
                     continue;
                 }
@@ -598,10 +504,7 @@ internal static class BridgeFuzz
             }
         }
 
-        // THE ASSERTION THAT MAKES THE PRINT ABOVE MEAN SOMETHING. Without it, `nonFinite == 0`
-        // reads identically whether FiniteOrNull is holding or the loop is inspecting nothing --
-        // and until the keys were corrected on 2026-09-08 it was the latter. Reproduced that day by
-        // putting the old key names back: 27 assertions fire, 26 of them "arrived absent".
+        // Without this, nonFinite == 0 reads the same whether FiniteOrNull holds or the loop inspects nothing.
         if (reached == 0)
         {
             Fail("extremes: not one of the {0} extreme form(s) reached the callback with a value, so " +
@@ -615,10 +518,8 @@ internal static class BridgeFuzz
                           " reached a callback non-finite (want 0)");
     }
 
-    // What FiniteOrNull SHOULD be handed for a given raw JSON scalar, computed rather than
-    // hard-coded so the expectation cannot drift out of step with the corpus above. Returns false
-    // for anything non-finite once narrowed to float -- which includes 3.4028236e38, just past
-    // float.MaxValue, where the double-to-float narrowing yields infinity and raises nothing.
+    // What FiniteOrNull should be handed for a raw JSON scalar, computed so it cannot drift from the corpus. False for
+    // anything non-finite as a float, including 3.4028236e38, which narrows to infinity and raises nothing.
     private static bool ExpectedFloat(string raw, out float expected)
     {
         expected = 0f;
@@ -631,11 +532,7 @@ internal static class BridgeFuzz
         return !float.IsNaN(expected) && !float.IsInfinity(expected);
     }
 
-    // 4. PEER STRINGS STAY DATA. The property the ACE audit names: a peer-controlled string must
-    // arrive at the callback as the string it was, and must never have been used as a lookup on the
-    // way. This checks the first half, which is the half a decoder owns -- and pins pass-through, so
-    // a future "sanitiser" that silently rewrites a peer's id shows up here rather than as two
-    // players unable to see each other.
+    // A peer id arrives as the string it was: pass-through is pinned, so a sanitiser that rewrites an id fails here.
     private static void PeerStrings()
     {
         string[] ids =
@@ -674,16 +571,8 @@ internal static class BridgeFuzz
         }
     }
 
-    // 1b. THE SECOND CONTROL: EVERY `extras` KEY, AT ITS WIRE NAME, CARRYING A LEGAL VALUE.
-    // Added 2026-09-08 with the H5 fix, and it is the piece that makes a wrong key impossible to
-    // miss again: Control() above proves the decoder decodes, but it sends no extras at all, so
-    // every extras key could be renamed on either side and Control() would stay green.
-    //
-    // These nine names are the wire contract between TEVI and TEVI, written by SendLocalState
-    // (BridgeClient.cs:600-640) and read by DrainInto (:723-731) with the core carrying them
-    // through opaquely (contract.md: extras is free-form and never interpreted by the core). Both
-    // halves live in one file, which is exactly why a rename in one half is easy to miss -- so
-    // each assertion below names the RemoteState field and the wire key together.
+    // A second control, since Control sends no extras: nine extras keys at their wire names with legal values.
+    // SendLocalState writes them and DrainInto reads them in one file, so each assertion names the field and the key.
     private static void ExtrasRealKeys()
     {
         const string line =
@@ -736,33 +625,10 @@ internal static class BridgeFuzz
         }
     }
 
-    // 8. A COHERENT PEER FROM ANOTHER GAME (review item N3, 2026-09-08). Every fuzz category above
-    // feeds an INVALID value; this one is interesting because every field is individually valid and
-    // only the COMBINATION is wrong -- an Emerald adapter that changed one constant and joined a
-    // TEVI room. `game_id` is self-declared and `only_game` is a plain string compare, so nothing
-    // upstream can refuse this without the core or the relay learning what a game is, which is the
-    // invariant the whole project is built on (CLAUDE.md, ADR 08-20). So this is not a defect to
-    // prevent: the work is to KNOW what TEVI does with it, and to pin that rather than assume it.
-    //
-    // The shape is Emerald's own: area_id "mapGroup:mapNum" (meshghost_emerald.lua:1332), anim one
-    // of idle/walking/running (:1324-1328), a compass-word orientation, a two-element TILE position
-    // (:811), and an extras dict of Emerald's own keys (:811) -- none of which is one of TEVI's.
-    //
-    // WHAT IS ASSERTED, and it is deliberately not "this is refused":
-    //   * The line is decoded and dispatched, exactly once. Refusing it would be the surprise.
-    //   * Every value arrives verbatim. area_id, anim and the coordinates are peer data the
-    //     decoder must never coerce, clamp or rescale -- a transform the game never displayed is
-    //     the nonsense outcome, and inventing one is the only way this could produce one.
-    //   * Not one of Emerald's extras keys lands in a TEVI field. This is the assertion that
-    //     fires if a future TEVI extras key is named after one another adapter already sends: a
-    //     foreign number would then be adopted as a TEVI room coordinate or effect id.
-    //
-    // WHAT REFUSES IT, and why it cannot be asserted here: the anim is refused by
-    // IsPlayableAnimName, which asks the ghost's own Animator (Plugin.cs:589, HasState -- the same
-    // lookup Play does), and the map marker is refused by `state.AreaId == currentLocalArea`
-    // (Plugin.cs:383), which a foreign area_id never satisfies. Both live in Plugin.cs, which needs
-    // Unity and is not compiled here (see the .csproj header) -- so this harness pins the half it
-    // owns, that both gates are handed the peer's real string to judge.
+    // A coherent peer from another game, in Emerald's own shape: every field valid, only the combination wrong. game_id
+    // is self-declared, so nothing upstream can refuse it without learning what a game is; this pins what the decoder
+    // does with it: one dispatch, every value verbatim, and no Emerald extras key landing in a TEVI field. What refuses
+    // it lives in Plugin.cs, which needs Unity: the ghost's Animator refuses the anim, the area compare the marker.
     private static void ForeignGamePeer()
     {
         const string line =
@@ -815,10 +681,7 @@ internal static class BridgeFuzz
                 st.Position[0], st.Position[1]);
         }
 
-        // Emerald's extras keys and TEVI's do not overlap, so every TEVI extras field must be
-        // absent. "Absent" is the only honest reading of a key that was never sent: RemoteState's
-        // own comments define null as "not present on this message", and a defaulted 0 would be a
-        // room 0,0 and effect 0 asserted on the peer's behalf.
+        // The two games' extras keys do not overlap, so every TEVI field must be absent; a 0 would assert room 0,0.
         foreach ((string field, bool present) in new[]
         {
             ("RoomX", st?.RoomX.HasValue == true), ("RoomY", st?.RoomY.HasValue == true),
@@ -836,11 +699,7 @@ internal static class BridgeFuzz
             }
         }
 
-        // The other direction of the same case: a foreign peer whose numbers happen to land on
-        // TEVI's OWN extras keys. Emerald tile coordinates are small, so they sail through the
-        // plugin's sanity bound (Plugin.cs:378-380, |v| <= 100000) -- that bound is not what stops
-        // a foreign peer, and this pins that it is not, so nobody later reads it as the defence.
-        // The area compare at Plugin.cs:383 is.
+        // A foreign peer's numbers on TEVI's own keys pass the plugin's coordinate bound; the area compare refuses it.
         const string collide =
             "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"emerald-peer\",\"state\":{" +
             "\"area_id\":\"0:9\",\"position\":[5,12],\"anim\":\"walking\"," +

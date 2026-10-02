@@ -6,21 +6,10 @@ using UnityEngine;
 
 namespace MeshGhostTeviDevCheats
 {
-    // DEV-ONLY CHEATS FOR A TEST SESSION. Asked for by the user 2026-09-10 ("infinite energy, hp,
-    // meter, charge, bars etc for dev"). This writes game state every frame, which the shipped
-    // adapter may never do (CLAUDE.md), so it lives in its own assembly that is never staged.
-    //
-    // What it holds full, and where each value lives (names from the assembly, see
-    // agent_docs/licensing.md's facts-not-code posture):
-    //   hp      CharacterBase.health / maxhealth, written through SetHealthInt so the game's own
-    //           clamp applies.
-    //   mp      OrbBall.MP / MaxMP -- the energy each orbitar spends on shots. Private fields.
-    //   charge  CharacterPhy.charge (the bar) and chargeheld (the banked units the HUD wheel
-    //           counts), the latter set through SetChargeHeld so the bar recolours.
-    //
-    // TOGGLE FILE, so a test can switch one cheat off without a rebuild (hot reload is the loop):
-    // `meshghost-devcheats.txt` beside this DLL, one `name=0|1` per line. No file, or a name not
-    // in it, means ON -- the DLL being present is the master switch. Re-read once a second.
+    // Dev-only cheats for a test session, never staged: this writes game state every frame, which the adapter may never
+    // do, so it lives in its own assembly. It holds HP, both orbs' MP, the charge bank and both crystal counts at max.
+    // meshghost-devcheats.txt turns one off with name=0, re-read once a second; no file, or a name not in it, means on.
+    // It is read from beside this DLL, or from the game's root folder under ScriptEngine, where Info.Location is empty.
     [BepInPlugin("dev.meshghost.tevi.devcheats", "MeshGhost Dev Cheats", "0.1.0")]
     public class Plugin : BaseUnityPlugin
     {
@@ -93,6 +82,7 @@ namespace MeshGhostTeviDevCheats
 
             if (hp && player.health < player.maxhealth)
             {
+                // Through SetHealthInt, so the game's own clamp applies.
                 player.SetHealthInt(player.maxhealth, addrec: false);
             }
 
@@ -113,17 +103,16 @@ namespace MeshGhostTeviDevCheats
             if (charge && player.cphy_perfer != null && SaveManager.Instance != null)
             {
                 CharacterPhy phy = player.cphy_perfer;
-                // GetMaxAllowedCharge is the bar-plus-banked ceiling in bar units (AddCharge
-                // compares charge + chargeheld*100 against it), so the banked units are that / 100.
+                // GetMaxAllowedCharge is in bar units, and a banked unit counts as 100 of them.
                 int allowed = SaveManager.Instance.GetMaxAllowedCharge();
                 int units = Mathf.Max(0, allowed / 100);
                 if (units > 255) units = 255;
                 if (phy.chargeheld < units)
                 {
+                    // Through SetChargeHeld, so the bar recolours.
                     phy.SetChargeHeld((byte)units);
                 }
-                // The bar itself, held just under full: AddCharge converts a full bar into a
-                // banked unit, and the units are already at the ceiling above.
+                // The bar held just under full: a full bar turns into a banked unit, and the bank is already full.
                 float bar = phy.maxcharge - 1f;
                 if (phy.charge < bar)
                 {
@@ -131,22 +120,15 @@ namespace MeshGhostTeviDevCheats
                 }
             }
 
-            // ORB SWAP LOCKS (user, 2026-09-10: "after swapping i can't swap for a bit"). The swap
-            // input is refused while BadgeCD_ChangeOrbCharger runs (10s after each swap with that
-            // badge equipped) or while NoOrbChange is set (a bomb sets it). Both cleared every frame.
-            // The other two refusals are NOT lifted here: swapping during a core expansion and
-            // starting a second core expansion before the first ends are the boost state machine
-            // itself (isInBoost / a Celia or Sable already existing), and forcing them breaks the
-            // return-to-orb sequence.
+            // The orb swap's two locks, cleared every frame. Its refusals during a core expansion stay: they are the
+            // boost state machine itself, and forcing them breaks the return-to-orb sequence.
             if (swap && player.cphy_perfer != null)
             {
                 if (player.cphy_perfer.BadgeCD_ChangeOrbCharger > 0f) player.cphy_perfer.BadgeCD_ChangeOrbCharger = 0f;
                 if (player.cphy_perfer.NoOrbChange) player.cphy_perfer.NoOrbChange = false;
             }
 
-            // CRYSTALS -- what a core expansion spends (user, 2026-09-10). SAVE DATA, not a
-            // transient bar: SaveManager.savedata.crystal[] is what an autosave writes to disk, so
-            // a save touched while this is on keeps the maxed count. Dev install only, by design.
+            // Crystals are save data, not a bar: a save written while this is on keeps the maxed count.
             if (crystal && SaveManager.Instance != null)
             {
                 short max = SaveManager.Instance.GetMaxCrystal();

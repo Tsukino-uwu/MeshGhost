@@ -6,121 +6,34 @@ using UnityEngine;
 
 namespace MeshGhostTevi
 {
-    // Phase 6, step 6.1: the smallest thing that proves the toolchain end to end -- a plugin
-    // that loads and logs, nothing else.
-    // Step 6.2: read the real local player's state once per second and log it, TEVI's analogue
-    // of Emerald's Phase 1 read-only motion-tracking print. Class/field names below are cited
-    // facts from decompiling this machine's own Assembly-CSharp.dll (2026-07-09) with ilspycmd
-    // -- see agent_docs/verified.md's Phase 6.2 entry once confirmed, and
-    // agent_docs/licensing.md for the "facts, never code" posture this follows.
-    // Step 6.3: proved screen/world ghost placement with a placeholder box before tackling a
-    // real character-visual clone (TEVI's characters are plain SpriteRenderer + Animator, not
-    // Spine -- confirmed by decompiling PixelCharacter.cs, zero Spine references, unlike the
-    // ~14 boss/environment files that do use it). Superseded by the real remote-ghost visual
-    // (see UpsertRemoteGhost) and removed once 6.6 confirmed it live.
-    // Step 6.4/6.5: a real bridge connection (see BridgeClient.cs) to the local core process,
-    // sending local_state every frame and rendering whatever render_remote/despawn_remote comes
-    // back.
-    // Step 6.6: two real players, confirmed live 2026-08-13 -- a second TEVI copy running from
-    // a standalone build folder (see agent_docs/phases/phase6.md's dual-instance notes) pointed
-    // at its own local core process via BridgePort's config override below, both connected
-    // through one real (non-loopback) relay.
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     public class Plugin : BaseUnityPlugin
     {
         public const string PluginGuid = "dev.meshghost.tevi";
         public const string PluginName = "MeshGhost";
-        // Also sent as this adapter's bridge Hello game_version (internal/bridge.Hello,
-        // added for relay-safety hardening — see the ADR in agent_docs/architecture.md).
-        // This is this *plugin's* own version, not TEVI's game build — no cited API exists
-        // to read that, and CLAUDE.md's "no addresses/APIs from memory" rule means one
-        // isn't guessed at here. Opaque to the core/relay, compared only by equality: it
-        // catches two peers running different revisions of this adapter, the most likely
-        // real source of a silent protocol mismatch.
-        // Bumped 0.1.0 -> 0.2.0 (2026-08-15): real fixes have landed since 0.1.0 (the
-        // zone-transition invisible-ghost fix, cross-area filtering, pause-map marker work --
-        // see adapters/tevi/README.md's "How this adapter was built") without the version
-        // string ever moving, which meant two peers on genuinely different revisions were
-        // both reporting the same version -- exactly the failure this field exists to catch.
-        // Deliberate breaking change: an older TEVI client's version string will no longer
-        // match a newer one's, and game_version mismatches are a hard reject at the relay.
+        // Also the bridge Hello's game_version: this plugin's revision, not TEVI's build. A room refuses a member whose
+        // value differs, so a bump splits older adapters from newer ones.
         public const string PluginVersion = "0.2.0";
 
-        // Gates the per-remote redraw trace in UpsertRemoteGhost (see LastDiagLogTime below):
-        // it was added to chase the 2026-08-14 zone-transition ghost-invisibility bug, which is
-        // now root-caused and fixed (see the basesprite.enabled reset in CreateRealGhostVisual).
-        // Left off by default since it fires every 2s per remote, forever -- flip to true only
-        // when actively chasing a similar live repro. Matches the flag convention already used
-        // by the other two adapters (Emerald's DIAG_STEP_CURVE/DIAG_SCREENPOS_PARTS,
-        // Pseudoregalia's ANIM_PULSE_TRACE).
+        // Logs each remote's position and active state every 2s, for as long as it is on.
         private const bool DIAG_REDRAW_TRACE = false;
 
-        // TEVI's FIRST TWO PROBES, 2026-08-27, and they are compile-time flags rather than
-        // scripts because of the host: BepInEx has no equivalent of BizHawk's Lua console, so
-        // there is nothing to attach a standalone probe to. A probe here is a block compiled out
-        // when its flag is false, exactly like DIAG_REDRAW_TRACE above. PROBES.md is the index.
-        //
-        // NEITHER HAS BEEN RUN. Both were written blind, from the code, and a probe that has never
-        // run proves nothing -- see adapters/tevi/UNVERIFIED.md.
-
-        // DIAG_MARKER_STALENESS answers ONE question: how long has the FullMap marker been showing
-        // a position no peer has confirmed? It was written while the marker was update-driven --
-        // UpdateRemoteMapMarker ran only from UpsertRemoteGhost, which runs only when a
-        // render_remote arrives, so a peer that stopped sending left it frozen. The refresh is
-        // frame-driven as of 2026-08-28 and a stale marker now HIDES after MarkerStaleSeconds,
-        // which is what this measures now: an age that climbs past that bound while the marker is
-        // still visible means the fix is not working. Ages are of the DATA, not of the redraw.
-        //
-        // Fires only while the map is actually open AND at most once a second, because a per-frame
-        // log line is a per-frame stall on any host (adapters/emulator/CLAUDE.md measured 63-83ms
-        // for one line plus a flush; BepInEx's logger is cheaper but the principle is the same).
+        // Logs how old each visible map marker's data is, once a second and only while the map is open.
         private const bool DIAG_MARKER_STALENESS = false;
         private const float MarkerStalenessLogInterval = 1f;
         private float lastMarkerStalenessLogTime;
 
-        // DIAG_MENU_GATE prints what the adapter can actually SEE at each play-session transition:
-        // whether the player object is null, whether the FullMap says it is open, and which branch
-        // was taken. It exists to settle documentation.md's claim that the pause-vs-main-menu
-        // distinction is PlayerControl.instance, when this adapter reads
-        // EventManager.Instance.mainCharacter and PlayerControl appears nowhere in it. Asked, the
-        // user was unsure and said only that the behaviour works today -- so this is the
-        // measurement, and nothing was changed on a guess. The 2026-08-18 false regression came
-        // from reasoning about this exact question from code.
-        //
-        // Edge-triggered on the transition, so it costs one line per menu open or close.
+        // Logs what the adapter sees at each play-session edge (player, EventManager, map open), one line per edge.
         private const bool DIAG_MENU_GATE = false;
 
-        // DIAG_SPAWN_DIFF answers "what does this move actually SPAWN?" -- the question behind the
-        // charged-attack gap, where a peer ghost plays the animation and no effect appears. It is
-        // the WORLD DIFF instrument from agent_docs/effect-investigation.md: snapshot what exists
-        // near a character, do the move on purpose, snapshot again, and read what appeared. Run it
-        // on BOTH instances at once and the two lists are the answer directly -- what appears near
-        // the local player on one, what appears near that same peer's ghost on the other, and the
-        // difference between them is the missing effect.
-        //
-        // IDENTITY, NOT COUNTS, deliberately (effect-investigation.md rule 4). Effects are usually
-        // pooled, and pooling defeats counting at both ends: re-use makes a new effect look old, and
-        // retirement makes an old one look new. Instance IDs cannot be fooled either way, and they
-        // separate "spawned two" from "counted one twice" -- which need opposite fixes.
-        //
-        // UNFILTERED BY NAME, also deliberately. A name filter is a guess about the answer, and a
-        // wrong guess still returns a complete-looking list. Everything inside the radius is logged;
-        // filtering happens afterwards, when reading.
-        //
-        // THE COST IS THE RISK HERE, so this probe measures itself: a scene enumeration is O(all
-        // objects), and a probe too expensive to run does not report being too expensive -- it
-        // reports nothing, which reads exactly like "the game spawned nothing". SpawnDiffCoverage
-        // prints scan time and object counts so a silent result can be told apart from an absent
-        // one. If the scan time is bad, raise SpawnDiffSampleInterval; do not trust a quiet log.
+        // Logs every object appearing or disappearing near the player and each ghost, by instance id (pooling defeats
+        // counts), unfiltered by name. SpawnDiffCoverage reports the scan's cost: a quiet log is not "nothing".
         private const bool DIAG_SPAWN_DIFF = false;
-        // 20Hz. Fast enough that a one-frame effect is unlikely to appear and vanish between two
-        // samples, slow enough that the enumeration is not per-frame.
+        // 20Hz: a one-frame effect is unlikely to fall between two samples.
         private const float SpawnDiffSampleInterval = 0.05f;
-        // World units. The loopback ghost offset is 160f (VERIFIED.md), so 400 comfortably contains
-        // a character and its effects while excluding most of the room.
+        // World units: a character and its effects, not most of the room.
         private const float SpawnDiffRadius = 400f;
-        // Per-question budgets, never one shared pool: a shared budget is spent by whatever happens
-        // most often, which is never the rare thing being hunted (effect-investigation.md rule 7).
+        // One budget per question: a shared one is spent by whatever happens most, never the rare thing hunted.
         private const int SpawnDiffAppearBudget = 500;
         private const int SpawnDiffDisappearBudget = 250;
         private const float SpawnDiffCoverageInterval = 5f;
@@ -135,15 +48,8 @@ namespace MeshGhostTevi
         private double spawnDiffScanMsWorst;
         private readonly Dictionary<int, string> spawnDiffSeen = new Dictionary<int, string>();
 
-        // Diagnostic-only throttling. First attempt (position-change-triggered with a 0.5-unit
-        // epsilon) still produced 7324 lines in one session: real per-frame movement deltas in
-        // TEVI are themselves ~0.5-0.7 units (confirmed from that run's own log), so the epsilon
-        // sat right at the noise floor and fired almost every frame -- the exact "guessed
-        // constant instead of measured" mistake already flagged once in Emerald's history.
-        // Fix: cap logging to a fixed cadence while state is continuously changing (position
-        // drifts constantly while moving; that's expected, not interesting per-frame), but still
-        // log immediately on a discrete change (direction flip, anim change, area change) since
-        // those are genuinely rare events worth seeing right away.
+        // State logging: a discrete change (direction, anim, area) logs at once, while position drift logs at a capped
+        // cadence, since one frame's movement is about the size of the epsilon.
         private const float MaxSilenceSeconds = 5f;
         private const float MinLogIntervalSeconds = 0.5f;
         private const float PositionChangeEpsilon = 0.5f;
@@ -158,73 +64,47 @@ namespace MeshGhostTevi
         private BridgeClient bridge;
         private const string BridgeHost = "127.0.0.1";
 
-        // The BASE of the port walk, not the only port tried. Since 2026-08-27 the adapter walks
-        // BridgeClient.BridgePortCount ports up from here, matching the other three adapters, so
-        // two local TEVI instances each find their own core with nothing configured. It stays
-        // configurable to move the whole range; before the walk it had to be set by hand on the
-        // second instance, and forgetting to was a real failure mode (agent_docs/phases/phase6.md,
-        // and the .gitignore entry for dev-scripts/*.local.bat records the same trap in Emerald).
+        // The base of the port walk: BridgeClient.BridgePortCount ports up from here, so two local instances each find
+        // their own core with nothing configured.
         private const int DefaultBridgePort = 7778;
 
-        // Sent as this adapter's bridge Hello (internal/bridge.Hello) so the core can connect
-        // to the relay without the user typing "game" into config.json themselves -- see
-        // agent_docs/architecture.md's ADR. Opaque to the core; matches the folder name under
-        // games/tevi/ in the shipped release, per packaging/README.md's convention.
+        // Sent in the bridge Hello so the core joins the right game; matches the games/tevi/ folder in the release.
         private const string GameId = "tevi";
 
-        // Step 6.6-prep (real ghost visuals, done solo via loopback -- see phase6.md): a remote
-        // ghost is a real clone of the local player's own visual object
-        // (CharacterBase.spranim_prefer.pixel.gameObject), not a flat placeholder square.
-        // PixelCharacter has no Update/Awake/Start of its own (confirmed by decompiling
-        // PixelCharacter.cs) -- it is a pure data holder (Animator + SpriteRenderers), so it is
-        // safe to detach and clone standalone without dragging along CharacterBase's gameplay
-        // logic, which lives on a different object entirely.
+        // A clone of the local player's own visual object (spranim_prefer.pixel.gameObject). PixelCharacter has no
+        // Update/Awake/Start, so it clones standalone without CharacterBase's gameplay logic.
         private sealed class RemoteGhostVisual
         {
             public GameObject Go;
             public PixelCharacter Pc;
             public string LastAnim;
 
-            // Highest one-shot VFX counter already played for this peer. Per-ghost, and it
-            // starts at 0 so a peer that has already fired effects before we first saw it does
-            // not replay its whole history the moment its ghost appears.
+            // Highest one-shot VFX counter played. 0 until the first message adopts the peer's counter, so effects
+            // fired before this ghost appeared do not replay.
             public int LastVfxSeq;
 
             // Last phase received for this peer, for drift correction.
             public float LastAnimTime;
 
-            // Playback speed multiplier currently correcting this ghost's clip phase, 1 when it
-            // is in step. See the phase correction in UpsertRemoteGhost for why a speed and not
-            // a seek.
+            // Playback speed correcting this ghost's clip phase, 1 when it is in step.
             public float PhaseCatchup = 1f;
 
-            // The peer's weapon-strobe colour and when one was last seen, so the strobe's white
-            // frames do not read as the strobe having stopped. Receiver-side state: the sender
-            // reports only the truth of each frame (see ReadWeaponStrobe).
-            // Is this peer standing in the SAME ROOM as the local player? The local wall test for
-            // their bullets is only meaningful then -- see StepGhostBullet.
+            // The local wall test for this peer's bullets only means something when it shares the local player's room.
             public bool SameRoom;
+            // The peer's strobe colour and when it was last seen, so the strobe's white frames do not read as a stop.
             public int StrobeRgb = 0xFFFFFF;
             public float StrobeSeenAt = float.NegativeInfinity;
 
-            // HITSTOP BY PHASE, not by arrival. The peer's game freezes their clip at a specific
-            // phase; the state that says "paused" also says WHERE (AnimTime holds still while the
-            // peer's animator is frozen). Freezing this ghost the moment the message arrives
-            // freezes it at ITS phase, which under network jitter lags the peer's -- seen live
-            // 2026-08-28 on the netsim rig as the charged attack "freezing the pose a bit early"
-            // while the same code looked right under clean conditions. PendingFreezePhase is
-            // where the peer froze (-1 none armed, -2 freeze immediately, no phase known);
-            // Frozen is whether this ghost has actually stopped.
+            // Hitstop by phase, not by arrival: freezing when the message arrives lags the peer's freeze under jitter.
+            // PendingFreezePhase is where the peer froze (-1 none armed, -2 at once, phase unknown).
             public float PendingFreezePhase = -1f;
             public float FreezeArmedAt;
             public bool Frozen;
 
 
-            // Time since this ghost last emitted an afterimage. Per-ghost, because two peers
-            // trailing at once must not share a cadence.
+            // Per ghost, so two peers trailing at once do not share a cadence.
             public float TrailTimer;
-            // The trail the peer is CURRENTLY running, latched from the last message and spawned
-            // from TickTrails every frame -- see that method for why not per message.
+            // The trail the peer is running now, latched from the last message; TickTrails spawns it every frame.
             public int TrailMode;
             public float TrailRate = TrailSpawnRate;
             public float TrailDecay = TrailDecaySpeed;
@@ -232,53 +112,39 @@ namespace MeshGhostTevi
             public int TrailOrder = TrailSortingOrder;
             public bool TrailHaveEffect;
 
-            // The real, measured offset between the source player's t.position and its own
-            // spranim_prefer.pixel.transform.position at clone time -- read directly rather than
-            // guessed, the same real-offset-not-a-constant fix Emerald needed a hardcoded
-            // GHOST_Y_CORRECTION for (see verified.md's Phase 5.5 entry). Confirmed necessary
-            // live 2026-08-12: without it, the clone rendered near the player's head instead of
-            // their body, because pixel.gameObject sits above the root at its own local offset,
-            // which Instantiate()-ing it standalone and setting world position directly throws
-            // away.
+            // The source player's offset from t.position to spranim_prefer.pixel's position, read at clone time: the
+            // visual sits at its own local offset, which a standalone Instantiate loses.
             public Vector3 AnchorOffset;
 
-            // Throttled diagnostic redraw logging (see UpsertRemoteGhost) -- added while
-            // chasing the 2026-08-14 zone-transition ghost-invisibility bug so a next repro
-            // shows whether a ghost's actual position/active-state drifts wrong sometime after
-            // creation, not just what it looked like at the moment it was made.
+            // Throttles DIAG_REDRAW_TRACE.
             public float LastDiagLogTime = float.NegativeInfinity;
 
-            // Names this peer sent that no local controller has, so each is complained about once
-            // instead of every frame. Lazily created (a well-behaved peer never allocates one) and
-            // capped -- see MaxRejectedAnimNamesPerPeer.
+            // Names this peer sent that no local controller has, so each is logged once; created lazily, and capped.
             public HashSet<string> RejectedAnims;
 
-            // The peer's two orbitars, cloned lazily from the game's own orb prefab the first
-            // time the peer reports one visible. See ReadOrbs / ApplyGhostOrbs.
+            // The peer's two orbitars, cloned lazily from the game's orb prefab the first time one is visible.
             public GhostOrb[] Orbs = new GhostOrb[2];
 
-            // The peer's core expansions (summoned Celia/Sable), keyed by character type. Each is
-            // a second sprite-rig clone driven exactly like the ghost itself. See ReadSummons.
+            // The peer's core expansions (summoned Celia/Sable), keyed by character type, each driven like the ghost.
             public Dictionary<string, SummonGhost> Summons = new Dictionary<string, SummonGhost>();
 
-            // Highest orb-to-human flash counter already played for this peer (see OrbFxSeq).
+            // Highest orb-to-human flash counter already played for this peer.
             public int LastOrbFxSeq;
 
-            // The peer's live projectiles, by birth seq (see ReadBullets / ApplyGhostBullets).
+            // The peer's live projectiles, by birth seq.
             public Dictionary<int, GhostBullet> Bullets = new Dictionary<int, GhostBullet>();
             public int LastBulletSeq;
             public bool BulletSeqAdopted;
             public int LastFlashSeq;
             public bool FlashSeqAdopted;
 
-            // The peer's boost shield and platforms (see ReadShield / ApplyGhostShield).
+            // The peer's boost shield and platforms.
             public GhostShield Shield;
             public GhostPlatform[] Platforms = new GhostPlatform[2];
         }
 
-        // A dormant bullet: the game's bullet prefab with its script never ticked by BulletManager
-        // (it is not in the pool, so it never hits, never checks walls, never spends anything).
-        // We fly it; the game's own pooled effect follows it.
+        // A dormant bullet: the game's prefab outside BulletManager's pool, so its script never hits, tests walls or
+        // spends anything. We fly it; the game's pooled effect follows it.
         private sealed class GhostBullet
         {
             public GameObject Go;
@@ -316,21 +182,18 @@ namespace MeshGhostTevi
             public string LastAnim;
             public string Controller;
             public bool Visible;
-            // A clone of the game's orb-to-humanoid trail (TrailRenderer + its own mover), flown
-            // from the ghost orb to this summon when it appears and back when it goes. Its mover
-            // never stops itself; TrailOffAt is when we park it, timed like the game does.
+            // A clone of the game's orb-to-humanoid trail, flown from the ghost orb to this summon and back. Its mover
+            // never stops itself, so TrailOffAt is when we park it.
             public GemaOrbToHumanoidTrail Trail;
             public float TrailOffAt = float.NegativeInfinity;
             public bool WasPresent;
         }
 
-        // EventManager keeps two GemaOrbToHumanoidTrail objects in a private array; the first one
-        // is the template a ghost's trail is cloned from. Name from the assembly, read once.
+        // EventManager's private trail array; its first trail is the template a ghost's trail is cloned from.
         private static readonly FieldInfo O2HTrailsField = typeof(EventManager).GetField("O2Htrails", BindingFlags.NonPublic | BindingFlags.Instance);
 
-        // A logic-stripped orb: the prefab's renderers with the OrbBall behaviour removed, so
-        // nothing on it can shoot, aim, register a light or read the local save. Every field here
-        // is written from the peer's reported values and nothing else drives it.
+        // The orb prefab's renderers with OrbBall removed, so nothing on it can shoot, aim, register a light or read
+        // the save; only the peer's reported values drive it.
         private sealed class GhostOrb
         {
             public GameObject Go;
@@ -339,43 +202,26 @@ namespace MeshGhostTevi
             public SpriteRenderer Crystal;
             public SpriteRenderer Charge;
             public Transform ChargeTransform;
-            // The prefab's own afterimage pool (GemaOrbTrail children). The real orb lights one
-            // per physics step while its crystal ring is on; the ghost orb does the same from
-            // FixedUpdate below. A trail DETACHES itself on first use, so these are tracked here
-            // and destroyed with the orb rather than found through the hierarchy.
+            // The prefab's GemaOrbTrail pool, held here because a trail detaches itself from the orb on first use.
             public GemaOrbTrail[] Trails;
         }
 
         private readonly Dictionary<string, RemoteGhostVisual> remoteVisuals = new Dictionary<string, RemoteGhostVisual>();
 
-        // Step 6.7 (agent_docs/phases/phase6.md): a remote's marker on TEVI's map screen
-        // (FullMap, the pause-menu map -- room-grid based, not continuous-position-based).
-        // Separate from RemoteGhostVisual: the world-space ghost only helps when a peer is
-        // on-screen with you; this helps anywhere in the shared zone, gated on the map
-        // actually being open and the room already being discovered by the local player (see
-        // UpdateRemoteMapMarker).
+        // A peer's marker on the map screen (FullMap), shown while it is open, on a room the player has discovered.
         private sealed class RemoteMapMarker
         {
             public GameObject Go;
 
-            // When the state this marker is DRAWING arrived -- not when the marker was last
-            // redrawn, which since the refresh went frame-driven is every frame regardless.
-            // Read only under DIAG_MARKER_STALENESS. The marker's AGE is the whole question the
-            // staleness defect turns on, and it is not recoverable after the fact from anything
-            // on screen.
+            // When the state this marker draws arrived, not when it was last redrawn (every frame). Read only by
+            // DIAG_MARKER_STALENESS.
             public float LastUpdateTime;
         }
 
         private readonly Dictionary<string, RemoteMapMarker> remoteMapMarkers = new Dictionary<string, RemoteMapMarker>();
 
-        // The last state each peer sent, with WHEN it arrived. Kept because the marker is
-        // refreshed every frame from here rather than only when a message lands: the old path
-        // ran UpdateRemoteMapMarker from inside UpsertRemoteGhost, so a peer that stopped
-        // sending left its marker frozen wherever it was until the core's own drop detection
-        // finally despawned it (quic ~17s, udp up to 60s), and a peer whose ghost could not be
-        // built yet -- no local player to clone from, a state carrying no position -- got no
-        // marker at all, because both of those return before the marker call at the bottom.
-        // Recorded at the TOP of UpsertRemoteGhost, above every one of those returns.
+        // The last state each peer sent and when, recorded before UpsertRemoteGhost's early returns, so the marker
+        // refreshes each frame even for a peer that stopped sending or whose ghost cannot be built yet.
         private sealed class RemoteMarkerState
         {
             public BridgeClient.RemoteState State;
@@ -384,40 +230,23 @@ namespace MeshGhostTevi
 
         private readonly Dictionary<string, RemoteMarkerState> remoteMarkerStates = new Dictionary<string, RemoteMarkerState>();
 
-        // How long a marker may keep claiming a position after the last state that backed it.
-        // The core re-sends every remote it still tracks on EVERY adapter frame -- a peer
-        // standing perfectly still still produces render_remote -- so silence here means the
-        // states stopped arriving, never that the peer stopped moving. One second is many frames
-        // of ordinary jitter and far below the core's own drop detection, which is exactly the
-        // window the marker used to spend lying.
+        // How long a marker may claim a position after its last state. The core re-sends every remote it tracks on
+        // every adapter frame, even a still one, so silence means states stopped arriving.
         private const float MarkerStaleSeconds = 1f;
 
-        // FullMap.playerPos (the local player's own map marker, a SpriteRenderer) and
-        // FullMap.maxroom (the per-area stride into FullMap.roomtilelist) are both private
-        // fields -- confirmed by decompiling Assembly-CSharp.dll with ilspycmd, same
-        // reflection approach already used below for EventManager.mainCharacter's shape
-        // differing across builds. roomtilelist itself and isFullMap are public, read
-        // directly with no reflection needed.
+        // Private on FullMap: playerPos is the local player's marker, maxroom the per-area stride into roomtilelist.
         private static readonly FieldInfo FullMapPlayerPosField =
             typeof(FullMap).GetField("playerPos", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo FullMapMaxRoomField =
             typeof(FullMap).GetField("maxroom", BindingFlags.NonPublic | BindingFlags.Instance);
 
-        // Tinted distinctly from the local player's own (default-colored) FullMap.playerPos
-        // marker -- same cyan already established for the remote character ghost (step
-        // 6.4/6.5), one consistent "this is a MeshGhost marker" visual language.
+        // Cyan, so a peer's marker is told apart from the local player's own.
         private static readonly Color RemoteMapMarkerColor = new Color(0f, 1f, 1f, 1f);
 
-        // Set once per Update, before bridge.DrainInto and RefreshRemoteMapMarkers run, so
-        // UpdateRemoteMapMarker has the local player's current area to gate against without
-        // needing to parse it back out of the AreaId string on every remote.
+        // Set each Update before DrainInto and RefreshRemoteMapMarkers, so the marker gate need not parse AreaId.
         private byte currentLocalArea = 255;
 
-        // Finds the FullMapTile for (area, x, y) the same way FullMap.MoveMapToCurrentRoom
-        // does for the local player's current room -- confirmed live by reading that method
-        // directly, not guessed: roomtilelist is a flat array indexed area*maxroom+slot, found
-        // by a linear scan of that area's slice comparing GetX()/GetY(). Generalized here to
-        // any (area, x, y), not just "current."
+        // The FullMapTile for (area, x, y), found the way FullMap.MoveMapToCurrentRoom finds the player's own room.
         private static FullMapTile FindRoomTile(byte area, int x, int y)
         {
             FullMap map = FullMap.Instance;
@@ -439,21 +268,11 @@ namespace MeshGhostTevi
             return null;
         }
 
-        // room_x/room_y arrive over the wire from a peer (adapters/_template/PROTOCOL.md:
-        // inbound render_remote data is peer-controlled, bound before feeding your engine).
-        // Not a measured game constant -- TEVI's real room grid is far smaller than this -- just
-        // a generous sanity bound so a bogus/adversarial value can't reach GetRoomWalkedBool
-        // (unknown internals, currently only caught by DrainInto's per-line try/catch, which
-        // means a bad value spams that catch's log line every frame instead of just being
-        // filtered out here).
+        // Not a game constant: a generous bound on a peer's room_x/room_y before it reaches GetRoomWalkedBool, whose
+        // internals are unknown.
         private const int MaxRoomCoordinate = 100000;
 
-        // Every peer's marker, once per frame, from the last state each one sent. Frame-driven
-        // rather than arrival-driven: that is the whole fix for a marker that used to sit frozen
-        // at a position its peer had long left. Called immediately after DrainInto so a state
-        // that landed this frame is drawn this frame -- moving the refresh costs no latency.
-        // "map_markers" in config.json (CoreLauncher.ConfigSaysNoMapMarkers). Polled once a second
-        // by the file's timestamp, never re-read per frame; the shipped default is on.
+        // "map_markers" in config.json, polled once a second by the file's timestamp; on by default.
         private bool mapMarkersEnabled = true;
         private float nextMapMarkerConfigPoll;
         private System.DateTime lastMapMarkerConfigStamp = System.DateTime.MinValue;
@@ -478,6 +297,7 @@ namespace MeshGhostTevi
             }
         }
 
+        // Every peer's marker, each frame, from its last state; right after DrainInto, so a new state draws at once.
         private void RefreshRemoteMapMarkers()
         {
             PollMapMarkerConfig();
@@ -502,9 +322,7 @@ namespace MeshGhostTevi
             {
                 if (now - kv.Value.ArrivedAt > MarkerStaleSeconds)
                 {
-                    // Hidden, not destroyed: the peer may simply be mid-hitch, and the entry
-                    // still has to come back the moment states resume. Destroying is
-                    // DespawnRemoteMapMarker's job, driven by the core's despawn.
+                    // Hidden, not destroyed: the peer may be mid-hitch; the core's despawn destroys it.
                     if (remoteMapMarkers.TryGetValue(kv.Key, out RemoteMapMarker stale) && stale.Go != null)
                     {
                         stale.Go.SetActive(false);
@@ -518,26 +336,14 @@ namespace MeshGhostTevi
         private void UpdateRemoteMapMarker(string playerId, BridgeClient.RemoteState state, float stateArrivedAt)
         {
             FullMap map = FullMap.Instance;
-            // **COMPARED WITHOUT Abs, since 2026-09-11 (review I22).** `Mathf.Abs(int.MinValue)`
-            // THROWS -- there is no positive int to return -- and the exception escapes here,
-            // because since the 2026-08-28 frame-driven refresh this runs from Update() rather
-            // than from inside DrainInto's per-line try/catch. So one peer sending
-            // `room_x: -2147483648` killed the victim's whole Update() every frame, which also
-            // stops SendLocalState: the victim vanishes from everyone else's screen, from a value
-            // another player chose. And had it not thrown, int.MinValue <= 100000 is true, so the
-            // bound it was written to enforce passed anyway.
-            //
-            // A range test on the value itself has neither problem and needs no special case.
+            // A range test, never Mathf.Abs: Abs(int.MinValue) throws, and this runs outside DrainInto's try/catch.
             bool roomInRange = state.RoomX.HasValue && state.RoomY.HasValue
                 && state.RoomX.Value >= -MaxRoomCoordinate && state.RoomX.Value <= MaxRoomCoordinate
                 && state.RoomY.Value >= -MaxRoomCoordinate && state.RoomY.Value <= MaxRoomCoordinate;
             bool wantVisible = map != null && map.isFullMap
                 && roomInRange
                 && state.AreaId == currentLocalArea.ToString()
-                // Fog-of-war: never let a peer's marker reveal a room the local player hasn't
-                // personally discovered yet (SaveManager.GetRoomWalkedBool is the game's own
-                // discovery-state query, confirmed live by reading FullMapTile.SetVisible's
-                // use of it).
+                // Never reveal a room the local player has not discovered; FullMapTile.SetVisible asks the same.
                 && SaveManager.Instance != null
                 && SaveManager.Instance.GetRoomWalkedBool(currentLocalArea, state.RoomX.Value, state.RoomY.Value, 0, 0);
 
@@ -556,10 +362,7 @@ namespace MeshGhostTevi
                 {
                     return;
                 }
-                // Same parent as the original so it inherits FullMap's own zoom rescaling
-                // (see GemaFixedSizeMapIcon.Update, which explicitly rescales map icons
-                // against FullMap.Instance.transform.localScale every frame) instead of
-                // staying a fixed size while the map zooms.
+                // Same parent as the original, so it scales with the map's zoom like the game's own icons.
                 GameObject go = Instantiate(template.gameObject, template.transform.parent);
                 go.name = $"MeshGhostMapMarker_{playerId}";
                 SpriteRenderer sr = go.GetComponent<SpriteRenderer>();
@@ -588,11 +391,7 @@ namespace MeshGhostTevi
             marker.LastUpdateTime = stateArrivedAt;
         }
 
-        // PROBE, off unless DIAG_MARKER_STALENESS. Reports how old each visible marker's position
-        // is while the map is actually open. A marker whose age keeps climbing is the shipped
-        // update-driven defect happening in front of you; one that stays near zero is a peer still
-        // sending. Gated on the map being open and throttled to once a second, because a per-frame
-        // log line is a per-frame cost on every host this project has measured.
+        // Probe: each visible marker's age while the map is open, once a second. A climbing age is a marker left stale.
         private void DiagMarkerStaleness()
         {
             FullMap map = FullMap.Instance;
@@ -621,39 +420,26 @@ namespace MeshGhostTevi
         {
             if (remoteMapMarkers.TryGetValue(playerId, out RemoteMapMarker marker))
             {
-                // SetActive(false) alone left the GameObject (and its dictionary entry) alive
-                // forever -- every despawn/respawn of the same peer (a reconnect, an area
-                // transition) instantiated a fresh marker without ever freeing the old one, a
-                // monotonic per-reconnect leak. Destroy it and drop the entry so the next
-                // UpdateRemoteMapMarker for this playerId creates a clean new one.
+                // Destroyed, not hidden: each respawn of this peer builds a fresh marker.
                 if (marker.Go != null)
                 {
                     Destroy(marker.Go);
                 }
                 remoteMapMarkers.Remove(playerId);
             }
-            // Dropped with the marker, or RefreshRemoteMapMarkers would keep rebuilding a marker
-            // for a peer the core has already despawned -- and the entry would outlive every
-            // session the peer was ever in.
+            // Dropped too, or RefreshRemoteMapMarkers would rebuild a marker for a peer the core has despawned.
             remoteMarkerStates.Remove(playerId);
         }
 
-        // Set once per Update from EventManager.Instance.mainCharacter, before bridge.DrainInto
-        // runs, so UpsertRemoteGhost has a live template to clone from the first time a remote
-        // shows up. Cloning the *local* player's own visual is exactly correct for the loopback
-        // test (the remote genuinely is you); for a real different remote character later this
-        // would need its own per-character template, deferred until 6.6 has a real second peer.
+        // Set each Update from EventManager.Instance.mainCharacter before DrainInto, so a new remote has a template.
         private CharacterBase cloneTemplate;
 
         private GameObject CreateRealGhostVisual(CharacterBase templatePlayer, string name, out PixelCharacter pc, out Vector3 anchorOffset, out string inheritedSpriteState)
         {
-            // Measure the real offset before instantiating a detached copy loses the parent
-            // relationship that produced it.
+            // Read before a detached copy loses the parent that produced the offset.
             anchorOffset = templatePlayer.spranim_prefer.pixel.transform.position - templatePlayer.t.position;
 
-            // Diagnostic only, captured before the reset below overwrites it -- added while
-            // chasing the 2026-08-14 zone-transition ghost-invisibility bug, to confirm what
-            // render state Instantiate() actually inherited from the live template.
+            // For the creation log: the render state Instantiate inherits, read before the reset below.
             SpriteRenderer templateBase = templatePlayer.spranim_prefer.pixel.basesprite;
             inheritedSpriteState = templateBase != null
                 ? $"enabled={templateBase.enabled} color={templateBase.color}"
@@ -662,11 +448,7 @@ namespace MeshGhostTevi
             GameObject clone = Instantiate(templatePlayer.spranim_prefer.pixel.gameObject);
             clone.name = name;
 
-            // Defensive: strip anything that could carry a gameplay side effect onto a detached
-            // clone. Not confirmed to exist on this object (PixelCharacter.cs itself declares
-            // none), but a hitbox collider living on a child sprite object would be a real,
-            // silent bug (e.g. accidentally colliding with something) if one turned out to be
-            // there and this weren't here.
+            // Strip anything with a gameplay side effect; none is known here, but a stray collider would fail silently.
             foreach (var collider in clone.GetComponentsInChildren<Collider2D>(true))
             {
                 Destroy(collider);
@@ -676,24 +458,8 @@ namespace MeshGhostTevi
                 Destroy(rb);
             }
 
-            // Found live 2026-08-14: Instantiate() deep-copies every component's *current*
-            // field values, not just static geometry -- including whatever transient render
-            // state (a screen fade-in right after the zone load that triggered this clone in
-            // the first place, a hit-flash, etc.) the source sprite happens to be in at this
-            // exact instant. The clone has no gameplay logic of its own driving it afterward
-            // (deliberate, see the class comment above), so a bad state captured mid-fade never
-            // self-corrects -- the ghost stays alive, active, correctly positioned, and
-            // invisible forever. Confirmed via inheritedSpriteState logging (below) on a real
-            // repro: basesprite.enabled was false at clone time, color was already a correct
-            // opaque (1,1,1,1) -- so only the renderer's enabled flag needs resetting, NOT its
-            // color. An earlier version of this fix also forced color = Color.white, which
-            // "fixed" the invisibility but introduced a real regression: outlinesprite is not
-            // meant to be white (it renders the character's outline effect in its own distinct
-            // tint), and overwriting its color turned that outline into a solid white glow --
-            // found live immediately after deploying that version. Rather than guessing a delay
-            // to dodge the race window instead (see agent_docs/pitfalls.md's already-burned
-            // guessed-constant history for why that was rejected too), only touch what's
-            // actually confirmed broken.
+            // Instantiate copies the source's transient render state (a renderer disabled mid fade-in after a zone
+            // load), and nothing re-enables it on a clone. Only enabled is reset: the outline is not meant to be white.
             foreach (var sr in clone.GetComponentsInChildren<SpriteRenderer>(true))
             {
                 sr.enabled = true;
@@ -703,34 +469,17 @@ namespace MeshGhostTevi
             return clone;
         }
 
-        // A peer's clip name, checked against the GHOST'S OWN Animator controller rather than
-        // against a list written here. That is deliberate: the names are the game's vocabulary and
-        // this project does not invent one (contract.md -- `anim` is opaque outside the adapter
-        // that produced it), so the only honest allowlist is "a state this controller actually
-        // has". `HasState` performs the same name -> state lookup `Play` does, which is what makes
-        // this exact rather than an approximation of it: anything rejected here is something Play
-        // could not have found either. Every layer is asked, because Play with no layer argument
-        // searches all of them and checking only layer 0 would refuse a state that legitimately
-        // lives higher up.
-        //
-        // The length bound sits in front of the hash purely so an adversarially long name costs
-        // nothing to reject; the wire cap (protocol.MaxAnimLen, 256) is the outer bound, and a real
-        // TEVI clip name is far shorter than this.
+        // In front of the hash so a long name costs nothing to refuse; a real clip name is far shorter.
         private const int MaxAnimNameLength = 96;
 
-        // A rejection is logged ONCE per name per peer, and only for the first few: the whole
-        // defect being fixed is a per-frame log line driven by remote input, so an unthrottled
-        // "rejected an unknown animation" would reproduce it in our own logger. The set is capped
-        // for the same reason a peer-keyed map would be -- a peer sending endless distinct names
-        // must not grow anything without bound.
+        // Each rejected name is logged once, for the first few only, so peer input cannot drive a per-frame log line.
         private const int MaxRejectedAnimNamesPerPeer = 4;
 
-        // MaxSummonTypesPerGhost bounds visual.Summons, which is keyed on a free peer string and
-        // Instantiates a full sprite rig per unseen key. Two is what the game produces (ReadSummons
-        // filters to Character.Type.Celia and Character.Type.Sable and keys on cb.type.ToString());
-        // four leaves room for a summon a later build might add. See ApplyGhostSummons.
+        // Bounds visual.Summons, keyed on a peer string with a sprite rig per key; ReadSummons sends two.
         private const int MaxSummonTypesPerGhost = 4;
 
+        // A peer's clip name is checked against the ghost's own controller, never a list written here. HasState is the
+        // lookup Play does, asked on every layer because Play searches them all.
         private bool IsPlayableAnimName(RemoteGhostVisual visual, string anim)
         {
             if (visual == null || visual.Pc == null || visual.Pc.anim == null)
@@ -762,10 +511,8 @@ namespace MeshGhostTevi
             return false;
         }
 
-        // Deliberately empty. Out of play there is nothing to render a peer ONTO, and the state
-        // plane is latest-wins, so dropping these costs nothing: the next state after the player
-        // exists rebuilds everything. They exist so DrainInto can run out of play for the control
-        // plane's sake without the remote callbacks being reachable from there.
+        // Empty: out of play there is nothing to render onto, and the next state rebuilds everything. They let
+        // DrainInto run out of play for the control plane without reaching the remote callbacks.
         private void DiscardRemoteWhileOutOfPlay(string playerId, BridgeClient.RemoteState state)
         {
         }
@@ -776,10 +523,7 @@ namespace MeshGhostTevi
 
         private void UpsertRemoteGhost(string playerId, BridgeClient.RemoteState state)
         {
-            // FIRST, above every early return below. The map marker is a separate feature from
-            // the world ghost and must not inherit its preconditions: a peer with no position, or
-            // one arriving before there is a local player to clone a ghost from, still belongs on
-            // the map. RefreshRemoteMapMarkers draws from here.
+            // Above every early return: a peer with no position, or no local player to clone, still belongs on the map.
             if (remoteMarkerStates.TryGetValue(playerId, out RemoteMarkerState markerState))
             {
                 markerState.State = state;
@@ -804,22 +548,6 @@ namespace MeshGhostTevi
                 GameObject go = CreateRealGhostVisual(cloneTemplate, $"MeshGhostRemote_{playerId}", out PixelCharacter pc, out Vector3 anchorOffset, out string inheritedSpriteState);
                 visual = new RemoteGhostVisual { Go = go, Pc = pc, LastAnim = null, AnchorOffset = anchorOffset };
                 remoteVisuals[playerId] = visual;
-                // Diagnostic fields added while chasing a real bug found live 2026-08-14: after
-                // a zone/scene transition, the traveling player sometimes stopped seeing a
-                // peer's ghost that reappeared in the log as freshly "created" (this line fires)
-                // but was never actually visible again, with no further despawn/recreate logged
-                // after it -- ruling out the object being destroyed again (that would trigger
-                // another one of these lines on the very next frame, via the visual.Go == null
-                // check below) and, separately, ruling out a bad position (computedGhostPos
-                // consistently matched the real remote's real, unmoving coordinates exactly).
-                // Root cause, confirmed via isolate-by-subtraction (temporarily disabling
-                // internal/core's cross-area filter made the bug disappear, isolating it to this
-                // create path specifically): CreateRealGhostVisual's Instantiate() deep-copies
-                // whatever transient render state (a screen fade-in right after the zone load
-                // that triggered this very recreate) the source sprite was in at that instant --
-                // now reset to a known-good visible state there, see its comment. Logged here
-                // (inheritedSpriteState) purely to confirm what state was actually inherited
-                // before the reset overwrote it.
                 Vector3 initialGhostPos = new Vector3(state.Position[0], state.Position[1], 0f) + anchorOffset;
                 Logger.LogInfo($"MeshGhost: real remote ghost visual created for {playerId} (step 6.4/6.5+). "
                     + $"anchorOffset={anchorOffset} templatePos={cloneTemplate.t.position} "
@@ -829,37 +557,17 @@ namespace MeshGhostTevi
             }
 
             visual.Go.SetActive(true);
-            // Loopback ghost offset, 2026-08-14 -- user-requested, generalized from the same fix
-            // in adapters/emulator/pokemon/emerald/meshghost_emerald.lua's drawRemotes() (and
-            // adapters/pseudoregalia's UpsertRemoteGhost-equivalent). A loopback-echoed ghost
-            // (internal/relay's dev-only -loopback flag, id = "<id>-ghost") otherwise renders
-            // exactly on top of the real player -- it's an echo of your own position by
-            // definition -- which made it hard to visually judge ghost rendering quality against
-            // the real character side by side. Nudge it sideways purely for local rendering;
-            // never changes what's actually sent/received over the network (state.Position here
-            // is only ever a local render input). Magnitude fixed 2026-08-15: the original 2.0f
-            // guess was live-tested and confirmed too small -- the ghost rendered basically
-            // inside the player, not visibly to the side. First replaced with 80f (X axis only,
-            // same as the original 6.3-era magenta-placeholder-box offset removed in 6.6, see
-            // agent_docs/phases/phase6.md's `RemoteVisualTestOffset` entry), confirmed live via
-            // screenshot -- still fairly close. Doubled to 160f same day, per explicit user
-            // direction that this next step didn't need a fresh live check: a linear doubling
-            // of an already-watched, correctly-oriented offset on the same render path, not a
-            // new guess. See agent_docs/verified.md.
+            // A loopback echo (id ending "-ghost") would sit on the player, so it is drawn beside them; render only.
             float loopbackOffsetX = playerId.EndsWith("-ghost", System.StringComparison.Ordinal) ? 160f : 0f;
             visual.Go.transform.position = new Vector3(state.Position[0] + loopbackOffsetX, state.Position[1], 0f)
                 + visual.AnchorOffset;
 
-            // The orbitars ride the peer's ROOT position (their offsets were measured from it), so
-            // the anchor offset the sprite clone needs is deliberately not added here.
-            // Each cosmetic sub-feature is walled off: an exception in one must never abort the
-            // ghost's own pose, facing, trail and hitstop below it (the shield did exactly that on
-            // 2026-09-10). Logged once per message text, not per frame.
+            // Each sub-feature is walled off so its exception cannot abort the pose, facing, trail and hitstop below.
+            // The orbitars ride the peer's root position, so the sprite clone's anchor offset is not added for them.
             Vector3 worldNudge = new Vector3(loopbackOffsetX, 0f, 0f);
             try { ApplyGhostOrbs(playerId, visual, state.Orbs, new Vector3(state.Position[0] + loopbackOffsetX, state.Position[1], 0f)); }
             catch (System.Exception e) { LogSubfeatureFailure("orbitars", e); }
-            // World-fixed things (the summon, its shield, its platforms) travel as ABSOLUTE positions
-            // and get only the loopback nudge, never the ghost's interpolated root.
+            // World-fixed things (summon, shield, platforms) are absolute positions and get only the loopback nudge.
             try { ApplyGhostSummons(playerId, visual, state.Summons, worldNudge); }
             catch (System.Exception e) { LogSubfeatureFailure("core expansion", e); }
             try { ApplyOrbFx(visual, state); }
@@ -871,10 +579,6 @@ namespace MeshGhostTevi
             try { ApplyGhostFlashes(visual, state, worldNudge); }
             catch (System.Exception e) { LogSubfeatureFailure("muzzle flash", e); }
 
-            // Throttled (once every 2s per remote, not every frame) so a real repro of the
-            // 2026-08-14 zone-transition bug shows the ghost's actual ongoing position/
-            // active-state/scene over time, in case it silently drifts wrong or gets
-            // deactivated sometime after the creation log line rather than at creation itself.
             if (DIAG_REDRAW_TRACE && Time.time - visual.LastDiagLogTime >= 2f)
             {
                 visual.LastDiagLogTime = Time.time;
@@ -883,14 +587,7 @@ namespace MeshGhostTevi
                     + $"localArea={currentLocalArea} remoteAreaId={state.AreaId}");
             }
 
-            // Facing: confirmed live 2026-08-12 that flipX=true means "facing LEFT" is the
-            // wrong way around -- inverted from the first guess. All five sprite layers are
-            // flipped together, not just basesprite: normally SpriteAnimation (the logic
-            // component this clone deliberately doesn't carry, see the class comment above)
-            // keeps outline/effect/flash/support in sync with the base sprite's flip every
-            // frame. Without that, only flipping basesprite left the outline sprite stuck at
-            // its original orientation -- confirmed live as the cause of a visible outline seam
-            // sticking out whenever facing didn't match the outline's stale flip state.
+            // All five layers flip together: the game's SpriteAnimation, which a clone lacks, keeps them in step.
             if (visual.Pc != null)
             {
                 bool flip = state.Orientation == "RIGHT";
@@ -901,45 +598,27 @@ namespace MeshGhostTevi
                 if (visual.Pc.supportsprite != null) visual.Pc.supportsprite.flipX = flip;
             }
 
-            // The clip name is PEER-CONTROLLED (../_template/PROTOCOL.md), and until this check it
-            // went straight into Unity's animator bounded only by the wire protocol's 256-byte cap.
-            // Not ACE -- managed and memory-safe, an unknown state is a no-op with a warning -- but
-            // a peer alternating two nonexistent names defeats the LastAnim dedupe below and
-            // produces that warning EVERY FRAME, which is disk and CPU on the RECIPIENT'S machine
-            // driven entirely by remote input. That is the one thing the 2026-08-27 audit found
-            // crossing the user's stated line (`../../agent_docs/ideas.md`, "The ACE audit", gap 2).
+            // The clip name is peer-controlled: two unknown names alternating would defeat the LastAnim dedupe and warn
+            // every frame on this machine.
             bool animPlayable = IsPlayableAnimName(visual, state.Anim);
 
-            // Only call Play() on an actual change -- calling it every frame would restart the
-            // clip from time 0 every frame and the animation would never visibly progress.
+            // Play only on a change: every frame would restart the clip from 0.
             if (animPlayable && state.Anim != visual.LastAnim)
             {
-                // Started AT THE PEER'S REPORTED PHASE, not at 0. Starting at 0 left every new
-                // clip ~0.1 behind from its first frame -- the delivered state is already that far
-                // in -- and the catch-up then ground the gap down for the rest of the clip. The
-                // hitstop probe measured it directly (2026-08-28): at freeze time the ghost still
-                // lagged the target by 0.11, so it spent 100-140ms of a 250ms hitstop catching up
-                // and the hold read as barely-there.
+                // At the peer's reported phase, not 0: the delivered state is already that far in.
                 visual.Pc.anim.Play(state.Anim, 0, state.AnimTime ?? 0f);
                 visual.LastAnim = state.Anim;
                 visual.LastAnimTime = state.AnimTime ?? 0f;
             }
             else if (animPlayable && state.AnimTime.HasValue)
             {
-                // PHASE CORRECTION, deliberately not every frame. Re-seeking an Animator that is
-                // already close enough is what makes a remote character stutter, so this acts only
-                // once the two have drifted past a tolerance the eye can see.
-                //
-                // It is also what replays a REPEATED identical clip: attacking twice in a row never
-                // changes the name, so the branch above never fires and the ghost would hold the
-                // finished pose. The peer's phase jumping backwards IS that event, and it exceeds
-                // the tolerance by construction.
+                // Phase correction only past a tolerance the eye can see: re-seeking a close Animator stutters. It also
+                // replays a repeated clip, whose name never changes but whose phase jumps back.
                 float peerT = state.AnimTime.Value;
                 float ghostT = visual.Pc.anim.GetCurrentAnimatorStateInfo(0).normalizedTime;
                 ghostT -= Mathf.Floor(ghostT);
-                // SIGNED, and wrapped the short way round: a clip near its end and one near its
-                // start are adjacent, not a whole clip apart. The sign is what makes a smooth
-                // correction possible at all -- it says whether the ghost is behind or ahead.
+                // Signed and wrapped the short way: near the end and near the start are adjacent, and the sign says
+                // whether the ghost is behind or ahead.
                 float drift = peerT - ghostT;
                 if (drift > 0.5f)
                 {
@@ -952,66 +631,30 @@ namespace MeshGhostTevi
 
                 if (Mathf.Abs(drift) > AnimReseekThreshold)
                 {
-                    // A genuinely different point in the clip: the peer restarted it. Attacking
-                    // twice in a row never changes the clip NAME, so this jump backwards is the
-                    // only evidence the second attack happened, and seeking is correct here --
-                    // the peer really did snap.
+                    // The peer restarted the clip (a repeated attack keeps its name), so seeking matches its own snap.
                     visual.Pc.anim.Play(state.Anim, 0, peerT);
                     visual.PhaseCatchup = 1f;
                 }
                 else
                 {
-                    // EVERYTHING ELSE IS REPAID CONTINUOUSLY, NOT SNAPPED. Seeking on every small
-                    // drift is what made an idle ghost's ears "snap a bit every now and then"
-                    // (user, 2026-08-28, watching over a jittery link): the arrival times wobble,
-                    // the measured drift crosses the tolerance constantly, and each correction is
-                    // a visible jump in the animation.
-                    //
-                    // This is the same rule adapters/CLAUDE.md already states for POSITION -- do
-                    // not save up a correction and pay it in one go, repay it continuously and
-                    // finely -- applied to time instead of space. A small speed change converges
-                    // the ghost's clip onto the peer's phase over a few frames and is invisible,
-                    // where the jump it replaces was not.
-                    //
-                    // Clamped hard: the ghost's animation must never look like a different speed
-                    // of the same move, which is a thing no player can do.
+                    // Small drift is repaid as a speed nudge, never a seek: jitter crosses the tolerance constantly and
+                    // each seek is a visible jump. Clamped so it never reads as a different speed of the move.
                     visual.PhaseCatchup = Mathf.Clamp(1f + drift * PhaseCatchupGain,
                         1f - PhaseCatchupRange, 1f + PhaseCatchupRange);
                 }
                 visual.LastAnimTime = peerT;
             }
 
-            // Unlike the animation above, this is NOT gated on having changed. SetTrail arms a
-            // countdown, so re-arming while the peer is still trailing is the point; skipping it
-            // on "same as last frame" would let the trail lapse in the middle of a slide.
-            // A peer that predates the field sends nothing, which reads as 0 and renders no trail.
+            // Every frame, not on change: SetTrail arms a countdown, and skipping a frame lets it lapse mid-slide.
             LatchTrail(visual, state);
 
-            // THE WEAPON STROBE, reproduced locally -- see ReadWeaponStrobe for why the decision
-            // travels and the frames do not. The cadence is MEASURED, not guessed: the probe's
-            // frame numbers show 2 frames of color, 3 of white, a 5-frame period -- the first
-            // build used the enemy code's 2:2 and the user read it as "a bit better? unsure if
-            // 1:1". And during a hitstop the game's strobe HOLDS its current color (measured: 18
-            // frames of blue straight through a freeze), so a frozen ghost's layer is not touched.
-            // With no strobe reported the layer rests white, which is also what un-freezes a clone
-            // that inherited a strobe frame at Instantiate time.
+            // The weapon strobe, reproduced locally at the game's cadence; with none reported the layer rests white,
+            // which also clears a strobe frame the clone inherited.
             if (visual.Pc != null && visual.Pc.effectsprite != null)
             {
                 int packed = state.WeaponRgba ?? 0;
-                // FROZEN MEANS HELD ON THE COLOUR, not held on whatever frame we stopped at. The
-                // probe measured the player's strobe running 18 unbroken frames of colour through
-                // a hitstop, and the peer keeps REPORTING that colour while paused -- so a ghost
-                // that merely stopped updating showed white for the 3-in-5 of freezes that caught
-                // it mid-white, at the one moment the weapon is largest on screen. That is what
-                // the user saw as "the ghost still has a white wrench sometimes while the player
-                // has a blue one".
-                // ALPHA IS NEVER OURS TO WRITE. This layer's VISIBILITY is driven by the clone's
-                // own animation; its sprite is not (a clone carries no SpriteAnimation, which is
-                // what would clear the layer between attacks). Driving alpha from the peer
-                // therefore lights up a STALE attack frame that nothing will ever take down --
-                // seen live 2026-08-28 as an attack effect welded to the ghost's model, surviving
-                // every later action. Only the COLOUR travels; the alpha stays whatever the
-                // ghost's own animation is doing, which was already correct before any of this.
+                // Only the colour travels. The clone's own animation drives this layer's alpha, and with no
+                // SpriteAnimation to clear the layer, writing alpha would light a stale attack frame for good.
                 float a = visual.Pc.effectsprite.color.a;
                 if (packed == 0)
                 {
@@ -1022,24 +665,18 @@ namespace MeshGhostTevi
                     int rgb = packed & 0xFFFFFF;
                     if (rgb != 0xFFFFFF)
                     {
-                        // A coloured frame arrived: remember it, so the strobe's white frames in
-                        // between do not read as "the strobe stopped".
                         visual.StrobeRgb = rgb;
                         visual.StrobeSeenAt = Time.time;
                     }
                     if (visual.Frozen)
                     {
-                        // HELD POSE: exactly what the peer's layer held, no strobe logic. The peer
-                        // is paused, so its reported colour is constant and correct, and this is
-                        // the one moment the weapon is big enough on screen to read precisely.
+                        // Held pose: the paused peer's colour, since the game's strobe holds its colour in hitstop.
                         visual.Pc.effectsprite.color = new Color(
                             ((rgb >> 16) & 255) / 255f, ((rgb >> 8) & 255) / 255f, (rgb & 255) / 255f, a);
                     }
                     else
                     {
-                        // Moving: reproduce the strobe LOCALLY at the measured 2-of-5 cadence,
-                        // because sampling a ~12Hz alternation through the state stream would
-                        // alias into a slow flicker.
+                        // Locally, 2 coloured frames in 5: sampled through the state stream it would alias.
                         bool strobing = Time.time - visual.StrobeSeenAt < WeaponStrobeHold;
                         bool coloured = strobing && Time.frameCount % 5 < 2;
                         visual.Pc.effectsprite.color = coloured
@@ -1051,38 +688,16 @@ namespace MeshGhostTevi
                 }
             }
 
-            // HITSTOP, mirrored onto the GHOST'S ANIMATOR ONLY. The peer's game is holding a
-            // temp pause, which freezes their character mid-swing; a watcher of a real second
-            // player would see exactly that. Freezing our own game instead would be a peer's
-            // attack stuttering someone else's play, which is why the game's own
-            // `SetTempPause` call is deliberately not mirrored (BANDAGES).
-            //
-            // Speed rather than a stored clip time: the ghost is already playing the right clip,
-            // and holding it is the whole effect. Restored to 1 the moment the peer's pause ends,
-            // and set unconditionally so a peer that vanishes mid-pause cannot strand a ghost
-            // frozen forever.
+            // Hitstop on the ghost's animator only: pausing our own game would let a peer's attack stutter local play.
+            // Written every frame, so a peer that vanishes mid-pause cannot leave a ghost frozen.
             if (visual.Pc != null && visual.Pc.anim != null)
             {
-                // Hitstop, mirrored AT THE PEER'S PHASE rather than on arrival -- see
-                // PendingFreezePhase's comment for the live evidence. While armed and not yet
-                // reached, the clip keeps running (at the catch-up speed, which is actively
-                // converging on the freeze phase, since the peer's reported AnimTime holds still
-                // during their pause); it stops the frame its own phase gets there. Written every
-                // frame so a peer that vanishes mid-pause cannot strand a ghost frozen forever.
                 if ((state.TempPause ?? 0f) > 0f)
                 {
                     if (visual.PendingFreezePhase == -1f)
                     {
-                        // SEEK TO THE HELD POSE AND STOP, immediately. The first version waited
-                        // for the ghost's own clip to reach the peer's phase, and the probe
-                        // measured why that was wrong: steady-state drift under jitter is ~0.09
-                        // of a clip, so the ghost spent 100-140ms of a ~250ms hitstop still
-                        // swinging -- frames the peer's screen never showed -- and held for only
-                        // the remainder. A hitstop IS the peer's timeline snapping to one pose;
-                        // matching that pose for the full window is the 1:1 rendering, and the
-                        // seek is legitimate by the same rule as the repeated-attack restart:
-                        // the peer's own animation snapped, so ours does too. Cost: the ~3
-                        // skipped in-between frames, which were wrong to show anyway.
+                        // Seek to the held pose and stop at once: the peer's own animation snapped, and waiting for the
+                        // ghost's clip to arrive shows frames the peer never did.
                         visual.PendingFreezePhase = state.AnimTime ?? -2f;
                         visual.FreezeArmedAt = Time.time;
                         if (DIAG_HITSTOP_PHASE)
@@ -1115,9 +730,7 @@ namespace MeshGhostTevi
                 }
             }
 
-            // One-shot pooled VFX. Only ever plays on a RISE, and a first sighting adopts the
-            // peer's current counter without playing anything -- otherwise a ghost created
-            // mid-session would replay every effect its peer had fired.
+            // One-shot pooled VFX, played on a rise; a first sighting adopts the peer's counter and plays nothing.
             int vfxSeq = state.VfxSeq ?? 0;
             if (vfxSeq > 0 && visual.LastVfxSeq == 0)
             {
@@ -1131,65 +744,28 @@ namespace MeshGhostTevi
                         + $"idx={state.VfxEffect ?? -1} (a jump of more than 1 lost an effect)");
                 }
                 visual.LastVfxSeq = vfxSeq;
-                // ON ARRIVAL, deliberately -- phase-gating was tried here (2026-08-28) alongside
-                // the hitstop's phase work and REVERTED the same hour: waiting for the ghost's
-                // lagging clip to reach the fire phase pushed the star past the freeze-snap, so
-                // it appeared AFTER the held pose began -- the peer shows star THEN freeze, and
-                // the gate reversed them. Arrival order preserves the game's own ordering because
-                // the impulse and the pause ride the same delivered timeline, and the star's
-                // arrival timing was never the faulted half; only the freeze needed phase work,
-                // and it gets it by SNAPPING (see the hitstop block).
+                // On arrival, never phase-gated: the impulse and the pause share one timeline, so arrival keeps the
+                // game's star-then-freeze order.
                 PlayGhostVfx(visual, state.VfxEffect ?? -1, state.VfxFacingLeft ?? false);
             }
         }
 
-        // Every peer ghost at once, for leaving play rather than for a peer leaving. Iterates a
-        // copy of the key list because DespawnRemoteGhost mutates remoteVisuals as it goes.
-        // Set to whatever session was live when this frame's ghosts were built. Compared every
-        // frame; a change means they belong to a connection that no longer exists.
+        // The session this frame's ghosts were built under; a change means they belong to a connection that is gone.
         private int lastBridgeSessionEpoch;
 
-        // The last session actually SWEPT, which is only ever a session that reached ready --
-        // see the sweep's call site for why those are different numbers.
+        // The last session swept, only ever one that reached ready.
         private int lastSweptSessionEpoch;
 
-        // ORPHANS: ghost objects in the scene that no live plugin instance is tracking. Despawning
-        // through the dictionary can only ever reach what THIS instance created, and two things
-        // routinely leave objects it never knew about:
-        //
-        //   * a HOT RELOAD -- the outgoing instance's OnDestroy is the only thing that cleans up
-        //     after it, and anything it missed (or anything created between its teardown and the
-        //     new instance's first frame) is now parented to the scene with nobody holding it;
-        //   * a plugin instance that DIED rather than unloaded.
-        //
-        // Naming is the whole mechanism: every object this adapter parents into the scene is
-        // called MeshGhostRemote_<id> or MeshGhostMapMarker_<id>, so "ours but untracked" is
-        // answerable from the scene alone -- which is what makes a sweep possible at all.
-        //
-        // Deliberately NOT run per frame: it enumerates the scene. It runs when the bridge session
-        // changes and once at load, which are the two moments an orphan can appear.
-        //
-        // Found live 2026-08-28: the user saw several static ghosts standing around after cores
-        // were restarted under running games, and they survived the despawn-everything fix
-        // shipped earlier that same day -- because that fix walks a dictionary and these were not in it.
+        // Destroys ghost objects no live instance tracks (left by a hot reload or a plugin that died), found by name:
+        // everything ours is MeshGhostRemote_<id> or MeshGhostMapMarker_<id>. It enumerates the scene, so it runs only
+        // at load and once per session that reaches ready.
         private void SweepOrphanGhosts(string reason)
         {
             int destroyed = 0;
-            // **INCLUDES INACTIVE OBJECTS, since 2026-09-11 (review I29).**
-            // FindObjectsOfType<T>() skips inactive objects on this Unity version, and a map
-            // MARKER is inactive nearly all the time -- it is only shown while the full map is
-            // open. So the sweep whose whole job is finding ours-but-untracked objects could not
-            // see the kind most likely to be orphaned, and an orphaned marker stayed in the scene
-            // for the rest of the session, invisible to this and to the despawn path alike.
-            //
-            // The cost is the same enumeration over a slightly larger set, and this does not run
-            // per frame: it runs on a bridge session change and once at load, which are the two
-            // moments an orphan can appear.
+            // Includes inactive objects: a map marker is inactive whenever the map is closed.
             foreach (GameObject go in Resources.FindObjectsOfTypeAll<GameObject>())
             {
-                // FindObjectsOfTypeAll also returns prefabs and editor-only objects, which have
-                // no scene. Ours are all scene objects, so this costs one field read and removes
-                // the whole class.
+                // FindObjectsOfTypeAll also returns prefabs, which have no scene; ours are all scene objects.
                 if (go != null && !go.scene.IsValid())
                 {
                     continue;
@@ -1207,8 +783,6 @@ namespace MeshGhostTevi
                     {
                         continue; // ours, and we know about it
                     }
-                    // A ghost's orbitar is named <ghost name>_orb<i>; tracked through the same
-                    // visual, so it is not an orphan while that visual holds it.
                     // A projectile is <ghost>_bullet<seq>.
                     int bulAt = id.LastIndexOf("_bullet", System.StringComparison.Ordinal);
                     if (bulAt > 0 && bulAt + 7 < id.Length && int.TryParse(id.Substring(bulAt + 7), out int bulSeq)
@@ -1246,8 +820,7 @@ namespace MeshGhostTevi
                             continue;
                         }
                     }
-                    // ...and a detached afterimage <ghost>_orb<i>_trail<k>. Both are tracked
-                    // through the same visual, so neither is an orphan while it holds them.
+                    // An orbitar is <ghost>_orb<i>, and its detached afterimage <ghost>_orb<i>_trail<k>.
                     int orbAt = id.LastIndexOf("_orb", System.StringComparison.Ordinal);
                     if (orbAt > 0 && orbAt + 4 < id.Length)
                     {
@@ -1300,15 +873,12 @@ namespace MeshGhostTevi
             }
         }
 
+        // Every peer ghost at once, for leaving play rather than for one peer leaving.
         private void DespawnAllRemoteGhosts(string reason = "leaving play")
         {
-            // Cleared even when there are no visuals to despawn: a peer can have a recorded
-            // marker state and no ghost (it arrived before there was a local player to clone
-            // from), and the early return below would otherwise leave that entry behind for
-            // RefreshRemoteMapMarkers to keep drawing after we left play.
+            // Before the early return: a peer can have a marker state and no ghost.
             remoteMarkerStates.Clear();
-            // Pooled effects we lit for a ghost go back off. Done before the early return, since
-            // an effect can be mid-flight with no ghost left to own it.
+            // Pooled effects we lit go back off, also before the early return: one can outlive its ghost.
             foreach (GameObject fx in ghostEffectObjects)
             {
                 if (fx != null && fx.activeSelf)
@@ -1330,17 +900,10 @@ namespace MeshGhostTevi
 
         private void DespawnRemoteGhost(string playerId)
         {
-            // Called only from bridge.DrainInto's despawn_remote callback -- a real peer leave.
-            // Previously only SetActive(false)'d the GameObject and left it and its dictionary
-            // entry alive forever, so every reconnect of the same peer instantiated a brand new
-            // clone without ever freeing the last one -- a monotonic leak. Destroy it and drop
-            // the entry; UpsertRemoteGhost already handles a missing entry by creating a fresh
-            // clone next time this playerId reappears.
+            // Destroyed, not hidden: a returning peer gets a fresh clone from UpsertRemoteGhost.
             if (remoteVisuals.TryGetValue(playerId, out RemoteGhostVisual visual))
             {
-                // Logged (missing before 2026-08-14) so a real despawn_remote can be told apart
-                // from a ghost silently going invisible without one -- see UpsertRemoteGhost's
-                // creation-time diagnostic comment for the bug this was added to chase.
+                // So a real despawn can be told apart from a ghost going invisible without one.
                 Logger.LogInfo($"MeshGhost: despawned remote ghost for {playerId} (localArea={currentLocalArea}).");
                 if (visual.Go != null)
                 {
@@ -1355,37 +918,15 @@ namespace MeshGhostTevi
             DespawnRemoteMapMarker(playerId);
         }
 
-        // THE AFTERIMAGE TRAIL. TEVI spawns a trailing afterimage for several moves -- the blue one
-        // on a quickdrop is the one the user named (2026-08-28) -- and a peer ghost showed none.
-        //
-        // MIRROR THE DECISION, NOT THE MOVE. `SpriteAnimation` recomputes a small mode every frame
-        // from three values and spawns its own pooled GhostEffect from that. So this reads the same
-        // three values rather than enumerating moves: enumerating would need a new case for every
-        // move that ever uses the system, and would silently miss the ones nobody thought to test.
-        // This is `effect-investigation.md`'s central lesson -- mirroring the rule the game already
-        // owns beats reconstructing it, and Pseudoregalia's slide trail cost several sessions
-        // learning that.
-        //
-        // WHY THE GHOST GETS NOTHING BY DEFAULT: the game's own two move branches are gated on
-        // `isPlayer()`, and a clone is not the player. Its third branch, a plain `trail > 0f`
-        // countdown, is NOT gated -- which is the documented way in, and why `SetTrail` on a clone
-        // works at all.
-        //
-        // Everything past the decision stays the game's: pooling, spawn rate, decay, which sprite,
-        // the flip, the scale and the position all come from TEVI's own component. We set a mode
-        // and a colour and nothing else.
-
-        // Read off the LOCAL player, from the same public values TEVI's own SpriteAnimation reads.
-        // Returns 0/1/2 -- opaque to the core, meaningful only between two TEVI clients.
+        // The local player's afterimage-trail mode (0 none, 1 blue, 2 dodge yellow), from the values SpriteAnimation
+        // itself reads each frame: mirroring the game's decision covers every move that trails. Opaque to the core.
         private static int ReadTrailMode(CharacterBase player)
         {
             if (player == null)
             {
                 return 0;
             }
-            // Order matters and is the GAME's order, not ours: it evaluates the speed-bonus branch
-            // first and the dodge branch second, so dodge wins when both are true. Reproducing the
-            // order rather than picking one keeps a simultaneous case looking like the game's.
+            // The game's order: speed bonus, then dodge, so dodge wins when both hold.
             int mode = 0;
             if (player.cphy_perfer != null
                 && (player.cphy_perfer.moveSpeedBonusSlide > 0f || player.cphy_perfer.moveSpeedBonusQuickDrop > 0f))
@@ -1396,13 +937,7 @@ namespace MeshGhostTevi
             {
                 mode = 2;
             }
-            // The generic timed trail: anything in the game may call SetTrail directly (hover does,
-            // with 999), and that path is invisible to the two checks above. IT WINS, and it wins
-            // LAST: the game's own order is speed-bonus -> 1, dodge-ready -> 2, then `trail > 0`
-            // -> 1 unconditionally. The first version only consulted it when nothing else was set,
-            // so a player hovering with a charged dodge trailed BLUE while their ghost trailed
-            // yellow (user, 2026-09-10: "is it due to having the yellow trail things on me
-            // currently, i don't think blue trails are appearing properly").
+            // The timed trail any code may set through SetTrail (hover does) wins last, as in the game.
             if (player.spranim_prefer != null && player.spranim_prefer.GetTrail() > 0f)
             {
                 mode = 1;
@@ -1410,58 +945,18 @@ namespace MeshGhostTevi
             return mode;
         }
 
-        // WHY THIS SPAWNS THE EFFECT ITSELF instead of calling the game's `SetTrail`. `SetTrail`
-        // lives on `SpriteAnimation`, and **a ghost has no SpriteAnimation**: the clone is
-        // `spranim_prefer.pixel.gameObject`, the pixel CHILD, so the component that would drive a
-        // trail sits on a parent we never cloned (documentation.md: the drawn position hangs off
-        // that child, which is why we clone it and not the whole character).
-        //
-        // So we drive the same loop the component would: on the same cadence, spawn the same
-        // pooled `GhostEffect`, hand it the ghost's own current sprite, and let it decay itself.
-        // Everything that makes an afterimage LOOK right stays the game's -- the pool, the effect
-        // object, the fade, the sprite. What we reproduce is only the *cadence*, and that number
-        // is the game's own `trailRate`, cited rather than tuned.
-        //
-        // The `CharacterBase` argument is the LOCAL player deliberately. `SetSprite` dereferences
-        // it only inside `if (cb.isPlayer())`, where it copies the effect-sprite transform; we
-        // pass no effect sprite, so that branch sets a transform on a renderer with nothing in it.
-        // Passing null instead would throw there.
-        // How far out of phase a ghost's clip may drift before it is re-seeked. Small enough that
-        // a hitstop lands on the right frame, large enough that ordinary jitter does not cause a
-        // visible re-seek every frame.
         private const float AnimPhaseTolerance = 0.06f;
 
-        // Past this much drift the ghost is not lagging, it is somewhere else in the clip -- the
-        // peer restarted it. A seek is right there and a gentle catch-up would be wrong, because
-        // the peer's own animation snapped and 1:1 means ours does too. Below it, nothing is ever
-        // seeked; see PhaseCatchupGain.
+        // Past this drift the peer restarted the clip, so a seek is right; below it nothing is seeked.
         private const float AnimReseekThreshold = 0.25f;
 
-        // How hard a small phase error pulls on playback speed, and the ceiling on that pull.
-        // 0.06 of a clip corrected at gain 2 is a 12% speed change, gone within a few frames --
-        // below what the eye reads as "moving at a different speed", which is the thing this must
-        // never look like (adapters/CLAUDE.md: never in units the game does not use).
+        // How hard a phase error pulls on playback speed, and the cap, so a correction never reads as another speed.
         private const float PhaseCatchupGain = 2f;
         private const float PhaseCatchupRange = 0.25f;
 
-        // How long a phase-gated freeze or effect may wait for the ghost's clip to reach the
-        // peer's reported phase before firing anyway. A missed crossing (a clip change mid-wait,
-        // a frozen animator) must degrade to today's fire-on-arrival, never to nothing.
         private const float FreezePhaseTimeout = 0.25f;
 
-        // TEMPORARY probe for the freeze-phase gating, logging one line per hitstop TRANSITION
-        // (arm / freeze / unpause) -- a handful per attack, never per frame. On while the gating
-        // is being timed against a live game; remove with the answer (PROBES.md).
-        // DIAG_HITSTOP_PHASE answered three questions in one session (2026-08-28) and is kept for
-        // the next timing question rather than deleted: it logs one line per hitstop TRANSITION
-        // (arm / freeze / unpause), one per effect impulse SENT and RECEIVED, the player's sprite
-        // layers whenever their colour changes, and all five layers once per freeze. Events, never
-        // per-frame -- a few lines per attack.
-        //
-        // What it found, in order: the freeze was landing 100-140ms early because the ghost's clip
-        // started at 0 instead of the peer's phase; the effect impulses were arriving fine, so the
-        // white/blue difference was NOT a lost effect; and the held pose's colour lives on the
-        // effect sprite layer, which the RGB-only version of this probe could not have shown.
+        // Logs each hitstop transition, effect impulse sent and received, and sprite-layer colour change.
         private const bool DIAG_HITSTOP_PHASE = false;
         private bool loggedThisFreeze;
 
@@ -1486,31 +981,8 @@ namespace MeshGhostTevi
         private const float DodgeTrailDecaySpeed = 6.67f; // SpriteAnimation's dodge branch literal
         private const int TrailSortingOrder = 99;        // SpriteAnimation.trailOrder
 
-        // Where the local player is inside its current clip, 0..1 -- or NULL when the receiver can
-        // work it out for itself, which is most of the time a player is standing around.
-        //
-        // WHY IT IS EVER OMITTED. This is the only field TEVI sends that changes every single
-        // frame by construction: an idle is a looping clip (the breathing/ear wiggle), so its
-        // phase advances forever even when nothing is happening. That single field is what stops
-        // the core's change suppression from ever firing for this adapter -- a standing TEVI
-        // player uploads ~20 states a second that differ in nothing else, where a standing Pokemon
-        // player sends 4. Measured ranking of the alternatives: `agent_docs/ideas.md`, "Ranked by
-        // measurement".
-        //
-        // WHAT STILL GETS IT, so nothing that depends on phase can regress:
-        //   * NON-LOOPING clips -- every attack and one-shot. This is what makes a ghost start a
-        //     clip at the peer's phase, and what the hitstop's held pose is measured against.
-        //   * Any frame the peer is in HITSTOP, so the freeze lands on the right pose even if it
-        //     somehow happens during a looping clip.
-        //   * MOVEMENT needs no special case: a moving player's position differs anyway, so those
-        //     states are never identical and never suppressed.
-        //
-        // WHAT IT COSTS: a ghost's idle loop can slide out of phase with its peer's while BOTH are
-        // motionless, re-anchoring the moment either does anything (any clip change sends phase
-        // again). Bounded by how long someone stands perfectly still, not by session length.
-        //
-        // `loop` is the Animator's own flag for the current state, so this is exact rather than a
-        // guess about which clips are idles.
+        // The local player's phase in its clip, 0..1, or null in a looping clip outside hitstop: an idle's phase
+        // advances forever and would defeat the core's change suppression. Two still idles may drift until one acts.
         private static float? ReadAnimTime(CharacterBase player)
         {
             if (player == null || player.spranim_prefer == null || player.spranim_prefer.pixel == null
@@ -1524,14 +996,12 @@ namespace MeshGhostTevi
             {
                 return null;
             }
-            // Looping clips run normalizedTime past 1 forever, so it is wrapped -- a ghost needs
-            // the phase, not how many times the peer has looped.
+            // Wrapped: a ghost needs the phase, not how many times the peer has looped.
             float t = info.normalizedTime;
             return t - Mathf.Floor(t);
         }
 
-        // The trail's parameters are private on SpriteAnimation; names from the assembly, read by
-        // reflection, defaults if a build renames them.
+        // Private on SpriteAnimation, so read by reflection, with the defaults above if a build renames them.
         private static readonly FieldInfo TrailRateField = typeof(SpriteAnimation).GetField("trailRate", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo TrailDecayField = typeof(SpriteAnimation).GetField("trailDecay", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo TrailColorField = typeof(SpriteAnimation).GetField("trailcolor", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -1562,8 +1032,6 @@ namespace MeshGhostTevi
             int mode = state.TrailMode ?? 0;
             if (mode <= 0)
             {
-                // Let the cadence lapse rather than zeroing it: the next trail starts a fresh
-                // interval anyway, and a half-elapsed timer is not state worth clearing.
                 visual.TrailTimer = 0f;
                 visual.TrailMode = 0;
                 return;
@@ -1571,8 +1039,7 @@ namespace MeshGhostTevi
             visual.TrailMode = mode;
             if (mode == 2)
             {
-                // The game's dodge branch: its own yellow literal, its own faster decay
-                // (SetDecaySpeed(6.67f) beside the colour), never the effect layer.
+                // The game's dodge branch: its own yellow, a faster decay, never the effect layer.
                 visual.TrailRate = TrailSpawnRate;
                 visual.TrailDecay = DodgeTrailDecaySpeed;
                 visual.TrailColor = new Color32(255, 225, 0, 170);
@@ -1591,19 +1058,13 @@ namespace MeshGhostTevi
             {
                 visual.TrailColor = new Color32(0, 223, 255, 128);
             }
-            // Kept to the sorting-order range Unity actually honours (2026-09-16; SYNCED.md said
-            // "not checked yet"): a peer's order past it would put its trail over the HUD.
+            // Clamped to the sorting-order range Unity honours: past it, a peer's trail would draw over the HUD.
             visual.TrailOrder = state.TrailOrder.HasValue ? Mathf.Clamp(state.TrailOrder.Value, -32767, 32767) : TrailSortingOrder;
             visual.TrailHaveEffect = state.TrailHaveEffect ?? false;
         }
 
-        // SPAWN ON FRAMES, NOT ON MESSAGES. The first version ran the spawn timer inside the
-        // per-message upsert and added Time.deltaTime per CALL; the core delivers render_remote on
-        // its own tick, not once per rendered frame, so at 144fps the timer saw a fraction of real
-        // time and the ghost spawned a fraction of the afterimages -- user, 2026-09-10: "its not
-        // doing enough of them when im hovering on the ghost ... might apply to all the blue
-        // trails". The game itself advances its trail timer once per frame in SpriteAnimation's
-        // update, on GemaTimeManager's delta, which is what this does now.
+        // Spawns each ghost's afterimages itself: SetTrail lives on SpriteAnimation, which the clone (the pixel child)
+        // lacks. Only the cadence is ours, timed on frames because the core delivers states on its own tick.
         private void TickTrails(CharacterBase localPlayer)
         {
             if (remoteVisuals.Count == 0 || localPlayer == null || GemaPoolManager.Instance == null)
@@ -1618,9 +1079,7 @@ namespace MeshGhostTevi
                 {
                     continue;
                 }
-                // A ghost with nothing drawn must not leave a trail of nothing -- the game guards the
-                // same way before spawning (`pixel.basesprite.enabled`), and without this a ghost that
-                // is hidden for a zone load would still emit afterimages.
+                // Nothing drawn, no trail: the game makes the same check before spawning.
                 if (!visual.Pc.basesprite.enabled || visual.Pc.basesprite.sprite == null)
                 {
                     continue;
@@ -1630,8 +1089,7 @@ namespace MeshGhostTevi
                 {
                     continue;
                 }
-                // Subtract rather than zero, so a long frame does not silently drop a spawn and
-                // shorten the trail relative to the player's.
+                // Subtract, never zero, so a long frame does not drop a spawn.
                 visual.TrailTimer -= visual.TrailRate;
 
                 GhostEffect effect = GemaPoolManager.Instance.CreateGhostEffect();
@@ -1640,6 +1098,7 @@ namespace MeshGhostTevi
                     continue;
                 }
                 Sprite fxSprite = visual.TrailHaveEffect && visual.Pc.effectsprite != null ? visual.Pc.effectsprite.sprite : null;
+                // The local player, never null: SetSprite dereferences it on its isPlayer() branch.
                 effect.SetSprite(localPlayer, visual.Pc.basesprite.flipX, visual.Pc.basesprite.sprite,
                     fxSprite, visual.TrailColor, visual.TrailColor, visual.TrailOrder, visual.TrailOrder - 1);
                 effect.SetDecaySpeed(visual.TrailDecay);
@@ -1648,39 +1107,13 @@ namespace MeshGhostTevi
             }
         }
 
-        // WARP DEVICES WAKE UP FOR A GHOST -- the visual half only, and the split is the whole
-        // point of this code.
-        //
-        // A WarpDevice animates when the player stands in it. It does that from `OnTriggerStay2D`
-        // and `OnTriggerEnter2D`, which also do all of this:
-        //
-        //     SaveManager.Instance.AutoSave();                    <- WRITES A SAVE
-        //     ...playerc_perfer.RegenHealth(3f, ...);             <- heals the LOCAL player
-        //     EnterTips.Instance.EnableMe(2, null, 0);            <- interaction prompt
-        //     FullMap.Instance.SetMiniMapIcon(..., Icon.WARP);    <- marks the local minimap
-        //
-        // So the obvious implementation -- give the ghost its collider back and let the game's own
-        // trigger fire -- is FORBIDDEN, not merely untidy. `CLAUDE.md`: nothing that ships writes a
-        // save, ever, not even as a feature. Note also that RegenHealth is called on
-        // `EventManager.Instance.mainCharacter` rather than on whatever entered the trigger, so a
-        // peer standing in a portal would heal YOU. That is a gameplay effect caused by a cosmetic
-        // layer, which is the exact thing the cosmetic-first design exists to prevent.
-        // (`BANDAGES.md` entry 4 is why a ghost has no colliders in the first place.)
-        //
-        // THE SEAM: `WarpDevice.Update()` produces the entire visual -- the "assembling" animation,
-        // the particle scale, the light intensity -- from the private `readyopen`/`readyclose`
-        // flags and `lastAnim`. None of the side effects above is in Update. So setting one flag
-        // gives the wake-up and nothing else, and the game still owns every frame of the animation.
-        //
-        // Membership is tested with the device's OWN trigger collider (`OverlapPoint`), never a
-        // radius of our own: the shape is the game's, so a ghost wakes a portal at exactly the
-        // distance a player does, and there is no constant here to get wrong.
+        // Warp devices wake for a ghost, the visual half only. The game's own trigger would also autosave and heal the
+        // local player, so it never fires for a ghost; WarpDevice.Update draws the whole wake-up from its ready flags,
+        // and a ghost is "inside" by the device's own trigger collider.
         private const float WarpScanInterval = 0.5f;
         private float lastWarpScanTime;
         private WarpDevice[] warpDevices = new WarpDevice[0];
-        // Which devices currently have a ghost inside, so the flags are set on the TRANSITION --
-        // matching OnTriggerEnter/Exit semantics rather than re-asserting every frame, which would
-        // fight Update's own clearing of them.
+        // Devices with a ghost inside, so the close request is sent once, when the last ghost leaves.
         private readonly HashSet<int> warpsWithGhostInside = new HashSet<int>();
         // Scratch for pruning warpsWithGhostInside; a set cannot be modified while enumerated.
         private readonly List<int> staleWarpIds = new List<int>();
@@ -1689,29 +1122,22 @@ namespace MeshGhostTevi
             typeof(WarpDevice).GetField("readyopen", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo WarpReadyCloseField =
             typeof(WarpDevice).GetField("readyclose", BindingFlags.NonPublic | BindingFlags.Instance);
-        // Zeroed every frame a ghost is inside, mirroring what OnTriggerStay2D does for the player.
-        // Optional: if this one field is ever renamed the portal still stays open (readyclose is
-        // held false), it just loses the belt-and-braces half, so it is null-checked rather than
-        // treated as required.
+        // Zeroed every frame a ghost is inside, as OnTriggerStay2D does for the player. Optional: readyclose held false
+        // keeps the portal open without it.
         private static readonly FieldInfo WarpReadyCloseTimerField =
             typeof(WarpDevice).GetField("readyclosetimer", BindingFlags.NonPublic | BindingFlags.Instance);
 
-        // Trigger colliders per device, resolved at SCAN time rather than per frame.
-        // GetComponentsInChildren allocates an array on every call, and this now runs every frame
-        // for every device -- which is the per-frame allocation adapters/CLAUDE.md's cost rule
-        // exists to prevent. The set only changes when the devices do, so it is cached with them.
+        // Trigger colliders per device, cached at scan time: GetComponentsInChildren allocates on every call.
         private Collider2D[][] warpTriggers = new Collider2D[0][];
 
         private void UpdateWarpDevicesForGhosts()
         {
-            // Reflection resolved once; if a future build renames either field this does nothing
-            // at all rather than throwing every frame, and the ghost simply stops waking portals.
+            // A build that renames either field gets no wake-up rather than an exception every frame.
             if (WarpReadyOpenField == null || WarpReadyCloseField == null)
             {
                 return;
             }
-            // Re-scan on a timer rather than every frame: FindObjectsOfType is O(scene), and the
-            // set of warp devices only changes on a room change.
+            // On a timer: FindObjectsOfType walks the scene, and the devices only change with the room.
             if (Time.time - lastWarpScanTime >= WarpScanInterval)
             {
                 lastWarpScanTime = Time.time;
@@ -1732,17 +1158,13 @@ namespace MeshGhostTevi
             }
             if (warpDevices.Length == 0)
             {
-                // No devices in this scene: nothing can be inside one, and an entry left over
-                // from the previous scene would otherwise keep the scan alive forever.
+                // An entry left from the previous scene would otherwise keep the caller scanning forever.
                 warpsWithGhostInside.Clear();
                 return;
             }
 
-            // Forget devices that no longer exist. Entries are keyed by instance id, devices are
-            // re-scanned every WarpScanInterval, and a scene change hands out new ids -- so an
-            // entry that matches no current device is a leak, and with the caller now running
-            // this scan while the set is non-empty, a leak would mean a per-frame scan for the
-            // rest of the session.
+            // Forget devices that no longer exist: a scene change hands out new ids, and a stale entry keeps the caller
+            // scanning every frame.
             if (warpsWithGhostInside.Count > 0)
             {
                 staleWarpIds.Clear();
@@ -1771,8 +1193,7 @@ namespace MeshGhostTevi
             for (int i = 0; i < warpDevices.Length; i++)
             {
                 WarpDevice device = warpDevices[i];
-                // OnBecameInvisible disables the component off-camera, and a disabled Update will
-                // not act on the flag anyway -- so skip rather than set something nothing reads.
+                // Off camera the game disables the component, and nothing would read the flag.
                 if (device == null || !device.isActiveAndEnabled)
                 {
                     continue;
@@ -1804,22 +1225,8 @@ namespace MeshGhostTevi
                 if (ghostInside)
                 {
                     warpsWithGhostInside.Add(id);
-                    // EVERY FRAME, not just on the way in. This mirrors `OnTriggerStay2D`, which is
-                    // what the game itself does: it resets `readyclosetimer` on every frame the
-                    // player is inside rather than acting once on entry.
-                    //
-                    // Doing it on the transition only was a real bug, found by the user
-                    // 2026-08-28: with a ghost standing in a portal, the LOCAL player walking out
-                    // fires the game's own `OnTriggerExit2D`, which sets `readyclose`. Nothing then
-                    // re-asserted the ghost that had never left, so the portal shut with someone
-                    // still on it. **A transition cannot answer "is anyone still here" -- only a
-                    // per-frame test can**, and the game's own code says so by being written that
-                    // way.
-                    //
-                    // Re-asserting is safe rather than a fight with `Update`: `readyopen` is a
-                    // one-shot REQUEST that Update clears once it has opened the gate, and its
-                    // branch only fires when the animation is `deactivated`/`inert`. Setting it
-                    // continuously means "stay wanting to be open" and does nothing while open.
+                    // Every frame, as OnTriggerStay2D does: the local player walking out sets readyclose, and only a
+                    // per-frame test answers "is anyone still here". readyopen is a request Update clears once open.
                     WarpReadyCloseField.SetValue(device, false);
                     if (WarpReadyCloseTimerField != null)
                     {
@@ -1830,54 +1237,18 @@ namespace MeshGhostTevi
                 else if (wasInside)
                 {
                     warpsWithGhostInside.Remove(id);
-                    // The last ghost left. Ask it to close -- and this stays a transition, because
-                    // asserting it every frame would override the game closing or opening it for
-                    // its own reasons. If the LOCAL player is still inside, the game's own
-                    // `OnTriggerStay2D` zeroes `readyclosetimer` every frame and the close branch
-                    // never reaches its 0.5s threshold, so this cannot shut a portal out from
-                    // under the player.
+                    // The last ghost left: a transition, so the game's own open and close are not overridden. A local
+                    // player still inside keeps it open, since the game zeroes readyclosetimer every frame for them.
                     WarpReadyCloseField.SetValue(device, true);
                     WarpReadyOpenField.SetValue(device, false);
                 }
             }
         }
 
-        // POOLED VFX MIRRORING -- the shipped half of what DIAG_POOL_WATCH found.
-        //
-        // The charged attack's burst does NOT parent to the character: measured 2026-08-28, 4,926
-        // hierarchy scans with the player's subtree constant at 53 objects and the probe's budget
-        // barely touched, so it was a true negative rather than a truncated log. Widening to the
-        // POOL found it immediately, by name: `Normal4H Blast`, pool index 56 of
-        // `GemaPoolManager.Instance.CommonEffectsPooler`, six activations for six attacks, at
-        // dPlayer=123 against dGhost=275.
-        //
-        // MIRROR THE DECISION, NOT THE RULE. The game spawns it from inside its 4th-hit attack at
-        // `animTime >= 21f/32f` gated on an internal counter. Re-deriving that timing on the ghost
-        // would mean reproducing a rule the game owns -- and one that also consults the local
-        // player's BADGES, which a peer's differ from. Instead the local side notices that the game
-        // ITSELF activated the effect and reports that it happened; the ghost then plays it. What
-        // travels is "this occurred", never "here is when it should occur".
-        //
-        // WHY A COUNTER and not a boolean: this is an impulse on a latest-wins state plane, so a
-        // flag can be missed entirely between two frames. A monotonic counter survives a dropped
-        // frame -- the receiver spawns the difference -- and cannot double-fire on a repeated one.
-        //
-        // Deliberately an ALLOWLIST of indices rather than "mirror every pooled effect": a pool
-        // activation near the player may belong to the world, an enemy, or another system, and
-        // firing all of them on a ghost would be inventing visuals rather than mirroring them.
-        // One row per pooled effect we mirror. EVERY number is copied from that effect's own spawn
-        // site in the game, never eyeballed, and the placement genuinely differs per effect -- so a
-        // table rather than one shared offset.
-        //
-        // NegateOnLeft is the trap this table exists for. The blast negates its offset when facing
-        // LEFT; CutinStar negates when facing RIGHT, so the two sit on OPPOSITE sides of the
-        // character. Copying one effect's placement to another puts it on the wrong flank, and it
-        // looks close enough to be believed.
-        //
-        // NOT MIRRORED, deliberately: the same attack calls `GameSystem.Instance.SetTempPause` for
-        // its hitstop. That is global, so replaying it for a peer would freeze the WATCHER's game
-        // -- a peer's attack stuttering your own play. Same class as the warp's autosave: the
-        // visual is mirrored, the side effect never is.
+        // A pooled effect we mirror. The local side reports that the game itself activated it, as a counter that
+        // survives a dropped frame; the ghost plays it. When it fires stays the game's rule, which also reads the local
+        // badges. An allowlist, since a pooled activation near the player may be the world's or an enemy's. Each row's
+        // numbers are that effect's own spawn site, and the placement differs per effect.
         private struct MirroredEffect
         {
             public int Index;
@@ -1885,71 +1256,39 @@ namespace MeshGhostTevi
             public float OffsetY;
             public float ScaleX;         // 0 = leave the prefab's own scale alone
             public float ScaleY;
-            public bool NegateOnLeft;    // false = negate the OFFSET when facing RIGHT instead
+            public bool NegateOnLeft;    // false = negate when facing right (CutinStar, opposite the blast)
             public bool FlipScaleByFacing; // does the game mirror this effect's scale at all?
         }
 
         private static readonly MirroredEffect[] MirroredCommonEffectTable =
         {
-            // "Normal4H Blast": offset 105/-64, uniform scale 55, offset AND scale mirrored by
-            // facing (the game writes `(LEFT ? -1 : 1) * 55f`).
+            // "Normal4H Blast": offset and scale both mirrored by facing.
             new MirroredEffect { Index = 56, OffsetX = 105f, OffsetY = -64f, ScaleX = 55f, ScaleY = 55f,
                                  NegateOnLeft = true, FlipScaleByFacing = true },
-            // "CutinStar": offset 109/-18, prefab scale untouched, offset negated when facing RIGHT.
+            // "CutinStar": the prefab's own scale.
             new MirroredEffect { Index = 0, OffsetX = 109f, OffsetY = -18f, ScaleX = 0f, ScaleY = 0f,
                                  NegateOnLeft = false, FlipScaleByFacing = false },
-            // Index 37, the PERFECT-TIMING extra -- the game spawns it only when its
-            // BADGE_GroundNormalCombo4AltTiming state reads 4 or 5, the same condition that swaps
-            // the swing sound. That is why it appears only on some attacks, and why a ghost that
-            // did not mirror it always looked like the plain version.
-            //
-            // Its X is taken from the BLAST's X in the game's own code, not computed independently,
-            // so it carries the blast's offset and the blast's negate rule. Its Y is -107 from the
-            // character, and its scale is NON-UNIFORM and never mirrored -- which is why the table
-            // grew ScaleX/ScaleY and FlipScaleByFacing rather than being forced into one number.
+            // The perfect-timing extra, on some attacks only: the blast's X and negate rule, a scale never mirrored.
             new MirroredEffect { Index = 37, OffsetX = 105f, OffsetY = -107f, ScaleX = 225f, ScaleY = 260f,
                                  NegateOnLeft = true, FlipScaleByFacing = false },
         };
-        // An effect this far from the local player is not the local player's. Generous, because the
-        // measured figure was 123 units for the player against 275 for a ghost standing well away.
+        // Farther than this from the local player, an activation is not the local player's.
         private const float MirroredEffectOwnershipRange = 200f;
-        // EVERY FRAME, and the interval that used to be here was a real defect. It was 0.05f,
-        // copied from the probe's sample rate without thinking -- and for a PROBE that is right
-        // (a diagnostic must not cost frames), while for a MECHANISM the interval simply becomes
-        // latency. Polling at 20Hz meant a mirrored effect was detected 0-50ms after the game
-        // actually spawned it, averaging ~25ms, and biased ENTIRELY one way: always late, never
-        // early. The user saw it as the star landing "a tiny bit late".
-        //
-        // Affordable because this walks only the allowlisted pools -- a few dozen objects -- not
-        // the 375 the DIAG_POOL_WATCH probe enumerates. The probe's cost is not this one's cost,
-        // and the two should never have shared a number.
         private readonly Dictionary<int, int> mirroredEffectActive = new Dictionary<int, int>();
         private int localVfxSeq;
         private int localVfxEffect;
-        // Which way the character was facing AT THE MOMENT the effect fired. Sent with the event
-        // rather than read on arrival: the attack can be performed while turning, and by the time
-        // a peer renders it the reported facing may already be the other one -- which put the star
-        // and blast on the wrong side when moving left/right mid-move.
+        // Facing when the effect fired, sent with it: the character may have turned by the time a peer renders it.
         private bool localVfxFacingLeft;
 
-        // Instance ids of pooled objects THIS adapter activated for a ghost. They must not be
-        // counted as local activity, and that is not a nicety -- it is a FEEDBACK LOOP otherwise.
-        // Both instances run this same code: A attacks, B plays it on A's ghost by activating an
-        // object in B's own pool, B's watcher sees its pool rise and reports it as B's own effect,
-        // A plays it on B's ghost, and it echoes indefinitely. The user saw it as the ending VFX
-        // being spammed. The distance guard cannot fix this: it is exactly wrong when the two
-        // characters are near each other, which is when they are being watched.
-        //
-        // Identity rather than a count, per pitfalls' "when a count is suspect, log IDENTITY" --
-        // counts cannot separate "the game spawned one" from "we spawned one".
+        // Instance ids of pooled objects we activated for a ghost. Counting them as local activity would echo an effect
+        // between two peers forever, and the distance guard cannot tell them apart when the characters stand close.
         private readonly HashSet<int> ghostSpawnedEffects = new HashSet<int>();
 
-        // The pooled objects behind those ids, so teardown can switch off anything still lit --
-        // see PlayGhostVfx for why an id alone is not enough.
+        // The pooled objects behind those ids, so teardown can switch off anything still lit.
         private readonly List<GameObject> ghostEffectObjects = new List<GameObject>(16);
 
-        // Runs on the LOCAL side: did the game just activate one of the effects we mirror, close
-        // enough to the player to be the player's? If so, bump the counter the peer reads.
+        // Local side, every frame (an interval would only add latency): when the game activates a mirrored effect near
+        // the player, bump the counter the peer reads. It walks only the allowlisted pools.
         private void WatchLocalVfx(CharacterBase player)
         {
             if (GemaPoolManager.Instance == null || player == null || player.t == null)
@@ -1983,18 +1322,8 @@ namespace MeshGhostTevi
                     }
                     if (!go.activeInHierarchy)
                     {
-                        // THE MARK LASTS AS LONG AS THE ACTIVATION IT DESCRIBES, and until
-                        // 2026-09-12 it lasted forever. A pooled object belongs to the GAME and is
-                        // reused: once a ghost had borrowed it, its id stayed in this set, so the
-                        // next time the LOCAL player's own effect came up on that object the check
-                        // below read it as ours and skipped counting it. The player's effect then
-                        // never mirrored to anybody, permanently, for every pooled object any ghost
-                        // had ever used -- a session-long decay with nothing logged.
-                        //
-                        // Not the memory leak the third adversarial review's salvage reported
-                        // (P2f). That claim does not survive a read: instance ids of pooled objects
-                        // are stable and the pools are finite, which is what the comment on the Add
-                        // side already says. The bug is the STALENESS, not the size.
+                        // The mark lasts only as long as the activation: the game reuses the object, and a stale mark
+                        // would hide the local player's own next effect on it.
                         ghostSpawnedEffects.Remove(go.GetInstanceID());
                         continue;
                     }
@@ -2022,9 +1351,7 @@ namespace MeshGhostTevi
                     if (DIAG_HITSTOP_PHASE)
                     {
                         Logger.LogInfo($"MeshGhost/probe vfx: SEND rise idx={index} seq={localVfxSeq}");
-                        // One dump per rise (rare): the color-bearing components of the object the
-                        // GAME just spawned, so a white attack and a blue one can be diffed to
-                        // find which field carries the variant. Temporary, removed with the answer.
+                        // One dump per rise, of what the game just spawned, to diff a white attack against a blue one.
                         GameObject risen = null;
                         foreach (GameObject go2 in pool)
                         {
@@ -2043,12 +1370,8 @@ namespace MeshGhostTevi
             }
         }
 
-        // Runs on the WATCHER: play the peer's effect on their ghost, with the game's own offsets
-        // and the ghost's own facing. The pooled object and everything it does are the game's.
-        // TEMPORARY, with DIAG_HITSTOP_PHASE: everything colour-bearing on one effect object, so
-        // the player's pooled instance and the ghost's can be DIFFED. The first dump read only
-        // startColor.color, which is meaningless when the mode is gradient/two-colours -- this one
-        // reads the mode, both bounds, the trail module and the renderer's material.
+        // For DIAG_HITSTOP_PHASE: everything colour-bearing on one effect object, to diff the player's instance against
+        // the ghost's. The mode and both bounds, since startColor.color means nothing in a gradient mode.
         private string DumpEffectObject(GameObject go)
         {
             var sb = new System.Text.StringBuilder();
@@ -2082,24 +1405,13 @@ namespace MeshGhostTevi
             return sb.ToString();
         }
 
-        // THE WEAPON STROBE. During some combos TEVI tints the character's effectsprite -- the
-        // slash/weapon frames -- by alternating its color between white and a color (measured:
-        // (0, 0.82, 1), the cyan family) EVERY FRAME. Which look a combo gets is the game's
-        // decision; what a watcher must not do is sample it: a 60Hz strobe through a 20Hz state
-        // stream aliases into slow flicker. So the sender detects "a strobe is running with color
-        // C" -- a non-white weapon RGB seen within the last WeaponStrobeHold -- and sends C once
-        // per state; the ghost reproduces the alternation locally at frame rate.
-        //
-        // Alpha rides along (0xAARRGGBB) because the attack also runs the layer at partial alpha
-        // (measured 0.59), which the clone would otherwise freeze or overstate.
-        // Just above the strobe's own white gap, which the probe measured at 3 frames (~50ms) --
-        // long enough to bridge it, short enough not to leave a blue TAIL after the combo that
-        // owned it has ended. The first value was 0.15s, nine frames, which reported "still
-        // strobing" for ~100ms after the last real colour frame.
+        // Just above the strobe's white gap: long enough to bridge it, short enough to leave no tail after the combo.
         private const float WeaponStrobeHold = 0.07f;
         private int lastWeaponRgb = 0xFFFFFF;
         private float lastWeaponSeenAt = float.NegativeInfinity;
 
+        // The local weapon layer's colour as 0xAARRGGBB. Some combos strobe it between white and a colour every frame;
+        // sampling that through the state stream would alias, so the ghost reproduces the strobe from the colour.
         private int? ReadWeaponStrobe(CharacterBase player)
         {
             if (player.spranim_prefer == null || player.spranim_prefer.pixel == null
@@ -2109,32 +1421,20 @@ namespace MeshGhostTevi
             }
             Color c = player.spranim_prefer.pixel.effectsprite.color;
 
-            // ALPHA DECIDES WHETHER THE LAYER EXISTS AT ALL, and reading only RGB was the bug
-            // behind "the ghost kept using blue when the player used white" (2026-08-28). The game
-            // does not reset this layer's COLOUR when an attack ends -- it drops the ALPHA and
-            // leaves the colour sitting there (`effectsprite.color = (1,1,1,0)` on some paths,
-            // SyncEffectAlpha copying alpha on others). So a leftover blue at alpha 0 is invisible
-            // on the player and read as "still strobing" by anything that ignores alpha: the ghost
-            // strobed blue forever, through white combos and idling alike.
+            // Alpha decides whether the layer exists: the game drops alpha when an attack ends and leaves the colour.
             if (c.a <= 0.02f)
             {
                 lastWeaponSeenAt = float.NegativeInfinity;
                 return 0;
             }
 
-            // THE INSTANTANEOUS COLOUR, with no substitution. An earlier version reported the
-            // remembered strobe colour during the strobe's white frames, to stop the "is it
-            // strobing" decision flickering -- and that is precisely what broke the HELD POSE: a
-            // hitstop freezes the layer on whichever half it caught, the peer can freeze on white,
-            // and a sender substituting blue made every ghost's held wrench blue. The freeze needs
-            // the truth of this frame; the strobe's continuity is the RECEIVER's problem, where it
-            // can be solved without lying about the current frame (see the render side).
+            // This frame's colour, never the remembered one: a hitstop can freeze the peer on white, and the receiver
+            // bridges the strobe's white frames itself.
             return ((int)(c.a * 255f) << 24)
                 | ((int)(c.r * 255f) << 16) | ((int)(c.g * 255f) << 8) | (int)(c.b * 255f);
         }
 
-        // Whether ghostPhase is at or past target, on a looping 0..1 clip where the short way
-        // round is the truth (the same wrap rule the phase correction uses).
+        // Whether ghostPhase is at or past target on a looping 0..1 clip, measured the short way round.
         private static bool PhaseReached(float ghostPhase, float target)
         {
             float lead = target - ghostPhase;
@@ -2149,6 +1449,7 @@ namespace MeshGhostTevi
             return lead <= 0f;
         }
 
+        // Watcher side: the peer's effect on its ghost, at the game's own offsets and the facing it fired with.
         private void PlayGhostVfx(RemoteGhostVisual visual, int effect, bool left)
         {
             if (visual.Go == null || GemaPoolManager.Instance == null)
@@ -2171,9 +1472,7 @@ namespace MeshGhostTevi
                     break;
                 }
             }
-            // An id we do not have placement data for is dropped rather than guessed at. A peer on
-            // a newer adapter can name an effect this build has never heard of, and putting it at
-            // an invented offset would be worse than not showing it.
+            // An effect with no row here (a newer peer's) is dropped, never placed at an invented offset.
             if (!found)
             {
                 return;
@@ -2185,17 +1484,8 @@ namespace MeshGhostTevi
             }
             bool negate = eff.NegateOnLeft ? left : !left;
             float offX = negate ? -eff.OffsetX : eff.OffsetX;
-            // THE LOGICAL POSITION, not the drawn one. The game places these relative to
-            // `cb_perfer.t.position` -- the character's transform -- while our ghost IS the pixel
-            // child, which hangs 56 units below it (`documentation.md`: the two positions do not
-            // coincide, and AnchorOffset is that gap, measured at clone time). Placing an effect at
-            // the ghost's own position therefore puts it a whole anchor-offset too LOW, which the
-            // user saw first on the star: *"happening way too low down"*. Subtracting the offset
-            // recovers the logical position the game's own numbers are written against.
-            //
-            // This applies to EVERY mirrored effect, not just the one it was noticed on -- the
-            // blast was equally wrong and merely less obvious, which is exactly why a single
-            // reported symptom should be checked against the whole class.
+            // The game places these from the character's transform, and the ghost is the pixel child, so the anchor
+            // offset comes off first.
             Vector3 logicalPos = visual.Go.transform.position - visual.AnchorOffset;
             go.transform.position = logicalPos + new Vector3(offX, eff.OffsetY, 0f);
             if (eff.ScaleX > 0f)
@@ -2203,16 +1493,10 @@ namespace MeshGhostTevi
                 float sx = eff.FlipScaleByFacing ? (left ? -1f : 1f) * eff.ScaleX : eff.ScaleX;
                 go.transform.localScale = new Vector3(sx, eff.ScaleY, eff.ScaleY);
             }
-            // Remembered so our own watcher does not mistake it for the local player's effect and
-            // echo it straight back. The set is bounded by the pools themselves -- a pooled object
-            // is reused, so the same handful of ids recur rather than growing without limit.
+            // So our watcher does not echo it back; bounded by the pools, whose ids recur.
             ghostSpawnedEffects.Add(go.GetInstanceID());
-            // Tracked as an OBJECT too, not just an id, so teardown can put it back. A pooled
-            // effect is the GAME's object that we switched on; if this plugin instance goes away
-            // mid-effect -- a hot reload, a crash -- nothing of ours is left to switch it off and
-            // it stays on screen forever. Seen live 2026-08-28: a reload during a combo stranded a
-            // slash effect on the ground. The list is small and oldest-out, because only recently
-            // activated objects can still be lit.
+            // The object too, so teardown can switch off the game's object we lit: nothing else would after a reload.
+            // Oldest out, since only a recent one can still be lit.
             ghostEffectObjects.Add(go);
             if (ghostEffectObjects.Count > 16)
             {
@@ -2225,47 +1509,20 @@ namespace MeshGhostTevi
             }
         }
 
-        // THE ORBITARS -- the two orbs that fly around the player. Not synced at all before
-        // 2026-09-10 (ideas.md, "the orbitars are not synced at all").
-        //
-        // MIRROR THE DECISION, NOT THE RULE, the same posture as the afterimage trail above. The
-        // game's OrbBall computes each orb's target from a dozen inputs (orbit mode, a running
-        // phase, facing, a lock-on target, event positions, auto-shot state, the badge set...) and
-        // then eases toward it; re-deriving that on the watcher would copy the game's expression
-        // and drift the moment any input was missing. What the peer's screen SHOWS is a short list
-        // of renderer facts -- where the orb is, which of the game's own orb sprites it wears, its
-        // glow and its charge halo -- so that is what travels, and the watcher paints exactly it.
-        //
-        // WHY THE PEER'S LOOK AND NOT THE WATCHER'S: the two saves differ. One player's orbs are
-        // the plain starting pair, another's are the powered black/white pair with the crystal
-        // rings (user, 2026-09-10, on the two-instance rig). Reading the sprite off the peer's
-        // renderer and resolving it against the game's own sprite table on arrival is what makes a
-        // basic-orb player see a powered-orb peer correctly, and vice versa.
-        //
-        // THE CLONE IS THE GAME'S OWN PREFAB WITH ITS BRAIN REMOVED. BulletManager.Instance.orb is
-        // the prefab playerController instantiates for the real orbs; cloning it gives the exact
-        // renderer stack, materials and child layout. The OrbBall component is then destroyed
-        // IMMEDIATELY, before its Start can run: Start registers the orb's Light into
-        // LightManager.OrbLight (it would hijack the local player's light slot) and Update shoots,
-        // aims and spends the LOCAL save's MP. Nothing that ships may cause a gameplay effect on
-        // the watcher (CLAUDE.md). The prefab's Light is disabled rather than mirrored for now --
-        // an open item, not a decision that it does not matter.
-        //
-        // The renderers are private on OrbBall (_glowrender, _cerender, _chargerender, _ct) --
-        // names from the assembly, resolved once by reflection, null if a build renames them, in
-        // which case that layer is simply not mirrored rather than anything throwing.
+        // The orbitars: what the peer's orbs show (position, which of the game's sprites, glow, charge halo) travels,
+        // never the OrbBall rule that places them, which reads a dozen inputs. The peer's look, not ours: two saves can
+        // have different orbs. OrbBall's renderers are private; a build renaming one loses that layer.
         private static readonly FieldInfo OrbGlowField = typeof(OrbBall).GetField("_glowrender", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo OrbCrystalField = typeof(OrbBall).GetField("_cerender", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo OrbChargeField = typeof(OrbBall).GetField("_chargerender", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo OrbChargeTransformField = typeof(OrbBall).GetField("_ct", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo OrbTrailsField = typeof(OrbBall).GetField("GemaOrbTrails", BindingFlags.NonPublic | BindingFlags.Instance);
 
-        // The game's orb sprite tables are short (4 body sprites, 3 glow sprites as of this build).
+        // Above the length of the game's orb sprite tables.
         private const int OrbSpriteTableProbe = 8;
 
-        // Which entry of the game's own table this sprite IS, by reference. -2 means "a sprite that
-        // is not in the table" -- still visible, so the receiver keeps whatever it has rather than
-        // hiding the orb.
+        // This sprite's index in the game's own table, by reference. -2 is a sprite not in the table: still visible, so
+        // the receiver keeps what it has.
         private static int OrbSpriteIndex(Sprite sprite, bool glow)
         {
             if (sprite == null || CommonResource.Instance == null)
@@ -2294,9 +1551,7 @@ namespace MeshGhostTevi
                  | Mathf.RoundToInt(Mathf.Clamp01(c.b) * 255f);
         }
 
-        // Read off the LOCAL player's real orbs, every frame. Hidden orbs (the game's HideOrb /
-        // ShowAllOrb(false) / the orb-turned-summon Invisible path) are omitted, so "absent" and
-        // "not shown" agree. Rows are the layout RemoteState.Orbs documents.
+        // The local player's orbs, every frame, in RemoteState.Orbs' layout; hidden orbs are omitted.
         private float[][] ReadOrbs(CharacterBase player)
         {
             if (player == null || player.t == null || player.playerc_perfer == null || player.playerc_perfer.orb == null)
@@ -2363,15 +1618,12 @@ namespace MeshGhostTevi
                 orb.Charge = OrbChargeField != null ? OrbChargeField.GetValue(ob) as SpriteRenderer : null;
                 orb.ChargeTransform = OrbChargeTransformField != null ? OrbChargeTransformField.GetValue(ob) as Transform : null;
                 orb.Trails = OrbTrailsField != null ? OrbTrailsField.GetValue(ob) as GemaOrbTrail[] : null;
-                // Before Start, see the block comment. DestroyImmediate, because a deferred
-                // Destroy still lets Start run at the top of the next frame.
+                // Before its Start, which would take the local player's orb light slot, and its Update, which shoots
+                // and spends the local save's MP. Immediate: a deferred Destroy still lets Start run next frame.
                 DestroyImmediate(ob);
             }
-            // THE AFTERIMAGE TRAIL (user, 2026-09-10: orbs synced, "not the orbitar after image/trail").
-            // The trail objects are the prefab's own children and their GemaOrbTrail behaviour is
-            // self-contained -- StartMe places and colours one, its FixedUpdate fades and parks it.
-            // They stay, named so the orphan sweep can tell they are ours, and the ghost orb lights
-            // them from this plugin's FixedUpdate exactly as the real orb does from its own.
+            // The prefab's afterimage children are self-contained (StartMe places one, its FixedUpdate fades it). They
+            // stay, named for the orphan sweep, and our FixedUpdate lights them as the real orb does.
             if (orb.Trails == null || orb.Trails.Length == 0)
             {
                 orb.Trails = go.GetComponentsInChildren<GemaOrbTrail>(true);
@@ -2446,13 +1698,8 @@ namespace MeshGhostTevi
                     orb.Go.SetActive(true);
                     orb.Go.transform.position = peerRoot + new Vector3(row[1], row[2], 0f);
 
-                    // THE TWO SPRITE INDICES AND THE DRAW LAYER ARE BOUNDED (2026-09-16; SYNCED.md
-                    // said "not checked yet" for each). An index is only ever an honest peer's
-                    // position in this build's own orb tables, so it is kept to -1 (none) up to a
-                    // ceiling far past any table here, and the lookup itself is caught: what the
-                    // game does with an index past its table lives in its assembly and could not
-                    // be read. The draw layer is kept to the sorting-order range Unity honours,
-                    // the same bound as the trail's.
+                    // Sprite indices bounded and the lookup caught (what the game does past its table is unknown); the
+                    // draw layer kept to the sorting-order range Unity honours.
                     int sprite = Mathf.Clamp((int)row[3], -1, OrbSpriteIndexMax);
                     if (orb.Render != null)
                     {
@@ -2490,15 +1737,13 @@ namespace MeshGhostTevi
                             orb.Crystal.transform.eulerAngles = new Vector3(0f, 0f, row[9]);
                         }
                     }
-                    // The ring's size x100, kept to a safety limit far past any ring the game
-                    // draws (2026-09-16); anything above it reads as none, like 0 does.
+                    // The ring's size x100; past a limit far above any ring the game draws, it reads as none.
                     int chargeScale = (int)row[10];
                     if (chargeScale > OrbChargeScaleMax) chargeScale = 0;
                     if (orb.Charge != null)
                     {
                         orb.Charge.enabled = chargeScale > 0;
-                        // The game keeps the halo's sprite equal to the glow's (HidePoweredOrb /
-                        // Start), so the clone does too.
+                        // The game keeps the halo's sprite equal to the glow's.
                         if (chargeScale > 0)
                         {
                             if (orb.Glow != null && orb.Glow.sprite != null) orb.Charge.sprite = orb.Glow.sprite;
@@ -2521,9 +1766,8 @@ namespace MeshGhostTevi
             }
         }
 
-        // Mirrors OrbBall.FixedUpdate's one rule: while the crystal ring renders, one pooled
-        // afterimage per physics step at the orb's position in the ring's colour. The colour's
-        // alpha is overridden inside StartMe by the game itself, so only the RGB matters here.
+        // OrbBall.FixedUpdate's rule: while the crystal ring renders, one afterimage per physics step in the ring's
+        // colour (StartMe sets its own alpha).
         private void FixedUpdate()
         {
             if (remoteVisuals.Count == 0)
@@ -2556,36 +1800,13 @@ namespace MeshGhostTevi
             }
         }
 
-        // CORE EXPANSIONS -- the B-button orbitar skills (user's name for them, 2026-09-10).
-        //
-        // THE FIRST BUILD LOOKED AT THE WRONG MECHANISM and mirrored nothing (user: "the core
-        // expansions are not working"; the probe never saw a SUMMON-typed character). OrbBall's
-        // SkillUsing path (SkillName.*_TEMP, BossType.SUMMON, SetSubOwner) is a legacy route nothing
-        // in this build triggers. The real one is CharacterPhy.UseBoost -> BoostSystem ->
-        // EventManager.OrbsToHumanoid: the orb is HIDDEN, a trail (GemaOrbToHumanoidTrail) flies from
-        // the orb to a REAL character created as CreateEnemy(Celia|Sable, NOAI) and made Invisible();
-        // ~0.33s later it plays "to_character", turns visible, becomes BossType.NPC, runs the boost
-        // logic (SUMMON_BOOST_N/U/D), plays "to_ball", a trail flies back to the orb, the character
-        // despawns and the orb is shown again. The humanoid is found by the game itself as
-        // GetCharacterWithID(Celia|Sable, 0): a non-player Celia or Sable IS the player's core
-        // expansion, which is the identity this reader uses.
-        //
-        // None of that may exist on the watcher's machine as a character. What the
-        // peer's screen shows is a character sprite rig -- the same PixelCharacter the player has,
-        // with a different Animator controller -- so the ghost of a summon is built the way the
-        // ghost itself is: clone the local player's rig, swap the controller to the one the peer's
-        // summon is wearing (looked up through the game's own GetNPC by controller name), and
-        // drive it by clip name and phase, including the game's own "to_character"
-        // and "to_ball" clips. The trail is a clone of the game's own trail object, flown at the
-        // ghost orb's position toward the summon ghost (and back when the row disappears).
-        //
-        // Echo-loop safety: a PEER's summon ghost on this machine is a bare sprite clone, never a
-        // CharacterBase, so it can never be picked up by this reader (before-mirroring-state.md).
-        // PROBE, temporary: what the summon filter sees, one line per second while any SUMMON-typed
-        // character is alive. Armed 2026-09-10 because a B press produced no summon rows at all.
+        // Probe: what the summon filter sees, once a second while a non-player Celia or Sable is alive.
         private const bool DIAG_SUMMON_TRACE = false;
         private float lastSummonDiagTime = float.NegativeInfinity;
 
+        // Core expansions (the boost skills): the game summons a real Celia or Sable, and a non-player one is the
+        // player's own, which is the identity read here. On the watcher a summon is only a sprite clone driven by clip
+        // and phase, never a character, so this reader can never pick up a peer's.
         private object[][] ReadSummons(CharacterBase player)
         {
             if (player == null || player.t == null || CharacterManager.Instance == null
@@ -2628,10 +1849,8 @@ namespace MeshGhostTevi
                 {
                     continue;
                 }
-                // ABSOLUTE: the humanoid stands still in the world while the peer moves; relative to
-                // the peer's root it inherited the ghost's interpolated motion (user, 2026-09-10:
-                // "the summon is supposed to stay still, but ... moving slightly depending on where
-                // the ghost was").
+                // Absolute: the summon stands still while the peer moves, and relative to the root it would inherit the
+                // ghost's interpolated motion.
                 Vector3 d = pixel.transform.position;
                 if (DIAG_SHIELD_TIMING)
                 {
@@ -2660,9 +1879,7 @@ namespace MeshGhostTevi
                     pixel.transform.localScale.x,
                     pixel.transform.localScale.y,
                     visible,
-                    // The peer's animator speed: the humanoid's clips do not all run at 1, and a
-                    // ghost playing at 1 with a hard re-seek on drift snapped every fraction of a
-                    // second (user, 2026-09-10: "animating a bit weird/looping").
+                    // The summon's clips do not all run at speed 1.
                     pixel.anim.speed,
                 });
             }
@@ -2719,10 +1936,7 @@ namespace MeshGhostTevi
                     float phase = CellF(row, 6);
                     float sx = CellF(row, 7), sy = CellF(row, 8);
                     bool visibleNow = row.Length > 9 && row[9] is bool vb ? vb : true;
-                    // The animator's speed and the scale are BOUNDED as well as finite (2026-09-16;
-                    // SYNCED.md said "range/size not checked yet"): a speed past the limit reads
-                    // as 1 like a missing one, and a scale past it skips the row, since a summon
-                    // scaled to the sky is a peer's invention and not a state the game reaches.
+                    // Bounded as well as finite: a speed past the limit reads as 1, a scale past it skips the row.
                     float peerSpeed = row.Length > 10 && row[10] is float ps && !float.IsNaN(ps) && !float.IsInfinity(ps)
                         && ps >= 0f && ps <= PeerAnimSpeedMax ? ps : 1f;
                     if (string.IsNullOrEmpty(type) || string.IsNullOrEmpty(controllerName)
@@ -2735,24 +1949,8 @@ namespace MeshGhostTevi
                     SummonGhost sg;
                     if (!visual.Summons.TryGetValue(type, out sg) || sg.Go == null)
                     {
-                        // A PEER DOES NOT GET TO DECIDE HOW MANY SPRITE RIGS WE INSTANTIATE.
-                        //
-                        // `type` is a free string off the wire and this dictionary is keyed on it,
-                        // so every unseen value used to run CreateRealGhostVisual -- a full player
-                        // sprite rig, plus a trail -- with nothing counting. The creation guard
-                        // below tests the CONTROLLER NAME, so one valid controller name is enough
-                        // to mint unlimited keys, and the sweep at the bottom of this method only
-                        // SetActive(false)s: nothing is destroyed mid-session. That is remote-driven
-                        // GameObject growth on the victim's machine, ending in OOM, which is over
-                        // the line this project draws. Found by the third adversarial review
-                        // (P2d-1 + P2f-1).
-                        //
-                        // SIZED FROM WHAT THE GAME ITSELF PRODUCES, not guessed: ReadSummons above
-                        // emits a row only for Character.Type.Celia and Character.Type.Sable, and
-                        // keys it on cb.type.ToString() -- so an honest peer can produce exactly two
-                        // distinct keys, and StartSummonTrail's own orb pairing assumes the same
-                        // two. Double that, so a future third summon still renders while a peer
-                        // inventing keys cannot grow the dictionary.
+                        // A peer does not decide how many sprite rigs we build: type is a free string, one valid
+                        // controller name passes the guard below, and the sweep only hides, never destroys.
                         if (visual.Summons.Count >= MaxSummonTypesPerGhost)
                         {
                             visual.RejectedAnims = visual.RejectedAnims ?? new HashSet<string>();
@@ -2772,10 +1970,7 @@ namespace MeshGhostTevi
                         RuntimeAnimatorController controller = AreaResource.Instance.GetNPC(controllerName);
                         if (controller == null)
                         {
-                            // Logged through the visual's rejected-name set so it is said once.
-                            // COUNTED against the same cap the anim path uses, which this bypassed
-                            // until 2026-09-12: it shares the HashSet and did not share the bound,
-                            // so a peer cycling controller names grew it without limit (P2d-4).
+                            // Said once, through the rejected-name set and under its cap.
                             visual.RejectedAnims = visual.RejectedAnims ?? new HashSet<string>();
                             if (visual.RejectedAnims.Count < MaxRejectedAnimNamesPerPeer
                                 && visual.RejectedAnims.Add("summon:" + controllerName))
@@ -2800,10 +1995,8 @@ namespace MeshGhostTevi
                     sg.Go.SetActive(true);
                     sg.Go.transform.position = worldOffset + new Vector3(dx, dy, 0f);
                     sg.Go.transform.localScale = new Vector3(sx, sy, 1f);
-                    // The row APPEARING is the orb-to-humanoid moment: fly the trail from the
-                    // ghost orb (black orb for Sable, white for Celia) to this summon, as the game
-                    // does. It is parked when the summon turns visible, which is when the game
-                    // parks its own.
+                    // The row appearing is the orb-to-humanoid moment: the trail flies from the ghost orb to the
+                    // summon, parked when the summon turns visible, as the game parks its own.
                     if (!sg.WasPresent)
                     {
                         sg.WasPresent = true;
@@ -2823,7 +2016,7 @@ namespace MeshGhostTevi
                     }
                     if (sg.Pc != null)
                     {
-                        // Same convention as the ghost: flipX true is facing RIGHT (confirmed live 2026-08-12).
+                        // As on the ghost, flipX true is facing right.
                         bool flip = dir == "RIGHT";
                         if (sg.Pc.basesprite != null) sg.Pc.basesprite.flipX = flip;
                         if (sg.Pc.outlinesprite != null) sg.Pc.outlinesprite.flipX = flip;
@@ -2843,9 +2036,8 @@ namespace MeshGhostTevi
                             }
                             else if (!float.IsNaN(phase))
                             {
-                                // Same rule as the ghost's own clip: a big jump is the peer restarting
-                                // the clip and is seeked; small drift is repaid continuously by a
-                                // bounded speed change on top of the PEER'S speed, never snapped.
+                                // The ghost's rule: a big jump is a restart and is seeked, small drift a bounded speed
+                                // change on top of the peer's speed.
                                 float g = sg.Pc.anim.GetCurrentAnimatorStateInfo(0).normalizedTime;
                                 g -= Mathf.Floor(g);
                                 float drift = t - g;
@@ -2870,8 +2062,7 @@ namespace MeshGhostTevi
                 SummonGhost sg = kv.Value;
                 if (sg.Go != null && sg.Go.activeSelf && (seen == null || !seen.Contains(kv.Key)))
                 {
-                    // The row DISAPPEARING is the humanoid-to-orb moment: the trail flies back
-                    // to the ghost orb from where the summon stood, then parks 0.7s later.
+                    // The row disappearing is the humanoid-to-orb moment: the trail flies back to the ghost orb.
                     sg.Go.SetActive(false);
                     sg.WasPresent = false;
                     StartSummonTrail(visual, sg, kv.Key, toSummon: false);
@@ -2884,8 +2075,8 @@ namespace MeshGhostTevi
             }
         }
 
-        // Sable rides the BLACK orb (index 0), Celia the WHITE (index 1) -- the game's own pairing
-        // in OrbsToHumanoid. The trail object is cloned from the game's first trail on first use.
+        // Sable rides the black orb (index 0), Celia the white (1), as the game pairs them. The trail is cloned from
+        // the game's first one on first use.
         private void StartSummonTrail(RemoteGhostVisual visual, SummonGhost sg, string type, bool toSummon)
         {
             int orbIndex = type == "Sable" ? 0 : 1;
@@ -2946,12 +2137,9 @@ namespace MeshGhostTevi
             visual.Summons.Clear();
         }
 
-        // THE ORB-TO-HUMAN FLASH. OrbBall.Invisible(effect: true) spawns one of two pooled effects
-        // at the orb (white orb: CreateOrbToHumanEffect, else CreateOrbToHumanEffect2), tilted 90
-        // degrees and scaled 32x1x32, and sets invButNotSummon. That flag's RISE is the event; the
-        // watcher plays the same pooled effect at its ghost orb. Not parented to the ghost orb the
-        // way the game parents to the real one: our orb can be destroyed while the pooled effect
-        // is live, and a destroyed pooled object corrupts the pool.
+        // The orb-to-human flash: the rise of an orb's invButNotSummon is the event, and the watcher plays the same
+        // pooled effect at its ghost orb. Not parented to it as the game does: our orb can die while the effect is
+        // live, and a destroyed pooled object corrupts the pool.
         private int localOrbFxSeq;
         private int localOrbFxOrb;
         private bool localOrbFxWhite;
@@ -3016,26 +2204,9 @@ namespace MeshGhostTevi
             fx.localScale = new Vector3(32f, 1f, 32f);
         }
 
-        // THE BOOST SHIELD -- the barrier a core expansion raises (user, 2026-09-10: "it does the
-        // summon thing now, but not the barrier"). playerController.BoostShieldObject is an FXVShield:
-        // a shader-driven mesh with an activation animation and a camera post-process, placed on
-        // the humanoid by the boost logic (SUMMON.cs), scaled by badges, given a random Y spin, and
-        // coloured by type. Two platform sprites (BoostPlatforms) fade in under it.
-        //
-        // WHAT TRAVELS: where it is, how big, how it is turned, and its three material colours READ
-        // OFF THE PEER'S MATERIAL -- not the type, because the colours are the game's decision and
-        // reading them is what keeps this right if a badge or a build changes them.
-        //
-        // THE CLONE IS THE GAME'S OWN SHIELD OBJECT with one private flag cleared: FXVShield's
-        // FixedUpdate calls BulletManager.BlockBulletsWithShield while `isBoostShield` is set --
-        // a peer's barrier erasing YOUR enemies' bullets would be a gameplay effect on the watcher,
-        // so the clone's flag is set false by reflection before it is ever active. Everything else
-        // (activation rim, the post-process, the inside mesh) is the component doing its own job.
-        //
-        // ONE SHARED RESOURCE: FXVShield.DisableMe turns the camera's ShieldPostProcess OFF when any
-        // shield finishes deactivating -- the game only ever has one. With a ghost's clone in the
-        // scene, ours could switch it off under the local player's live shield, so KeepShieldPostprocess
-        // re-enables it every frame while any shield here (the player's or a ghost's) is up.
+        // The boost shield a core expansion raises (an FXVShield) and its two platforms. Its position, size, spin and
+        // three material colours travel, read off the peer's material since they are the game's decision. The clone
+        // is the game's own shield with isBoostShield cleared, or it would erase the watcher's enemies' bullets.
         private static readonly FieldInfo ShieldIsBoostField = typeof(FXVShield).GetField("isBoostShield", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo ShieldActivationMaterialField = typeof(FXVShield).GetField("activationMaterial", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo ShieldPostActivationMaterialField = typeof(FXVShield).GetField("postprocessActivationMaterial", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -3092,17 +2263,13 @@ namespace MeshGhostTevi
             }
             Renderer r = sh.GetComponent<Renderer>();
             Material m = r != null ? r.sharedMaterial : null;
-            // PROBE (event-triggered, a line per change): when the peer's shield flips up/fading and
-            // when its row stops -- to time the ghost's fade against it (2026-09-10, "the barrier
-            // still stays for a bit").
+            // Probe, a line per change: when the shield flips between up and fading, to time the ghost's fade.
             if (DIAG_SHIELD_TIMING && sh.GetIsShieldActive() != lastShieldUpSent)
             {
                 lastShieldUpSent = sh.GetIsShieldActive();
                 Logger.LogInfo($"MeshGhost/probe shield: SEND up={lastShieldUpSent} anim={sh.GetIsDuringActivationAnim()} t={Time.time:0.000}");
             }
-            // ABSOLUTE world position: the shield sits on the humanoid, a world-fixed thing, and a
-            // root-relative offset would make it inherit the ghost's interpolated motion (the user
-            // saw the summon "moving slightly depending on where the ghost was", 2026-09-10).
+            // Absolute, like the summon it sits on: root-relative it would inherit the ghost's interpolated motion.
             Vector3 d = sh.transform.position;
             Vector3 e = sh.transform.eulerAngles;
             return new object[]
@@ -3113,9 +2280,7 @@ namespace MeshGhostTevi
                 m != null ? Hex(m.color) : "FFFFFFFF",
                 m != null && m.HasProperty(ShieldTexColorId) ? Hex(m.GetColor(ShieldTexColorId)) : "FFFFFFFF",
                 m != null && m.HasProperty(ShieldPatternColorId) ? Hex(m.GetColor(ShieldPatternColorId)) : "FFFFFFFF",
-                // UP or FADING. The row is sent through the peer's deactivation animation (so the
-                // clone can be placed), but the clone must start ITS fade the moment the peer's
-                // starts, not after it ends -- the user saw the barrier "stay a bit too long".
+                // Up or fading: the row lasts through the peer's fade, and the clone starts its own fade with it.
                 sh.GetIsShieldActive(),
             };
         }
@@ -3149,14 +2314,7 @@ namespace MeshGhostTevi
             {
                 float dx = CellF(row, 0), dy = CellF(row, 1), dz = CellF(row, 2), sc = CellF(row, 3);
                 float rx = CellF(row, 4), ry = CellF(row, 5), rz = CellF(row, 6);
-                // THE THREE ROTATION COMPONENTS GET BOTH CHECKS, and until 2026-09-12 they got only
-                // the NaN half while the four offset/scale ones got both -- an oversight rather
-                // than a policy, since the platform path a hundred lines below applies both to its
-                // own values. An infinite rz reached transform.eulerAngles and Unity logged an
-                // invalid-rotation error EVERY FRAME for as long as the peer kept sending it.
-                // Found by the third adversarial review (P2d-2).
-                // The scale is bounded too (2026-09-16; SYNCED.md said "size not checked yet"):
-                // past the limit the row is skipped like a non-finite one.
+                // Every value finite (an infinite rotation logs a Unity error every frame) and the scale bounded.
                 bool finite = !(float.IsNaN(dx) || float.IsNaN(dy) || float.IsNaN(dz) || float.IsNaN(sc)
                     || float.IsNaN(rx) || float.IsNaN(ry) || float.IsNaN(rz)
                     || float.IsInfinity(dx) || float.IsInfinity(dy) || float.IsInfinity(dz) || float.IsInfinity(sc)
@@ -3173,12 +2331,8 @@ namespace MeshGhostTevi
                             GameObject go = Instantiate(template.gameObject);
                             go.name = $"MeshGhostRemote_{playerId}_shield";
                             go.transform.SetParent(template.transform.parent, worldPositionStays: true);
-                            // THE TEMPLATE IS PARKED INACTIVE between boosts (FXVShield.DisableMe), so
-                            // its clone is born inactive and Awake -- which builds every material --
-                            // has not run. SetMainColor on it threw NullReference per message, and the
-                            // exception aborted the whole ghost update: pose and facing froze for the
-                            // length of the core expansion (user, 2026-09-10). Activating once runs
-                            // Awake synchronously; Awake's own DisableMe parks it again, initialised.
+                            // The template rests inactive between boosts, so the clone is born without the materials
+                            // Awake builds. Activating once runs Awake, whose own DisableMe parks it again.
                             go.SetActive(true);
                             FXVShield fx = go.GetComponent<FXVShield>();
                             if (fx != null && ShieldIsBoostField != null)
@@ -3189,22 +2343,8 @@ namespace MeshGhostTevi
                             {
                                 Destroy(col);
                             }
-                            // THE GLOW IS A CAMERA POST-PROCESS, not the mesh: FXVShieldPostprocess
-                            // draws every shield in its list with the shield's activation material,
-                            // which is where the start-up bloom and the fade-out live. A shield joins
-                            // that list in its Awake via Camera.main -- and the clone's Awake ran with
-                            // whatever Camera.main was at that instant, not the camera the game's own
-                            // CameraScript holds. Registering with the game's actual post-process is
-                            // what makes the clone glow and fade like the peer's (user, 2026-09-10:
-                            // "just disappearing, not doing the fading/ending vfx", "missing that at
-                            // the start as well").
-                            // THE ACTIVATION KEYWORD IS GONE FROM THE CLONE'S MATERIALS. FXVShield.SetMaterial
-                            // builds its four materials from the renderer's current material and then
-                            // strips ACTIVATION_EFFECT_ON from the base one; the template has already
-                            // done that, so its renderer now holds the stripped base material -- and a
-                            // clone's Awake builds everything from THAT. Its activation materials never
-                            // had the keyword, so the shield popped on and off with no bloom and no fade
-                            // (user, 2026-09-10, twice). Re-enable it on the two activation materials.
+                            // The template's setup strips ACTIVATION_EFFECT_ON from its own material, which the clone
+                            // builds from, so the bloom and fade need it back on the activation materials.
                             bool keyworded = false;
                             if (fx != null)
                             {
@@ -3213,6 +2353,8 @@ namespace MeshGhostTevi
                                 if (am != null) { am.EnableKeyword("ACTIVATION_EFFECT_ON"); keyworded = true; }
                                 if (pam != null) { pam.EnableKeyword("ACTIVATION_EFFECT_ON"); }
                             }
+                            // The glow is the camera's post-process, which the clone's Awake may have joined through a
+                            // different Camera.main than the one CameraScript holds.
                             bool registered = false;
                             if (fx != null && CameraScript.Instance != null && CameraScript.Instance.ShieldPostProcess != null)
                             {
@@ -3253,8 +2395,7 @@ namespace MeshGhostTevi
             }
             else if (visual.Shield != null && visual.Shield.Up)
             {
-                // The peer's barrier came down: animate ours down the same way. DisableMe parks the
-                // object when the animation ends.
+                // The peer's barrier came down; DisableMe parks ours when its own fade ends.
                 visual.Shield.Up = false;
                 if (visual.Shield.Fx != null)
                 {
@@ -3263,7 +2404,6 @@ namespace MeshGhostTevi
                 }
             }
 
-            // Platforms.
             bool seen0 = false, seen1 = false;
             if (state.Platforms != null && cloneTemplate != null && cloneTemplate.playerc_perfer != null
                 && cloneTemplate.playerc_perfer.BoostPlatforms != null)
@@ -3315,7 +2455,8 @@ namespace MeshGhostTevi
             if (!seen1 && visual.Platforms[1] != null && visual.Platforms[1].Go != null && visual.Platforms[1].Go.activeSelf) visual.Platforms[1].Go.SetActive(false);
         }
 
-        // See the shield block comment: one camera post-process, several shields.
+        // The game has one shield post-process, and any shield ending its fade switches it off, a ghost's included; so
+        // it is switched back on every frame while any shield here is up.
         private void KeepShieldPostprocess(CharacterBase player)
         {
             if (CameraScript.Instance == null || CameraScript.Instance.ShieldPostProcess == null)
@@ -3410,90 +2551,35 @@ namespace MeshGhostTevi
             }
         }
 
-        // PROJECTILES, SPAWN-AND-FLY -- the plan in agent_docs/ideas.md (the orbitar entry), built
-        // 2026-09-10 on the census DIAG_BULLET_WATCH produced the same evening: every orbitar bullet
-        // the user fired (basic A/B/C, charged A/B/C, the core expansions' shots; peak 29 alive) flew
-        // with ZERO speed or angle drift and lived under a second. So a bullet is a pure function of
-        // its birth here, and the watcher can fly it with the game's own step
-        // (bulletScript._Update: cachepos += (cos, -sin) * speed * (fixeddeltatime * 60)).
+        // Projectiles. A bullet's look is a pooled effect that follows the bulletScript, so the watcher spawns the
+        // game's bullet prefab as a dormant object outside BulletManager's pool (no hits, walls or damage) and hands it
+        // to the same effect, which then ends itself as for a real bullet. The sender finds that effect by identity:
+        // the pooled object whose bullet field points at the newborn. The flight is the game's step on the fixed tick
+        // (BulletBehave only under GhostBulletsRunGameBehaviour), ended by the game's despawn rules or a peer's death.
         //
-        // WHAT A BULLET LOOKS LIKE is not the bullet: most are SpriteType.USE_PS with no sprite at
-        // all, and the visual is a pooled CommonEffects object (OrbShootNormal #8, the charge-shot
-        // families #10/11/14/16/17/19/20/43/44/45/47) whose script is handed the bulletScript and
-        // FOLLOWS it -- reading only its transform, its active flag, isDespawning() and its type.
-        // So the watcher spawns the game's bullet PREFAB as a dormant object (never in
-        // BulletManager's pool, so never ticked: no hits, no walls, no damage), flies it, and hands
-        // it to the same pooled effect with the same Setup. The effect then ends itself the way it
-        // does for a real bullet, hit flash included, when the dormant bullet is marked despawning.
-        //
-        // THE SENDER learns which effect was attached by scanning the effect pool on the birth frame
-        // for an active object whose private bullet field points at the newborn -- identity, never
-        // proximity. A death (wall, hit, range) is one seq in a second small ring, so an early end
-        // vanishes at the same spot rather than flying on to the default life.
-        //
-        // Rings are 300ms wide so a lossy sample still carries a birth; the receiver dedupes on seq
-        // and adopts the counter on first sight, never replaying history. Bullets are the elastic
-        // field: BridgeClient drops them first when a frame nears the core's 1024-byte extras cap.
-        // 150ms: a burst of a core expansion (29 alive at peak) at 300ms pushed one frame's extras to
-        // 1047 bytes and the guard dropped every bullet in it (2026-09-10). At the shipped 20Hz
-        // this is still three samples of loss cover; at the dev 100Hz, fifteen.
-        //
-        // THE FLIGHT IS THE GAME'S, NOT OURS (2026-09-10, second pass). The census above measured
-        // speed and angle drift and found none -- true of the shots it saw, and false as a premise.
-        // bulletScript._Update calls the bullet's own BulletBehave(), a switch on BulletType, and
-        // the orbitar families move THEMSELVES inside it rather than through speed or angle:
-        // the Sable charged B steps its position up and down every physics tick (the zig-zag a
-        // straight-line mirror flattens), the Celia charged C turns 180 degrees, homes, then
-        // accelerates past 1.6s, the Sable charged C falls on a curve, and the normal orb shot
-        // homes when its counter 3 says so. A straight line at a constant speed is not any of
-        // those (user, 2026-09-10: the ghost's shots "don't do these", "go a really short distance").
-        //
-        // So the watcher no longer reconstructs the flight: it hands the dormant bullet to the
-        // game's own BulletBehave() on the game's own fixed step. Two things make that safe on a
-        // machine that did not fire the shot, and both are guards, not hopes: the bullet is not in
-        // BulletManager's pool and never hits anything, so every branch behind `hitlist.Count > 0`
-        // (the bombs, the meter spend, the camera shake, the sub-bullets) is dead code for it; and
-        // GuardedBulletBehave zeroes `useChargeRemove` around the call and despawns any bullet the
-        // call put in the real pool anyway. See StepGhostBullet.
-        //
-        // WHAT ENDS A BULLET is also the game's: BulletBehave's own off-camera despawns, TimeDelete,
-        // and the peer's mirrored death. The old flat 1.5s kill was read from EnableMe's `life`,
-        // which despawns a bullet only while it is OFF SCREEN -- an on-screen charged shot outlives
-        // it easily, and cutting it at 1.5s is most of "not going as far as intended".
+        // Births and deaths ride rings this wide, so a lossy sample still carries them; the receiver dedupes on seq.
+        // Bullets are what BridgeClient drops first near the extras cap, and a wider ring overflowed it in a burst.
         private const float BulletRingSeconds = 0.15f;
-        private const float BulletLingerAfterDeath = 1f; // followers need to SEE isDespawning()
-        // Nothing but a safety net: a type whose behave has no despawn rule of its own, on a frame
-        // whose death row was dropped at the extras cap, would otherwise fly forever.
+        private const float BulletLingerAfterDeath = 1f; // followers need to see isDespawning()
+        // A safety net only: a type with no despawn rule of its own, whose death row was dropped, would fly forever.
         private const float BulletSafetyLife = 12f;
-        // A birth is up to a send interval old when it arrives, and the ghost body renders on the
-        // core's interpolation delay, so a bullet spawned at its birth POSITION starts behind the
-        // one it mirrors and dies short. Spawn replays the missing steps instead; the cap is a
-        // sanity bound (30 steps = 0.5s), never reached at a sane send rate.
+        // A birth arrives up to a send interval late, so spawn replays the missed steps or the bullet starts behind and
+        // dies short. A sanity bound (0.5s), never reached at a sane send rate.
         private const int BulletCatchUpStepsMax = 30;
         private static readonly FieldInfo BulletPrefabField = typeof(BulletManager).GetField("bullet_prefab", BindingFlags.NonPublic | BindingFlags.Instance);
-        // bulletScript.time is PUBLIC. Asking for it with NonPublic alone returned null, so the
-        // sprite-advance branch this gated had never once run and drawn-sprite bullets (the lock-on
-        // shot, Sable's charged shot) never animated a frame. Found 2026-09-10 reading the field
-        // list, not the symptom -- a reflection lookup that fails is silent by construction.
         private static readonly FieldInfo BulletStartSizeField = typeof(bulletScript).GetField("startSize", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletCachePosField = typeof(bulletScript).GetField("cachepos", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletFlagsField = typeof(bulletScript).GetField("flags", BindingFlags.NonPublic | BindingFlags.Instance);
 
-        // PEER-CHOSEN VALUES THAT HAD NO BOUND UNTIL 2026-09-16 (each was a "not checked yet" cell
-        // in SYNCED.md). Every limit here is a safety limit far past what the game produces, in
-        // the same spirit as the counters' caps: it refuses a peer's invention, never an honest
-        // state. Sprite indices are positions in this build's own tables; scales and speeds are
-        // multipliers on a character-sized rig.
+        // Bounds on peer-chosen values, far past anything the game produces, so only a peer's invention is refused.
         private const int OrbSpriteIndexMax = 4095;
         private const int OrbChargeScaleMax = 10000; // x100, so a ring 100 times its natural size
         private const float PeerScaleMax = 100f;
         private const float PeerAnimSpeedMax = 100f;
         private const float BulletTimeMax = 3600f; // seconds; the ghost's own safety life is 12
 
-        // The bullet flags a peer sends are MASKED TO THE BITS THIS BUILD DEFINES: the field is a
-        // [Flags] enum, and Enum.ToObject accepts any integer, so an undefined bit would reach
-        // BulletBehave as a state no shooter on this build can produce. The mask is read once
-        // from the enum's own values -- names and values from the assembly, never its code.
+        // A peer's bullet flags, masked to the bits this build's enum defines: Enum.ToObject accepts any integer, and
+        // an undefined bit would reach BulletBehave as a state no shooter here can produce.
         private static int bulletFlagsDefinedMask = -1;
         private static int BulletFlagsDefined(int flags)
         {
@@ -3515,19 +2601,16 @@ namespace MeshGhostTevi
         private static readonly FieldInfo BulletLifeField = typeof(bulletScript).GetField("life", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletTimeDeleteField = typeof(bulletScript).GetField("TimeDelete", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletStayField = typeof(bulletScript).GetField("isStayAtOwner", BindingFlags.NonPublic | BindingFlags.Instance);
-        // The wall-hit pop: DestroyMe sets this, and _Update then grows and shrinks the sprite
-        // for ~0.15s without moving it. Read and advanced by StepGhostBullet the way _Update does.
+        // The wall-hit pop, set by DestroyMe; StepGhostBullet advances it the way _Update does.
         private static readonly FieldInfo BulletInDestroyField = typeof(bulletScript).GetField("inDestroy", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletCounterField = typeof(bulletScript).GetField("counter", BindingFlags.NonPublic | BindingFlags.Instance);
-        // The angle's cached sine and cosine, which SetAngle keeps and BulletBehave changes under a
-        // homing bullet. Read, never written: recomputing them from `angle` would be our arithmetic
-        // standing in for the game's, and it is the game's that steers the bullet.
+        // The angle's cached cosine and sine, which BulletBehave changes for a homing bullet. Read, never recomputed
+        // from the angle: the game's own values steer the bullet.
         private static readonly FieldInfo BulletCosField = typeof(bulletScript).GetField("_cos", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletSinField = typeof(bulletScript).GetField("_sin", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly MethodInfo BulletBehaveMethod = typeof(bulletScript).GetMethod("BulletBehave", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly MethodInfo BulletStayMethod = typeof(bulletScript).GetMethod("StayAtOwner", BindingFlags.NonPublic | BindingFlags.Instance);
-        // ShootBullet's own sprite step, which the watcher skipped: a clone off the prefab carries
-        // the prefab's sprite, so every drawn bullet wore the wrong one (or none).
+        // ShootBullet's own sprite step: a clone off the prefab carries the prefab's sprite.
         private static readonly MethodInfo BulletManagerSetSprite = typeof(BulletManager).GetMethod("SetSprite", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo OrbShootNormalPs1Field = typeof(OrbShootNormal).GetField("ps1", BindingFlags.NonPublic | BindingFlags.Instance);
 
@@ -3548,9 +2631,7 @@ namespace MeshGhostTevi
 
         private sealed class BulletBirth { public int Seq; public float At; public object[] Row; public bulletScript B; public int BirthFlags; }
         private readonly List<BulletBirth> bulletBirths = new List<BulletBirth>();
-        // A death carries WHERE the bullet stopped: the receiver hears of it a sample late and
-        // would otherwise end the ghost's bullet wherever it had flown to by then (user,
-        // 2026-09-10, on a wall hit: "it looks like it travels a tiny bit too far still").
+        // A death carries where the bullet stopped: it arrives a sample late, after the ghost's bullet has flown on.
         private sealed class BulletDeath { public int Seq; public float At; public float X, Y; }
         private readonly List<BulletDeath> bulletDeathRing = new List<BulletDeath>();
         private int bulletSeq;
@@ -3559,8 +2640,7 @@ namespace MeshGhostTevi
         private bool[] bulletSlotDeathSent; // the death for this slot's seq is already in the ring
         private int[] bulletSlotFlagsSent;  // the flags last reported for this slot's seq
 
-        // A bullet's ten counters as "slot:value" pairs, and only the ones that are not zero --
-        // almost always the empty string, which is what keeps this affordable inside the extras cap.
+        // A bullet's non-zero counters as "slot:value" pairs; almost always empty, which fits the extras cap.
         private static string EncodeCounters(bulletScript b)
         {
             var arr = BulletCounterField != null ? BulletCounterField.GetValue(b) as float[] : null;
@@ -3576,10 +2656,8 @@ namespace MeshGhostTevi
             return s ?? "";
         }
 
-        // The birth state BulletBehave reads, as ONE cell: "startSize|counters|flags|life|delete",
-        // each half empty when it is the default EnableMe already gave the clone. A cell per field
-        // cost ~22 JSON bytes a bullet and bullets are what the extras cap drops first, so a burst
-        // of a core expansion would have paid for this in whole shots that never appeared.
+        // The birth state BulletBehave reads, as one cell "startSize|counters|flags|life|delete|tint", each part empty
+        // at EnableMe's default. One cell, because bullets are what the extras cap drops first.
         private static string EncodeBirthState(bulletScript b)
         {
             float startSize = ReadFloatField(BulletStartSizeField, b, -1f);
@@ -3588,9 +2666,7 @@ namespace MeshGhostTevi
             float del = ReadFloatField(BulletTimeDeleteField, b, float.PositiveInfinity);
             string counters = EncodeCounters(b);
             var ci = System.Globalization.CultureInfo.InvariantCulture;
-            // Sixth field: the renderer's tint, for the drawn families the shooter colours through
-            // SetColor -- lily_groundbreak's fade rings are (16,64,255) on the shooter's screen and
-            // were plain white on the ghost (user, 2026-09-10: "white circles").
+            // The renderer's tint, for the drawn families the shooter colours through SetColor.
             string rgba = b._render != null ? Hex(b._render.color) : "FFFFFFFF";
             string s = (startSize >= 0f ? (Mathf.Round(startSize * 100f) / 100f).ToString(ci) : "")
                 + "|" + counters
@@ -3610,8 +2686,7 @@ namespace MeshGhostTevi
                 && float.TryParse(parts[0], System.Globalization.NumberStyles.Float, ci, out startSize)
                 && startSize > 0f)
             {
-                // justSpawn:true so the game's own spawn pop runs -- the size read off the wire is
-                // the base one, not whatever frame of the pop the sender happened to sample.
+                // justSpawn, so the game's spawn pop runs: the size sent is the base one, not a frame of the pop.
                 b.SetSpriteSize(startSize, justSpawn: true);
             }
             else if (!float.IsNaN(fallbackScale) && fallbackScale > 0f)
@@ -3619,11 +2694,8 @@ namespace MeshGhostTevi
                 b.SetSpriteSize(fallbackScale, justSpawn: false);
             }
             if (parts.Length > 1) ApplyCounters(b, parts[1]);
-            // Flags masked to this build's defined bits; life and delete time finite and kept to
-            // 0..BulletTimeMax (2026-09-16; each was a "not checked yet" cell in SYNCED.md). A
-            // lifetime past the limit is moot anyway -- TickGhostBullets retires every ghost
-            // bullet at its own safety life -- but a NaN or negative one reaches the game's
-            // timers as a state no shooter produces.
+            // Flags masked; life and delete time finite and within 0..BulletTimeMax, since a NaN or negative one
+            // reaches the game's timers as a state no shooter produces.
             int flags;
             if (parts.Length > 2 && parts[2].Length > 0 && BulletFlagsField != null
                 && int.TryParse(parts[2], System.Globalization.NumberStyles.Integer, ci, out flags) && BulletFlagsDefined(flags) != 0)
@@ -3734,11 +2806,8 @@ namespace MeshGhostTevi
                     int seq = ++bulletSeq;
                     bulletSlotSeq[i] = seq;
                     Vector3 p = b.transform.position;
-                    // Cells 13-18 are the state the game's own BulletBehave reads and the shooter
-                    // wrote after ShootBullet returned -- without them a ghost's shot runs the same
-                    // switch from the wrong start (the normal orb shot homes on counter 3 == 135,
-                    // the Sable charged B's zig-zag phase is counters 5/6/7). Cheap when unset:
-                    // the counter string is empty for the great majority of bullets.
+                    // Cell 14 packs the state BulletBehave reads that the shooter wrote after ShootBullet returned:
+                    // without it a ghost's shot runs the same switch from the wrong start.
                     var birthRow = new BulletBirth
                     {
                         Seq = seq, At = now, B = b, BirthFlags = ReadIntField(BulletFlagsField, b),
@@ -3759,12 +2828,8 @@ namespace MeshGhostTevi
                 }
                 else if (on && bulletSlotSeq[i] >= 0 && !bulletSlotDeathSent[i] && b.isDespawning())
                 {
-                    // A DEATH IS THE FRAME THE BULLET STOPS, not the frame its slot frees. On a
-                    // wall the game calls DestroyMe: the bullet halts and pops for ~0.15s before
-                    // DespawnBullet finally clears the slot -- and a ghost that only hears about
-                    // the slot flew that whole pop past the wall at full speed (user, 2026-09-10:
-                    // "bullets not dying if they hit a wall"). isDespawning() is true from the
-                    // first frame of either path.
+                    // A death is the frame the bullet stops, not the frame its slot frees: on a wall it halts and pops
+                    // before the slot clears, and isDespawning() is true from the first frame of either path.
                     bulletSlotDeathSent[i] = true;
                     Vector3 stop = b.transform.position;
                     bulletDeathRing.Add(new BulletDeath { Seq = bulletSlotSeq[i], At = now, X = Mathf.Round(stop.x * 10f) / 10f, Y = Mathf.Round(stop.y * 10f) / 10f });
@@ -3781,18 +2846,13 @@ namespace MeshGhostTevi
                     bulletSlotDeathSent[i] = false;
                 }
             }
-            // Flag changes for every live bullet of ours, whatever its age (see the method).
             pendingFlagUpdates = ReadBulletFlagUpdates(pool, enabled, n);
 
-            // THE EFFECT IS ATTACHED AFTER ShootBullet, in the orb's own update, which may run
-            // after ours on the birth frame -- so a birth seen with no follower is re-scanned on
-            // the following frames while it is still in the ring, and the row is patched in place
-            // (the receiver has not spawned it yet if the first sample was lost, and if it has,
-            // the next sample's row carries the effect). Found 2026-09-10: some shots flew unseen.
+            // The effect is attached after ShootBullet, in the orb's update, which may run after ours: a birth with no
+            // follower yet is re-scanned while it is in the ring, and its row patched in place.
             foreach (BulletBirth birth in bulletBirths)
             {
-                // The age travels with the row, not the row's arrival: a receiver that first sees
-                // this birth two samples late still starts the bullet where the real one is now.
+                // The age travels with the row, so a receiver that sees the birth late still starts it where it is now.
                 if (birth.B != null)
                 {
                     birth.Row[13] = Mathf.Round(birth.B.time * 1000f) / 1000f;
@@ -3835,19 +2895,12 @@ namespace MeshGhostTevi
             return arr;
         }
 
-        // seq,flags pairs for bullets whose flags have CHANGED since birth -- a few bytes, sent
-        // under their own key so they survive the trim that drops whole bullet rows oldest-first
-        // when a frame nears the extras cap. That trim is why the flag mirroring worked only
-        // sometimes when it rode inside the row (user, 2026-09-10: "inconsistent/not all the
-        // time"): the pending update belongs to the OLDEST birth in the ring, the first to go.
+        // seq,flags pairs for bullets whose flags changed since birth, under their own key so they survive the trim
+        // that drops whole bullet rows, oldest first, near the extras cap.
         private float[] pendingFlagUpdates; // filled by ReadBullets, read by the state assembly
 
-        // FOR THE BULLET'S WHOLE LIFE, not just its first 150ms. Keyed on the POOL SLOT rather
-        // than the birth ring: the ring expires at 150ms, so a far shot -- airborne longer than
-        // that before it reaches anything -- lost its flag update mid-flight and sailed into the
-        // wall, while a close shot got there in time. That is the whole of the user's "works when
-        // close, still going into the wall when far away" (2026-09-10). An update is emitted only
-        // on CHANGE, so a straight flight costs nothing.
+        // For the bullet's whole life, keyed on the pool slot: the birth ring expires long before a far shot lands.
+        // Emitted only on a change, so a straight flight costs nothing.
         private float[] ReadBulletFlagUpdates(bulletScript[] pool, bool[] enabled, int n)
         {
             if (pool == null || enabled == null || bulletSlotFlagsSent == null) return null;
@@ -3867,8 +2920,7 @@ namespace MeshGhostTevi
             return outp != null ? outp.ToArray() : null;
         }
 
-        // The stop positions, x,y pairs in the same order as ReadBulletDeaths -- a separate key so
-        // a receiver on the previous build still reads the seqs and simply ends them where it can.
+        // The stop positions, x,y pairs in ReadBulletDeaths' order, under a key an older receiver ignores.
         private float[] ReadBulletDeathPositions()
         {
             if (bulletDeathRing.Count == 0) return null;
@@ -3877,16 +2929,9 @@ namespace MeshGhostTevi
             return arr;
         }
 
-        // IDENTITY IS NOT ENOUGH FOR A POOLED FOLLOWER (2026-09-10, live: "the blue orb is sometimes
-        // shooting red, the red orb is sometimes shooting blue"). BulletManager hands the SAME
-        // bulletScript object out again the moment its slot frees, and a follower still playing
-        // its end-fade for the previous bullet in that slot keeps its reference -- so its field
-        // compares equal to the newborn, and the newborn is sent with the old family's effect.
-        // The diagnostic showed one type arriving as three different kinds in one session.
-        // The tell a stale one cannot fake is WHEN it went active: the game lights the follower in
-        // the same call that shot the bullet, so a match is only real if the effect's activation
-        // is no older than the bullet's own timeCreated. Activation is watched every frame over
-        // the follower pools only (the same rising-edge watch ReadFlashes keeps for its two).
+        // Identity is not enough for a pooled follower: the game reuses a slot's bulletScript at once, and a follower
+        // still fading for the previous bullet points at the newborn too. A match is real only if the follower went
+        // active no earlier than the bullet's timeCreated, since the game lights it in the call that shot the bullet.
         private readonly Dictionary<int, float> followerActivatedAt = new Dictionary<int, float>();
         private List<int> followerPools;
         private int followerPoolsSeenCount = -1;
@@ -3903,13 +2948,8 @@ namespace MeshGhostTevi
             return sb.ToString();
         }
 
-        // FLAGS ARE NOT A BIRTH FACT. The lock-on shot ADDS CannotPassWall to itself 0.02s after
-        // launch (inside BulletBehave, which never runs on a ghost), and until the watcher knows
-        // that, its own wall test skips the bullet and it flies into the rock -- 26 of them died
-        // inside solid tile in one session, every one reading cpw=False (user's screenshot,
-        // 2026-09-10). So the ring refreshes the flags field every frame the birth is still in it,
-        // and the receiver applies them to a bullet it has already spawned. No game code runs on
-        // the watcher: the shooter reports, the watcher believes.
+        // Flags are not a birth fact (the lock-on shot adds CannotPassWall to itself after launch), so the ring
+        // refreshes them each frame and the receiver applies them to a bullet it already spawned.
         private static string WithFlags(string packed, int flags)
         {
             string[] parts = (packed ?? "").Split('|');
@@ -3929,10 +2969,7 @@ namespace MeshGhostTevi
             if (string.IsNullOrEmpty(packed)) return;
             string[] parts = packed.Split('|');
             int flags;
-            // Masked with BulletFlagsDefined like the two sibling sites: this is the re-sent-row
-            // path, and it alone applied the peer's raw bits, so SYNCED.md's "only the flag bits
-            // your own game defines are kept" was false for every row after the first (pass 5 of
-            // the adversarial review, 2026-09-16, P2t-7).
+            // Masked like the birth and update paths: a re-sent row is peer input too.
             if (parts.Length > 2 && parts[2].Length > 0
                 && int.TryParse(parts[2], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out flags))
             {
@@ -3949,8 +2986,8 @@ namespace MeshGhostTevi
             return parts.Length > 6 ? parts[6] : "";
         }
 
-        // The sent pool index if its prefab carries follower kind `kind`, else the first pool
-        // whose prefab does, else -1. Kind is OUR table (EffectKindTypes), stable across builds.
+        // The sent pool index if its prefab carries follower kind `kind`, else the first pool that does, else -1. Kind
+        // indexes our own EffectKindTypes, stable across builds.
         private static int PoolCarryingKind(ObjectPooler op, int pool, int kind)
         {
             if (op == null || op.pooledObjectsList == null || kind < 0 || kind >= EffectKindTypes.Length) return -1;
@@ -3965,12 +3002,8 @@ namespace MeshGhostTevi
             return -1;
         }
 
-        // THE WIRE CARRIES NAMES, NOT ORDINALS (2026-09-10). BulletType and SpriteType are laid
-        // out differently between TEVI builds: the same number the standalone install called
-        // ORB_LOCK_NORMAL / SHOT_CYAN decoded on the Steam build as lily_groundbreak /
-        // effect_ring1 -- the "white circles" the user saw were a different build's sprite table.
-        // Cells 1-2 keep the ordinals for a peer on the previous adapter; fields 7-8 of the packed
-        // cell carry the names, and a receiver that can parse them believes them instead.
+        // BulletType and SpriteType ordinals differ between TEVI builds, so fields 7-8 of the packed cell carry the
+        // names, which a receiver believes over the ordinals in cells 1-2 (kept for an older peer).
         private static string WithEnumNames(string packed, bulletScript b)
         {
             string[] parts = (packed ?? "").Split('|');
@@ -3985,9 +3018,7 @@ namespace MeshGhostTevi
             string packed = row != null && row.Length > 14 ? row[14] as string : null;
             if (string.IsNullOrEmpty(packed)) return;
             string[] parts = packed.Split('|');
-            // A NAME, not a number in a name's place (2026-09-16; SYNCED.md said the latter was
-            // not checked): Enum.TryParse accepts "999" and yields an undefined value, so the
-            // name must start with a letter and, once parsed, be one this build defines.
+            // Enum.TryParse accepts "999", so a name must start with a letter and be one this build defines.
             Bullet.BulletType bt; Bullet.SpriteType st;
             if (parts.Length > 7 && parts[7].Length > 0 && char.IsLetter(parts[7][0])
                 && System.Enum.TryParse(parts[7], out bt) && System.Enum.IsDefined(typeof(Bullet.BulletType), bt)) b.type = bt;
@@ -4035,8 +3066,7 @@ namespace MeshGhostTevi
             }
         }
 
-        // Which pooled effect is following this newborn bullet: identity of its bullet field, AND
-        // an activation no older than the bullet (see TrackFollowerActivity).
+        // The pooled effect following this newborn: its bullet field's identity, and an activation no older than it.
         private void FindAttachedEffect(bulletScript b, out int poolIndex, out int kind, out float effScale, out string color)
         {
             poolIndex = -1; kind = -1; effScale = 0f; color = ""; // only kind 0 carries one; "" reads as white
@@ -4066,11 +3096,7 @@ namespace MeshGhostTevi
                         if (EffectKindFields[k] == null) continue;
                         if (!ReferenceEquals(EffectKindFields[k].GetValue(c), b)) continue;
                         poolIndex = i; kind = k; effScale = go.transform.localScale.x;
-                        // The prefab's NAME is what the receiver looks the pool up by: ObjectPooler
-                        // registers pools at runtime (AddObject), so an INDEX only agrees between
-                        // two machines if both loaded the same things in the same order -- and
-                        // swapping orbs is exactly the kind of event that registers one (user,
-                        // 2026-09-10: wrong colours "when the orbitars swap place mid shooting").
+                        // Sent for the receiver's diagnostic only: every orb effect prefab is named "Orb".
                         lastMatchedPoolName = (op.itemsToPool != null && i < op.itemsToPool.Count && op.itemsToPool[i] != null
                             && op.itemsToPool[i].objectToPool != null) ? op.itemsToPool[i].objectToPool.name : "";
                         lastMatchedObjectName = go.name;
@@ -4087,13 +3113,7 @@ namespace MeshGhostTevi
 
         private void ApplyGhostBullets(string playerId, RemoteGhostVisual visual, BridgeClient.RemoteState state, Vector3 worldOffset)
         {
-            // WHOSE GEOMETRY IS IT? WorldManager answers about the room the LOCAL player is in, so
-            // asking it whether a peer's bullet has hit a wall is only a real question while the
-            // peer is in that same room. Measured 2026-09-10: without this the test fired at the
-            // peer's own muzzle and killed 41 shots on the spot, 155-422 units short (the RECV
-            // lines read `despawningAfterCatchUp=True`). In the same room it was exact -- 136 kills
-            // at delta 0.0 -- and it is the only way a wall hit lands with no wire delay at all.
-            // Flags gained after birth, for bullets already flying (see ReadBulletFlagUpdates).
+            // Flags gained after birth, for bullets already flying.
             if (state.BulletFlagUpdates != null && BulletFlagsField != null)
             {
                 for (int i = 0; i + 1 < state.BulletFlagUpdates.Length; i += 2)
@@ -4108,12 +3128,12 @@ namespace MeshGhostTevi
                         BulletDiag($"RECV-FLAGS seq={(int)seqF} flags={(int)flagsF} spawned={have} dead={(have && gbf.DiedAt != float.NegativeInfinity)}");
                     }
                     if (!have || gbf.B == null || gbf.DiedAt != float.NegativeInfinity) continue;
-                    // Masked to this build's defined bits (2026-09-16), see BulletFlagsDefined.
                     try { BulletFlagsField.SetValue(gbf.B, System.Enum.ToObject(BulletFlagsField.FieldType, BulletFlagsDefined((int)flagsF))); }
                     catch (System.Exception) { }
                 }
             }
 
+            // WorldManager answers for the local player's room, so the local wall test only means something in it.
             WorldManager wmRoom = WorldManager.Instance;
             visual.SameRoom = wmRoom != null && state.RoomX.HasValue && state.RoomY.HasValue
                 && state.RoomX.Value == wmRoom.CurrentRoomX && state.RoomY.Value == wmRoom.CurrentRoomY;
@@ -4129,8 +3149,7 @@ namespace MeshGhostTevi
                 }
                 if (!visual.BulletSeqAdopted)
                 {
-                    // First sight adopts the counter: a ghost created mid-fight must not replay the
-                    // peer's last 300ms of shots.
+                    // First sight adopts the counter, so a ghost created mid-fight replays none of the ring's shots.
                     visual.BulletSeqAdopted = true;
                     visual.LastBulletSeq = maxSeq;
                 }
@@ -4169,7 +3188,7 @@ namespace MeshGhostTevi
                     if (DIAG_GHOST_BULLETS && visual.Bullets.TryGetValue((int)f, out gb) && gb.DiedAt != float.NegativeInfinity
                         && gb.Go != null && pos != null && pos.Length >= i * 2 + 2)
                     {
-                        // Already ended here (the local wall test); how far from where the REAL one stopped?
+                        // Already ended here by the local wall test: how far from where the real one stopped?
                         Vector3 peerStop = worldOffset + new Vector3(pos[i * 2], pos[i * 2 + 1], 0f);
                         Vector3 d = gb.Go.transform.position - peerStop;
                         BulletDiag($"PEER-DEATH-AFTER-LOCAL {gb.Go.name} cause={gb.Cause} localStop={gb.Go.transform.position} peerStop={peerStop} delta=({d.x:F1},{d.y:F1}) speed={gb.Speed}");
@@ -4182,11 +3201,7 @@ namespace MeshGhostTevi
                             && !float.IsInfinity(pos[i * 2]) && !float.IsInfinity(pos[i * 2 + 1]))
                         {
                             gb.B.SetPosition(worldOffset + new Vector3(pos[i * 2], pos[i * 2 + 1], 0f));
-                            // A FOLLOWER'S TRAIL RECORDS THE SNAP. The pooled effect copies the
-                            // bullet's position every frame and several families carry
-                            // TrailRenderers, so moving a bullet BACK to where the peer's stopped
-                            // draws a streak from the overshoot point through whatever is between
-                            // -- the line into the rock in the user's screenshot, 2026-09-10.
+                            // A follower's TrailRenderer would draw the snap back as a streak.
                             ClearGhostBulletTrails(gb);
                         }
                         KillGhostBullet(gb);
@@ -4195,14 +3210,11 @@ namespace MeshGhostTevi
             }
         }
 
-        // GhostBulletCapFallback is used only when the game's own pool cannot be read --
-        // a moment during a scene load, or a build whose field name moved. Deliberately
-        // generous: the point is that SOME number exists, and refusing a real player's
-        // shots because reflection missed once would be a worse bug than the one this
-        // guards. See SpawnGhostBullet.
+        // Only when the game's pool cannot be read (a scene load, a renamed field); generous, so a missed read never
+        // refuses an honest player's shots.
         private const int GhostBulletCapFallback = 512;
 
-        // GhostBulletCap is the game's own concurrent-bullet ceiling for this build.
+        // The game's own concurrent-bullet ceiling for this build, read live.
         private int GhostBulletCap()
         {
             if (BulletManager.Instance != null && BulletsField != null
@@ -4216,23 +3228,8 @@ namespace MeshGhostTevi
         private void SpawnGhostBullet(string playerId, RemoteGhostVisual visual, int seq, object[] row, Vector3 worldOffset)
         {
             if (BulletManager.Instance == null || BulletPrefabField == null || cloneTemplate == null) return;
-            // A PEER DOES NOT GET TO DECIDE HOW MANY BULLETS WE INSTANTIATE, and until
-            // 2026-09-12 nothing counted them -- while every sibling container on this same
-            // visual is capped (Summons at 4, RejectedAnims at 4, Orbs and Platforms at 2).
-            //
-            // Each row here is a full Instantiate of the game's bullet prefab plus a pooled
-            // follower, and each one is stepped on the frame thread by TickGhostBullets for
-            // BulletSafetyLife (12s) plus BulletLingerAfterDeath. The key is a peer-chosen
-            // seq that only has to increase, extras allows ~30 rows per state, and a state
-            // arrives at the room rate -- so the resident count is bounded by nothing but
-            // how long the peer keeps sending. Found by the growth cell of the third
-            // adversarial review (P2f-1).
-            //
-            // SIZED FROM THE GAME'S OWN POOL, not guessed: BulletManager's `bullets` array is
-            // the most bullets this build can have alive at once, for everybody on screen
-            // together. One ghost can never legitimately need more of its own than the whole
-            // game can hold, so anything past it is impossible for an honest peer. Read live
-            // rather than cached, because it is the game's number and not ours.
+            // A peer does not decide how many bullets we build (each a prefab clone, stepped for seconds). Capped at
+            // the game's own pool, the most bullets it can hold for everyone at once, which no honest peer exceeds.
             if (visual.Bullets.Count >= GhostBulletCap())
             {
                 visual.RejectedAnims = visual.RejectedAnims ?? new HashSet<string>();
@@ -4247,17 +3244,11 @@ namespace MeshGhostTevi
             var prefab = BulletPrefabField.GetValue(BulletManager.Instance) as bulletScript;
             if (prefab == null) return;
             float x = CellF(row, 3), y = CellF(row, 4), angle = CellF(row, 5), speed = CellF(row, 6), scale = CellF(row, 7);
-            // Angle and speed refuse infinity as well as NaN (2026-09-16; SYNCED.md said
-            // "infinity not checked yet"): an infinite angle is a NaN after the cosine below,
-            // and an infinite speed is a bullet nowhere on the first step.
+            // Infinity refused too: an infinite angle is NaN after the cosine, an infinite speed a bullet nowhere.
             if (float.IsNaN(x) || float.IsNaN(y) || float.IsNaN(angle) || float.IsNaN(speed) || float.IsInfinity(x) || float.IsInfinity(y)
                 || float.IsInfinity(angle) || float.IsInfinity(speed)) return;
-            // The type and sprite ORDINALS must be values this build's enums define (2026-09-16;
-            // SYNCED.md said "not checked yet"). An undefined ordinal is either another build's
-            // numbering -- in which case the names in cell 15 win, see ApplyEnumNames -- or a
-            // peer's invention; either way the prefab's own value stays. Through the helper, never
-            // Enum.IsDefined on an int: both enums are narrower than int, and that call threw on
-            // every bullet from 96ed6168 until 2026-09-16 (BridgeClient.DefinedOrdinalOrMinusOne).
+            // Ordinals this build defines, else the prefab's value stays (the names may still win). Through the helper:
+            // Enum.IsDefined on an int throws for these enums, which are narrower than int.
             int type = BridgeClient.DefinedOrdinalOrMinusOne(typeof(Bullet.BulletType), CellF(row, 1));
             int sprite = BridgeClient.DefinedOrdinalOrMinusOne(typeof(Bullet.SpriteType), CellF(row, 2));
 
@@ -4273,19 +3264,11 @@ namespace MeshGhostTevi
             b.EnableMe();
             if (type != -1) b.type = (Bullet.BulletType)type;
             if (sprite != -1) b.sprite = (Bullet.SpriteType)sprite;
-            ApplyEnumNames(b, row); // a peer on another build: its NAMES win over its ordinals
+            ApplyEnumNames(b, row); // a peer on another build: its names win over its ordinals
             b.SetAngle(angle);
             b.speed = speed;
-            // ShootBullet's own two lines for the sprite. Without them a clone off the prefab wore
-            // whatever the prefab carried, so every DRAWN bullet (the lock-on shot, Sable's charged
-            // shot) was wrong or blank -- the pooled-effect families hid it, since they draw nothing.
-            // NONE and USE_PS both draw NOTHING through the bullet's own renderer -- NONE by the
-            // game turning it off, USE_PS because its whole visual is the pooled follower effect
-            // and `SetSprite` has no case for it. A clone carries the PREFAB's sprite, though, so
-            // leaving the renderer on drew a plain white ball where the game draws nothing (user,
-            // 2026-09-10: "shooting white circles sometimes instead of proper bullet/projectiles").
-            // The renderer is only for the genuinely DRAWN families, and those are the ones
-            // ShootBullet hands to SetSprite.
+            // ShootBullet's sprite step. NONE and USE_PS draw nothing through the bullet's renderer (USE_PS is all
+            // follower effect), so for them the clone's renderer, carrying the prefab's sprite, goes off.
             bool drawnSprite = b.sprite != Bullet.SpriteType.NONE && b.sprite != Bullet.SpriteType.USE_PS;
             if (b._render != null) b._render.enabled = drawnSprite;
             if (drawnSprite && (int)b.sprite < 91 && BulletManagerSetSprite != null)
@@ -4293,9 +3276,7 @@ namespace MeshGhostTevi
                 try { BulletManagerSetSprite.Invoke(BulletManager.Instance, new object[] { b, b.sprite }); }
                 catch (System.Exception) { }
             }
-            // The size, counters, flags and lifetimes the shooter gave it -- the state its own
-            // BulletBehave reads. A peer on the previous build sends a 13-cell row and gets the
-            // straight-line flight it always got, which is what the length guards are for.
+            // The state the shooter gave it, which BulletBehave reads; an older peer's 13-cell row has none.
             ApplyBirthState(b, row.Length > 14 ? row[14] : null, scale);
             b.time = 0f;
             b.SetPosition(worldOffset + new Vector3(x, y, 0f)); // cachepos too: BulletBehave reads it
@@ -4308,8 +3289,7 @@ namespace MeshGhostTevi
             };
             gb.WallTestOk = visual.SameRoom; // the catch-up steps test walls too, or none of them do
             visual.Bullets[seq] = gb;
-            // CATCH-UP. The row carries the bullet's own age; replay it at the game's step so the
-            // ghost's shot starts where the peer's shot IS, not where it was born.
+            // Replay the bullet's age at the game's step, so it starts where the peer's shot is, not where it was born.
             float fdt = GameFixedStep();
             float age = row.Length > 13 ? CellF(row, 13) : 0f;
             if (!float.IsNaN(age) && age > 0f && fdt > 0f)
@@ -4334,15 +3314,8 @@ namespace MeshGhostTevi
                 && GemaPoolManager.Instance.CommonEffectsPooler != null)
             {
                 gb.EffectAttached = true;
-                // By prefab NAME when the row carries one (an index is only as stable as the two
-                // machines' load order -- see FindAttachedEffect); the index is the old peer's way.
-                // By INDEX, checked: every orb effect prefab is literally named "Orb", so a name
-                // cannot pick one (a lookup by name handed every family the first "Orb" pool, live
-                // 2026-09-10). What CAN be checked is that the pool at that index carries the
-                // follower component the sender matched -- across two different game builds the
-                // indices shift, and a wrong index would otherwise light a random effect. If it
-                // does not, the first pool that does carry it is the honest fallback: the right
-                // family, possibly the wrong variant, never garbage.
+                // By index, checked: the pool must carry the follower the sender matched, since indices shift between
+                // builds (a name cannot pick one: every orb prefab is "Orb"). Else the first pool that carries it.
                 ObjectPooler op = GemaPoolManager.Instance.CommonEffectsPooler;
                 int usePool = PoolCarryingKind(op, pool, kind);
                 GameObject fx = usePool >= 0 ? op.GetPooledObject(usePool) : null;
@@ -4373,12 +3346,8 @@ namespace MeshGhostTevi
             }
         }
 
-        // MUZZLE FLASHES. NormalShot lights CommonEffects #7 (OrbShootFlash) at the orb and
-        // ChargeShot #12 (OrbChargeFlash), each Setup(colour, facing); neither is tied to a bullet,
-        // so the bullet mirror never saw them (user, 2026-09-10: "missing some vfx things when
-        // shooting"). The sender watches those two pools for an object going ACTIVE that it did not
-        // light itself -- the receiver lights the same pools for ghosts, and without that exclusion
-        // two symmetric peers would echo each other's flashes (before-mirroring-state.md).
+        // Muzzle flashes (OrbShootFlash, OrbChargeFlash), tied to no bullet. The sender watches their pools for an
+        // object going active that it did not light itself, or two peers would echo each other's flashes.
         private static readonly int[] FlashPools = { 7, 12 };
         private static readonly FieldInfo ShootFlashPs1Field = typeof(OrbShootFlash).GetField("ps1", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo ChargeFlashPsField = typeof(OrbChargeFlash).GetField("ps", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -4414,7 +3383,8 @@ namespace MeshGhostTevi
                     Color c = Color.white;
                     if (poolIndex == 7 && ShootFlashPs1Field != null && ShootFlashPs1Field.GetValue(go.GetComponent<OrbShootFlash>()) is ParticleSystem p1) c = p1.startColor;
                     if (poolIndex == 12 && ChargeFlashPsField != null && ChargeFlashPsField.GetValue(go.GetComponent<OrbChargeFlash>()) is ParticleSystem[] pa && pa.Length > 0 && pa[0] != null) c = pa[0].startColor;
-                    bool left = go.transform.localEulerAngles.y > 0f && go.transform.localEulerAngles.y < 180f; // Setup: LEFT -> +90, RIGHT -> -90 (=270)
+                    // Setup turns the flash to +90 for LEFT and -90 (270) for RIGHT.
+                    bool left = go.transform.localEulerAngles.y > 0f && go.transform.localEulerAngles.y < 180f;
                     Vector3 p = go.transform.position;
                     flashRing.Add(new BulletBirth
                     {
@@ -4455,23 +3425,13 @@ namespace MeshGhostTevi
                 if (seq <= visual.LastFlashSeq) continue;
                 int pool = (int)CellF(row, 1);
                 float x = CellF(row, 2), y = CellF(row, 3);
-                // THE POOL INDEX IS BOUNDED HERE, and it was not until 2026-09-12 while both
-                // sibling paths bound theirs -- PoolCarryingKind tests `i < pooledObjectsList.Count`
-                // before touching it, and the MirroredCommonEffectTable path picks from a fixed
-                // table. What GetPooledObject does with an out-of-range index lives in the game
-                // assembly and could not be read, which is the reason to bound it rather than a
-                // reason not to: an index we cannot predict the handling of is one a peer must not
-                // choose freely. Infinity joins NaN on x/y for the same reason as the shield
-                // rotation above. Found by the third adversarial review (P2d-3).
+                // Bounded: what GetPooledObject does out of range is unknown, so a peer must not choose it.
                 if (op == null || op.pooledObjectsList == null
                     || pool < 0 || pool >= op.pooledObjectsList.Count
                     || float.IsNaN(x) || float.IsNaN(y)
                     || float.IsInfinity(x) || float.IsInfinity(y)) continue;
-                // AND THE POOL MUST BE A FLASH POOL (2026-09-16; SYNCED.md said limiting it was
-                // not checked). Tested on the pool's own template by component, not by the
-                // numbers 7 and 12, because a pool index is an ordinal that differs between
-                // builds (the standalone and Steam copies disagree): any other pooled effect is
-                // one a shot never lights, and a peer must not get to light it at will.
+                // And a flash pool, tested by its template's component since pool indices differ between builds: a peer
+                // must not light any other pooled effect at will.
                 List<GameObject> flashPool = op.pooledObjectsList[pool];
                 if (flashPool == null || flashPool.Count == 0 || flashPool[0] == null
                     || (flashPool[0].GetComponent<OrbShootFlash>() == null && flashPool[0].GetComponent<OrbChargeFlash>() == null)) continue;
@@ -4490,12 +3450,8 @@ namespace MeshGhostTevi
             visual.LastFlashSeq = maxSeq;
         }
 
-        // DIAG_GHOST_BULLETS -- one line per event, never per frame: what the sender decided a
-        // shot IS (type, sprite, follower kind, pool, colour), what the receiver made of the row,
-        // and what ended the ghost's bullet and after how long. Armed 2026-09-10 for three live
-        // symptoms on one build ("white circles", "red orb shooting blue", "short distance") that
-        // three readings of the code could not separate; the line that pairs a SEND with its RECV
-        // is the one that does.
+        // One line per event: what the sender decided a shot is, what the receiver made of the row, and what ended the
+        // ghost's bullet and when. A SEND paired with its RECV separates symptoms that reading code cannot.
         private const bool DIAG_GHOST_BULLETS = false;
         private const int GhostBulletDiagBudget = 600;
         private int ghostBulletDiagLines;
@@ -4515,8 +3471,7 @@ namespace MeshGhostTevi
                 + $" age={(row.Length > 13 ? CellF(row, 13) : float.NaN)} state=\"{(row.Length > 14 ? row[14] : null) ?? ""}\"";
         }
 
-        // Every trail on the bullet and on its follower, emptied so no segment spans a teleport.
-        // Clear() only drops the recorded points; the renderer keeps emitting normally after.
+        // Every trail on the bullet and its follower emptied, so no segment spans a teleport; it keeps emitting.
         private static void ClearGhostBulletTrails(GhostBullet gb)
         {
             if (gb.Go != null)
@@ -4537,21 +3492,15 @@ namespace MeshGhostTevi
         private void KillGhostBullet(GhostBullet gb, string cause = "peer death")
         {
             gb.DiedAt = Time.time;
-            // DestroyMe, not DespawnMe: it is what the game calls on a wall or a hit, so the ghost's
-            // bullet halts and pops the way the real one did (StepGhostBullet advances the pop).
-            // Followers see isDespawning() either way and play their own end.
+            // DestroyMe, as the game calls on a wall or a hit: the bullet halts and pops, and followers see it despawn.
             if (gb.B != null)
             {
                 gb.B.DestroyMe();
-                // One family (the Sable charged A) leaves DestroyMe NOT despawning -- it stops and
-                // waits for its own next step, which a ghost never gets. End it outright.
+                // One family leaves DestroyMe not despawning, waiting for a next step a ghost never gets.
                 if (!gb.B.isDespawning()) gb.B.DespawnMe();
             }
-            // Where did it end, and was it allowed to stop itself? `inWall` is the whole question
-            // for the trails-into-walls report: a bullet that dies inside solid tile is one our
-            // local test never ran on -- either it lacks CannotPassWall (the lock-on shot only
-            // GAINS that flag inside its own behaviour, which is off) or the shooter was in
-            // another room.
+            // inWall: a bullet dying inside solid tile is one the local wall test never ran on (no CannotPassWall yet,
+            // or the shooter in another room).
             WorldManager wmK = WorldManager.Instance;
             Vector3 at = gb.Go != null ? gb.Go.transform.position : Vector3.zero;
             string wall = wmK != null ? $"{wmK.CheckIsWall(at, any: false)}/{wmK.CheckIsWall(at, any: true)}" : "?";
@@ -4561,10 +3510,8 @@ namespace MeshGhostTevi
                 + $" fx={gb.EffectObjectName ?? "-"}");
         }
 
-        // The game's own fixed step, the one bulletScript's arithmetic is written in. Bullets are
-        // ticked from FixedUpdate for the same reason: BulletManager ticks the real ones from
-        // GameSystem.FixedUpdate, and a bullet that counts physics steps (the Sable charged B counts
-        // them to decide when to turn) is not the same bullet if it is stepped once per FRAME.
+        // The game's fixed step, which bulletScript's arithmetic is written in; ghost bullets tick from FixedUpdate as
+        // the real ones do, since some count physics steps.
         private static float GameFixedStep()
         {
             float fdt = MainVar.instance != null ? MainVar.instance.fixedDeltaTime : 0f;
@@ -4574,21 +3521,13 @@ namespace MeshGhostTevi
         private bool[] bulletPoolWasEnabled;
         private bool loggedBehaveFailure;
 
-        // BulletBehave on a bullet that belongs to somebody else's game. Two guards, then the call:
-        //   - `useChargeRemove` is zeroed for the duration, because several charged families erase
-        //     bullets in an area while it is set, and those would be the WATCHER's bullets;
-        //   - anything the call puts in the real pool is despawned again. Every such path is behind
-        //     `hitlist.Count > 0` for a dormant bullet, so this should never fire -- which is the
-        //     point of it firing silently rather than being assumed (before-mirroring-state.md).
-        // The snapshot is taken per call, not per pass: catch-up steps run from the drain in
-        // Update, and a stale snapshot would read the local player's own new shot as ours to kill.
-        // OFF, 2026-09-10, live: a peer's shots DAMAGED the watcher ("when standalone shoot, steam
-        // takes damage from some of them"). A ghost touching the watcher's health is the one thing
-        // that may never happen, so the switch comes first and the diagnosis second. False = the
-        // straight-line flight of b3b3ede9: cosmetically wrong for the families that move
-        // themselves, and incapable of harm.
+        // Off: with it on, a peer's shots damaged the watcher. Off is the straight-line flight, wrong for the families
+        // that move themselves and incapable of harm.
         private const bool GhostBulletsRunGameBehaviour = false;
 
+        // BulletBehave on another game's bullet, with useChargeRemove zeroed (charged families erase the watcher's
+        // bullets while it is set) and anything the call puts in the real pool despawned again. The pool snapshot is
+        // per call: catch-up steps run from Update, and a stale one would kill the local player's own new shot.
         private void GuardedBulletBehave(GhostBullet gb)
         {
             if (!GhostBulletsRunGameBehaviour || BulletBehaveMethod == null || gb.BehaveFailed) return;
@@ -4642,11 +3581,8 @@ namespace MeshGhostTevi
             }
         }
 
-        // One physics step of one ghost bullet, in bulletScript._Update's own order: age it, let its
-        // type decide what it does, animate it, move it, then apply the game's despawn rules. What
-        // is NOT here is everything _Update does to the world -- hit checks, tile destruction, wall
-        // damage, the pool's despawn bookkeeping. That asymmetry is the whole design: the bullet
-        // moves exactly as the game moves it and touches nothing.
+        // One physics step in bulletScript._Update's order (age, behave, animate, move, despawn rules), without
+        // anything _Update does to the world: hits, tiles, wall damage, the pool's bookkeeping.
         private void StepGhostBullet(GhostBullet gb, float fdt)
         {
             bulletScript b = gb.B;
@@ -4655,11 +3591,8 @@ namespace MeshGhostTevi
             float inDestroy = ReadFloatField(BulletInDestroyField, b, 0f);
             if (inDestroy > 0f)
             {
-                // _Update's pop, verbatim in effect: no movement, grow for 0.1125s, then shrink to
-                // nothing and despawn. The ghost's bullet stands where the real one stopped. The
-                // real object is pulled from the pool the moment it reaches zero; the ghost's
-                // lingers for its followers, so it must STOP here -- one more step and the scale
-                // goes negative and grows every frame (live 2026-09-10, "a lot of weird bugs").
+                // _Update's pop: no movement, grow, then shrink to nothing. The ghost's bullet lingers for its
+                // followers, so it must stop at zero, or the scale goes negative and grows every frame.
                 inDestroy += fdt;
                 if (BulletInDestroyField != null) BulletInDestroyField.SetValue(b, inDestroy);
                 float popSize = ReadFloatField(BulletStartSizeField, b, -1f);
@@ -4708,8 +3641,7 @@ namespace MeshGhostTevi
                 }
             }
 
-            // The real bullet fades out instead of behaving during a cutscene, and its death comes
-            // to us on the wire like any other, so the ghost simply stops behaving for that window.
+            // In a cutscene the real bullet fades instead of behaving, and its death arrives on the wire.
             bool eventOff = EventManager.Instance == null
                 || EventManager.Instance.getMode() == EventMode.Mode.OFF
                 || EventManager.Instance.ForceBulletPlayInEvent
@@ -4718,8 +3650,8 @@ namespace MeshGhostTevi
             if (b.isDespawning()) return;   // its own rule ended it -- the caller kills it next pass
             if (!b.stopAnim) b.BulletSprite();
 
-            // _Update's motion, read back AFTER the behaviour ran: a type that moves itself writes
-            // cachepos, and a homing one has already turned the angle these come from.
+            // _Update's motion, read back after the behaviour ran: a type that moves itself writes cachepos, and a
+            // homing one has turned the angle.
             int stay = ReadIntField(BulletStayField, b);
             if (stay == 1)
             {
@@ -4744,21 +3676,10 @@ namespace MeshGhostTevi
                 }
                 b.SetPosition(cache);
 
-                // THE WALL, LOCALLY. _Update's own test for a player bullet that cannot pass
-                // walls, minus the one call that WRITES (DestroyTileInArea): the reads are the
-                // game's, the room is the same on both machines, and a bullet that stops here
-                // stops on the frame it touches the wall -- the mirrored death arrives a sample
-                // later and can only snap a trail that was already drawn past it (user,
-                // 2026-09-10: "some other ones still travel a bit too far"). A destructible tile
-                // the shooter broke is intact here and stops the ghost's bullet: world custody
-                // is never mirrored, and that is the right side of that line to be wrong on.
-                // TWO TESTS, TWO DIFFERENT SCOPES -- gating both on the same room was too blunt and
-                // showed up as distance-dependent (user, 2026-09-10: "if i stand close it works
-                // perfectly, if i stand far away it still goes into the wall a bit").
-                //   CheckIsWall  reads the AREA's tile grid by absolute position, so it is a real
-                //                question about a peer's bullet anywhere in the area we share.
-                //   CheckIsTerrainBox2D overlaps the colliders LOADED FOR OUR ROOM, so it answers
-                //                about our room only, and is the half that must stay gated.
+                // The wall, locally: _Update's test minus the call that writes (DestroyTileInArea), so the bullet stops
+                // on the frame it touches, where the mirrored death arrives a sample late. A tile the shooter broke is
+                // intact here; world custody is never mirrored. CheckIsWall reads the area's tile grid, valid anywhere
+                // in a shared area; CheckIsTerrainBox2D overlaps our room's colliders, so it alone is room-gated.
                 WorldManager wm = WorldManager.Instance;
                 if (wm != null && b.HaveFlag(Bullet.Flags.CannotPassWall)
                     && ((b.GetHSizeH() >= 1f && wm.CheckIsWall(cache, any: false) > 0)
@@ -4771,11 +3692,8 @@ namespace MeshGhostTevi
                 }
             }
 
-            // What ends it, in the game's own terms. `life` is the OFF-SCREEN rule -- _Update pairs
-            // it with the renderer's visibility, and a pooled-effect bullet draws through a particle
-            // system rather than that renderer, so the camera bound is the honest form of the same
-            // question. Most orbitar families despawn themselves off-camera inside BulletBehave
-            // anyway; this covers the ones that do not.
+            // The game's despawn rules. life applies only off screen; _Update asks the renderer, but a pooled-effect
+            // bullet draws through a particle system, so the camera bound asks instead.
             float timeDelete = ReadFloatField(BulletTimeDeleteField, b, float.PositiveInfinity);
             float life = ReadFloatField(BulletLifeField, b, 1.5f);
             if (b.time > timeDelete)
@@ -4830,8 +3748,7 @@ namespace MeshGhostTevi
                         continue;
                     }
                     StepGhostBullet(gb, fdt);
-                    // Its own behaviour, its own despawn rules, or the safety net -- the peer's
-                    // mirrored death arrives on the same path (KillGhostBullet) and guards itself.
+                    // Its own behaviour, despawn rules or the safety net; the peer's death takes the same path.
                     if (gb.B != null && gb.B.isDespawning())
                     {
                         KillGhostBullet(gb, gb.Cause ?? "own behaviour");
@@ -4859,12 +3776,8 @@ namespace MeshGhostTevi
             visual.Bullets.Clear();
         }
 
-        // NEVER DESTROY A BULLET A FOLLOWER MAY STILL HOLD (live 2026-09-10: 53,333
-        // NullReferenceExceptions from OrbChargeSableTypeA.Update reading b.t.position, one per
-        // frame per orphaned effect, and the effects stuck on screen for good because the throw
-        // came before their own end check). The game never destroys a bullet -- it deactivates it,
-        // and a follower's own `activeInHierarchy` test is what ends it. So: deactivate now, and
-        // destroy only after the longest fade any follower could still be playing.
+        // Never destroy a bullet a follower may still hold: a follower reads it every frame and throws before its own
+        // end check. The game only deactivates bullets; we deactivate, then destroy after the longest follower fade.
         private const float GhostBulletDestroyGrace = 10f;
         private bool orphanSweepDone;
         private int lastRecvFlagDiagSeq = -1;
@@ -4875,9 +3788,8 @@ namespace MeshGhostTevi
             Destroy(go, GhostBulletDestroyGrace);
         }
 
-        // Once, at load: any follower already holding a bullet that no longer exists (a reload
-        // mid-session, or the build before this one) is ended the way the game ends it -- so the
-        // session recovers without a game restart. An effect whose bullet is gone has no owner.
+        // Once, at load: a follower holding a bullet that no longer exists (after a reload) is ended the way the game
+        // ends it, so the session recovers without a restart.
         private void SweepOrphanFollowers()
         {
             ObjectPooler op = GemaPoolManager.Instance != null ? GemaPoolManager.Instance.CommonEffectsPooler : null;
@@ -4901,7 +3813,7 @@ namespace MeshGhostTevi
                         }
                         if (EffectKindFields[k] == null) continue;
                         var held = EffectKindFields[k].GetValue(c) as bulletScript;
-                        // Unity's overloaded bool: false for null AND for a destroyed object.
+                        // Unity's overloaded bool: false for null and for a destroyed object.
                         if (held) continue;
                         go.SetActive(false); swept++;
                         break;
@@ -4911,15 +3823,8 @@ namespace MeshGhostTevi
             if (swept > 0) Logger.LogInfo($"MeshGhost: ended {swept} follower effect(s) whose bullet no longer existed.");
         }
 
-        // DIAG_BULLET_WATCH -- what the PLAYER'S shots are, before deciding how to mirror them
-        // (2026-09-10, "missing all the projectiles from everything"). BulletManager keeps a pool
-        // of 200 bulletScripts with a public enable flag per slot and an owner per bullet; this
-        // walks that pool by reflection (the array is private) and reports, event-triggered:
-        //   BIRTH  slot, type, sprite, speed, angle, size, position relative to the owner
-        //   DEATH  lifetime, how far speed and angle drifted from birth (0 = flew straight)
-        //   COUNT  once a second, live player-owned bullets and the peak
-        // Owned means owner == the local player, or a non-player Celia/Sable (a core expansion).
-        // The question it answers: can a watcher reproduce a shot from its birth alone?
+        // Probe: the local player's shots (owner the player or a core expansion), walking BulletManager's private pool.
+        // BIRTH and DEATH lines (lifetime, speed and angle drift since birth), and a COUNT once a second.
         private const bool DIAG_BULLET_WATCH = false;
         private const int BulletWatchBudget = 600;
         private static readonly FieldInfo BulletsField = typeof(BulletManager).GetField("bullets", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -4965,7 +3870,7 @@ namespace MeshGhostTevi
                 bool on = enabled[i] && b.gameObject.activeInHierarchy;
                 if (on && bwBirthTime[i] != b.timeCreated)
                 {
-                    // BIRTH (a re-used slot has a new timeCreated)
+                    // A birth: a re-used slot has a new timeCreated.
                     bwBirthTime[i] = b.timeCreated;
                     bwOurs[i] = BulletIsOurs(b, player);
                     bwBirthSpeed[i] = b.speed; bwBirthAngle[i] = b.angle;
@@ -4982,7 +3887,6 @@ namespace MeshGhostTevi
                 }
                 else if (!on && bwBirthTime[i] >= 0f)
                 {
-                    // DEATH
                     if (bwOurs[i] && bwLines < BulletWatchBudget)
                     {
                         bwLines++;
@@ -5007,24 +3911,9 @@ namespace MeshGhostTevi
             }
         }
 
-        // DIAG_POOL_WATCH -- the deliberate WIDENING after the hierarchy probe came back empty.
-        //
-        // `DIAG_SPAWN_DIFF` watches a character's own subtree, which is where `ChargeShot` parents
-        // its effect. If a hunted effect never appears there, that is a finding: it does not parent
-        // to the character. The documented response is to widen the SUBSYSTEM rather than sample
-        // harder (`agent_docs/pitfalls.md`), and the honest place to widen to is the POOL, because
-        // every effect in this game comes from one:
-        // `GemaPoolManager.Instance.CommonEffectsPooler` / `.AreaPooler`, both `ObjectPooler`s
-        // holding `pooledObjectsList` (a list of pools) and `itemsToPool` (the prefab per pool).
-        //
-        // WHY THIS IS THE RIGHT INSTRUMENT and not just a bigger net: it reports the PREFAB NAME.
-        // Every dead end tonight -- `isAfterImage`, `shadowMat`, `Charge` under `Jetpack Meter` --
-        // came from guessing which name meant the effect. A pool activation names the thing the
-        // game itself chose to spawn, with no interpretation in between.
-        //
-        // Cost is the open question, so this reports its own like the other probe does. It walks
-        // every pooled object once per sample; if that is too slow the log says so, and the answer
-        // is a slower sample rate, never a quieter log.
+        // Probe: every rise in a pool's active count, with the pool's prefab name, the game's own name for what it
+        // spawned. Effects that do not parent to a character still come from a pool. It reports its own cost; if that
+        // is too high, slow the sample, never quiet the log.
         private const bool DIAG_POOL_WATCH = false;
         private const float PoolWatchInterval = 0.05f;
         private const int PoolWatchBudget = 400;
@@ -5035,7 +3924,7 @@ namespace MeshGhostTevi
         private int poolWatchObjects;
         private double poolWatchMsTotal;
         private double poolWatchMsWorst;
-        // Active count per pool, keyed "poolerName#index". A RISE means the game just spawned one.
+        // Active count per pool, keyed "poolerName#index"; a rise means the game just spawned one.
         private readonly Dictionary<string, int> poolActiveCounts = new Dictionary<string, int>();
 
         private void DiagPoolWatch(CharacterBase player)
@@ -5053,8 +3942,7 @@ namespace MeshGhostTevi
             int objects = 0;
             var poolers = new List<KeyValuePair<string, ObjectPooler>> {
                 new KeyValuePair<string, ObjectPooler>("common", GemaPoolManager.Instance.CommonEffectsPooler),
-                // AreaPooler hangs off AreaResource, not GemaPoolManager -- cited from the game's
-                // own call site, `AreaResource.Instance.AreaPooler.GetPooledObject(...)`.
+                // AreaPooler hangs off AreaResource, not GemaPoolManager.
                 new KeyValuePair<string, ObjectPooler>("area",
                     AreaResource.Instance != null ? AreaResource.Instance.AreaPooler : null),
             };
@@ -5091,8 +3979,7 @@ namespace MeshGhostTevi
                     int prev;
                     bool known = poolActiveCounts.TryGetValue(key, out prev);
                     poolActiveCounts[key] = active;
-                    // First sample establishes a baseline; reporting it would dump the whole
-                    // resting state and spend the budget before anything happened.
+                    // The first sample is a baseline; reporting it would spend the budget on the resting state.
                     if (!known || active <= prev || poolWatchLines >= PoolWatchBudget)
                     {
                         continue;
@@ -5101,8 +3988,7 @@ namespace MeshGhostTevi
                         && op.itemsToPool[i].objectToPool != null)
                         ? op.itemsToPool[i].objectToPool.name
                         : "<unnamed>";
-                    // Distance to the player AND to the nearest ghost, because the whole question
-                    // is which of the two an effect belongs to.
+                    // Distance to the player and to the nearest ghost: which of the two the effect belongs to.
                     string where = "";
                     if (sample != null && player != null && player.t != null)
                     {
@@ -5142,8 +4028,7 @@ namespace MeshGhostTevi
             }
         }
 
-        // PROBE, off unless DIAG_SPAWN_DIFF. See the flag's own comment for the question and the
-        // method. Reports APPEARED/DISAPPEARED GameObjects near a character, by instance id.
+        // Probe (DIAG_SPAWN_DIFF): objects appearing or disappearing near a character, by instance id.
         private void DiagSpawnDiff(CharacterBase player)
         {
             if (Time.time - lastSpawnDiffSampleTime < SpawnDiffSampleInterval)
@@ -5154,11 +4039,7 @@ namespace MeshGhostTevi
 
             var watch = System.Diagnostics.Stopwatch.StartNew();
 
-            // Anchors: the local player, and every peer ghost. Both are logged in one pass so a
-            // single instance's log carries "what appeared near me" and "what appeared near the
-            // ghost" side by side -- which is the comparison, and doing it in one pass means the
-            // two lists come from the same frames rather than from two runs that have to be
-            // trusted to match.
+            // The local player and every ghost in one pass, so both lists come from the same frames.
             var anchorRoots = new List<KeyValuePair<string, Transform>> {
                 new KeyValuePair<string, Transform>("player", player.t)
             };
@@ -5170,17 +4051,8 @@ namespace MeshGhostTevi
                 }
             }
 
-            // HIERARCHY, not the whole scene. The first version enumerated every Transform and
-            // MEASURED ITSELF AT avgMs=19.19 / worstMs=27.13 against a 16.7ms frame, in a scene
-            // holding 36,854 transforms -- unusable, and it said so, which is the only reason it
-            // was not simply believed. The clue that made this cheap is in the game's own code:
-            // spawned effects are PARENTED to the character (`ChargeShot` does
-            // `SetParent(_owner.t)`), so a character's own subtree is where they appear. Tens of
-            // objects instead of tens of thousands.
-            //
-            // If a hunted effect never shows up here, it does not parent to the character -- that
-            // is a FINDING, and the response is to widen the subsystem deliberately rather than to
-            // sample harder (`agent_docs/pitfalls.md`).
+            // Each anchor's own subtree, not the scene, which costs more than a frame to walk; effects the game parents
+            // to a character appear here, and one that never does is found in a pool (DIAG_POOL_WATCH).
             var current = new Dictionary<int, string>();
             int scanned = 0;
             foreach (KeyValuePair<string, Transform> a in anchorRoots)
@@ -5199,8 +4071,7 @@ namespace MeshGhostTevi
                     Vector3 p = t.position;
                     string nearest = a.Key;
                     float best = (p - a.Value.position).sqrMagnitude;
-                // NOT filtered by name. A name filter is a guess about the answer, and a wrong
-                // guess still returns a complete-looking list (effect-investigation.md).
+                    // Never filtered by name: a wrong guess still returns a complete-looking list.
                     current[t.gameObject.GetInstanceID()] =
                         $"{t.name} parent={(t.parent == null ? "-" : t.parent.name)} "
                         + $"near={nearest} d={Mathf.Sqrt(best):0} active={t.gameObject.activeInHierarchy} "
@@ -5218,8 +4089,7 @@ namespace MeshGhostTevi
                 spawnDiffScanMsWorst = watch.Elapsed.TotalMilliseconds;
             }
 
-            // The first sample has nothing to diff against and would otherwise report the entire
-            // room as "appeared", spending the whole budget before anything happened.
+            // The first sample has nothing to diff against and would spend the budget on the whole room.
             if (spawnDiffScans > 1)
             {
                 foreach (KeyValuePair<int, string> kv in current)
@@ -5246,10 +4116,8 @@ namespace MeshGhostTevi
                 spawnDiffSeen[kv.Key] = kv.Value;
             }
 
-            // An instrument reports its own coverage, not just its findings: a quiet log has to be
-            // distinguishable from a scan that was too slow to catch anything or a budget that ran
-            // out. If the worst scan time is bad, RAISE SpawnDiffSampleInterval -- do not read the
-            // quiet log as "the game spawned nothing".
+            // Coverage, so a quiet log can be told from a slow scan or a spent budget; if the worst scan is bad, raise
+            // SpawnDiffSampleInterval.
             if (Time.time - lastSpawnDiffCoverageTime >= SpawnDiffCoverageInterval)
             {
                 lastSpawnDiffCoverageTime = Time.time;
@@ -5262,8 +4130,7 @@ namespace MeshGhostTevi
             }
         }
 
-        // Component TYPE names only -- never their values. This is a "what is this thing" probe,
-        // and a value dump here would be both enormous and a different question.
+        // Component type names only, never values.
         private static string DescribeComponents(GameObject go)
         {
             Component[] comps = go.GetComponents<Component>();
@@ -5274,7 +4141,7 @@ namespace MeshGhostTevi
                 {
                     sb.Append(' ');
                 }
-                // A missing script leaves a null entry, and saying so is more useful than a gap.
+                // A missing script leaves a null entry.
                 sb.Append(comps[i] == null ? "<null>" : comps[i].GetType().Name);
             }
             return sb.ToString();
@@ -5282,12 +4149,8 @@ namespace MeshGhostTevi
 
         private void Awake()
         {
-            // What a tester reads when they are wondering whether the mod loaded at all, so it
-            // says what this build actually is. It said "(Phase 6 step 6.1 hello-world)" until
-            // 2026-08-27, which the adapter has been well past since Phase 6.6.
             Logger.LogInfo($"{PluginName} v{PluginVersion} loaded.");
-            // Anything of ours already in the scene at load belongs to an instance that is gone --
-            // a previous hot reload, or a crashed one. See SweepOrphanGhosts.
+            // Anything of ours already in the scene belongs to an instance that is gone (a hot reload, or a crash).
             SweepOrphanGhosts("plugin load");
             int configuredPort = Config.Bind(
                 "Network",
@@ -5300,15 +4163,8 @@ namespace MeshGhostTevi
                 "\"local_game_bridge\" in the client's own config.json is used instead, so the " +
                 "port has one owner rather than two that can disagree.").Value;
 
-            // TWO SETTINGS COULD NAME THIS PORT, so the tie is broken explicitly rather than by
-            // whichever happens to be read last.
-            //
-            // A BridgePort that differs from the default is a decision somebody made HERE, in this
-            // game's own config, and it wins. Left alone, the client's config.json decides -- that
-            // is the file every README tells a player to edit, it travels with meshghost.exe, and
-            // before 2026-08-28 editing it moved the core while this adapter kept walking 7778,
-            // after which the two could never meet. A silently broken connection is the worst
-            // possible outcome for a setting, and it was the shipped one.
+            // Two settings can name this port: a BridgePort changed from the default wins; otherwise the client's
+            // config.json decides, the file a player is told to edit, so the core and adapter cannot disagree.
             int bridgePort = configuredPort != DefaultBridgePort
                 ? configuredPort
                 : CoreLauncher.ResolveBridgeBasePort(DefaultBridgePort);
@@ -5321,18 +4177,8 @@ namespace MeshGhostTevi
             launcher = new CoreLauncher(msg => Logger.LogInfo(msg));
         }
 
-        // Neither BepInEx nor Unity closes the bridge socket for us on shutdown -- without this,
-        // quitting the game leaves the local core process's bridge connection open until it
-        // eventually times out on its own, delaying this player's despawn for any peer still
-        // connected.
-        //
-        // DespawnAllRemoteGhosts() is here for RELOADING, not for quitting: on a real quit the
-        // scene is torn down anyway, but ScriptEngine (BepInEx.Debug) reloads this plugin in a
-        // live game by destroying the old instance and constructing a new one. A peer ghost is a
-        // cloned GameObject parented in the scene, not a child of this component, so it outlives
-        // the instance that made it -- and the fresh instance, whose remoteVisuals is empty,
-        // clones a second one on the next render_remote. Every reload would leave one more
-        // orphan on screen that nothing tracks or despawns. Cheap on quit, load-bearing on F6.
+        // Nothing else closes the bridge socket, and an open one delays this player's despawn for every peer. The ghost
+        // despawn is for a ScriptEngine reload: ghosts live in the scene and would outlive this instance as orphans.
         private void OnDestroy()
         {
             DespawnAllRemoteGhosts();
@@ -5346,16 +4192,8 @@ namespace MeshGhostTevi
             launcher?.Stop();
         }
 
-        // EventManager.mainCharacter is a property on the current game build (backed by a
-        // private _mainCharacter field, confirmed by decompiling this machine's current
-        // Assembly-CSharp.dll with ilspycmd) but a plain public field on at least one older
-        // build (SteamDB build 14778703, 2024-06-20 -- same tool, same class, different shape).
-        // A direct `.mainCharacter` read compiles to a get_mainCharacter() call, which doesn't
-        // exist on the older field-shaped build and throws MissingMethodException every frame.
-        // Reflection resolves whichever shape is actually present at runtime instead of
-        // hard-linking one of them; the lookup itself only runs once per game build (JIT caches
-        // per closed generic/reflection call site is not relied on here -- these fields are the
-        // cache).
+        // mainCharacter is a property on the current build and a field on an older one, where a direct read throws
+        // MissingMethodException every frame; reflection resolves whichever shape is present, once.
         private static readonly PropertyInfo MainCharacterProperty = typeof(EventManager).GetProperty("mainCharacter");
         private static readonly FieldInfo MainCharacterField = typeof(EventManager).GetField("mainCharacter");
 
@@ -5376,63 +4214,38 @@ namespace MeshGhostTevi
         {
             timeSinceLastLog += Time.deltaTime;
 
-            // EventManager.Instance / mainCharacter / WorldManager.Instance can all be null
-            // outside a real play session (main menu, loading) -- a null read must not crash
-            // the plugin, per CLAUDE.md's "a wrong read returns a plausible number instead of
-            // crashing" standard applied to a missing reference instead of a bad address.
+            // EventManager, mainCharacter and WorldManager can each be null outside play (main menu, loading).
             CharacterBase player = EventManager.Instance != null ? GetMainCharacter(EventManager.Instance) : null;
             cloneTemplate = (player != null && player.t != null) ? player : cloneTemplate;
-            // Set before bridge.DrainInto and RefreshRemoteMapMarkers below, which need the
-            // local player's current area to gate remote markers against.
+            // Before DrainInto and RefreshRemoteMapMarkers, which gate markers on the local area.
             currentLocalArea = WorldManager.Instance != null ? WorldManager.Instance.Area : (byte)255;
 
             bridge.DrainLogsInto(msg => Logger.LogInfo(msg));
             bridge.TryConnect();
-            // Autostart sits here rather than in Awake: "is a core running?" is only answerable by
-            // trying, and TryConnect above is the thing that tries. If one is already up -- started
-            // by hand, or left by another instance -- this never spawns anything.
+            // Autostart lives here, not in Awake: only trying to connect answers whether a core is already running.
             if (bridge.IsConnected)
             {
                 launcher.TickConnected();
             }
             else
             {
-                // The port the WALK is currently on, not the configured base -- otherwise a second
-                // instance, having been refused on the base port and walked to the next, would spawn
-                // its core back onto the first instance's port and fail there instead. Changed with
-                // the walk on 2026-08-27.
+                // The port the walk is on, not the base, or a second instance would spawn its core on the first's port.
                 launcher.TickDisconnected(bridge.CurrentPort, bridge.LastBusyPort);
             }
             bridge.SendHelloIfNeeded(GameId, PluginVersion);
 
-            // A NEW BRIDGE SESSION INVALIDATES EVERY GHOST. Peer ghosts are built from what one
-            // core told us, and `despawn_remote` travels over that same connection -- so if it
-            // drops, every despawn it would ever have sent is gone with it, and the ghosts stand
-            // there forever. The next core is a different session with different player ids, so it
-            // will never despawn them either: it has never heard of them.
-            //
-            // Found live 2026-08-28, restarting cores under running games -- the user saw several
-            // static ghosts accumulate in both instances. Harmless-looking and permanent.
+            // A new bridge session invalidates every ghost: despawn_remote rode the old connection, and the next core
+            // has never heard of these player ids.
             if (bridge.SessionEpoch != lastBridgeSessionEpoch)
             {
                 lastBridgeSessionEpoch = bridge.SessionEpoch;
-                // ORDER MATTERS. Drop the dead session's unread messages BEFORE despawning, or
-                // this frame's drain recreates a ghost for a player id that no longer exists --
-                // and it is then tracked, so the orphan sweep leaves it alone and it stands there
-                // forever. That is exactly what a static ghost turned out to be, twice.
+                // Discard first, or this frame's drain recreates a tracked ghost for a dead id that nothing removes.
                 bridge.DiscardQueuedMessages();
-                // Cheap: walks the ghost dictionary, nothing else.
                 DespawnAllRemoteGhosts("the bridge session changed");
             }
 
-            // THE SWEEP IS NOT CHEAP and is deliberately not hung on the line above. It
-            // enumerates every GameObject in the scene, while SessionEpoch changes on every DIAL
-            // ATTEMPT -- including the failed ones, every two seconds, for as long as no core is
-            // up. Hung there it is a full scene walk on repeat, and the first version of this cost
-            // the user a frozen game inside ten minutes of shipping (2026-08-28).
-            //
-            // Tied to a session that actually came UP instead: at most one sweep per working
-            // connection, which is exactly when an orphan can have appeared.
+            // The scene sweep runs once per session that reached ready, not per epoch: the epoch changes on every dial
+            // attempt, failed ones included.
             if (bridge.IsReady && bridge.SessionEpoch != lastSweptSessionEpoch)
             {
                 lastSweptSessionEpoch = bridge.SessionEpoch;
@@ -5452,12 +4265,7 @@ namespace MeshGhostTevi
                     hadPlayerLastFrame = false;
                     if (DIAG_MENU_GATE && !hadPlayerLastFrame)
                     {
-                        // The question: is `player == null` really the main-menu/pause
-                        // discriminator, or is something else doing the work? This prints what the
-                        // adapter can see at the moment it decides, so the answer comes from a run
-                        // rather than from reading code -- which is how the 2026-08-18 false
-                        // regression happened. Open the pause overlay and this line must NOT
-                        // appear; quit to the title and it must.
+                        // Opening the pause overlay must not print this; quitting to the title must.
                         FullMap gateMap = FullMap.Instance;
                         Logger.LogInfo("MeshGhost/probe menu-gate: took the LEFT-PLAY branch. "
                             + $"player==null={player == null} "
@@ -5466,47 +4274,22 @@ namespace MeshGhostTevi
                             + $"fullMapOpen={(gateMap == null ? "no-instance" : gateMap.isFullMap.ToString())}");
                     }
                     timeSinceLastLog = 0f;
-                    // Reconnects automatically next frame via TryConnect() once back in a real
-                    // play session -- see BridgeClient.Disconnect's comment for why this exists.
+                    // TryConnect reconnects once back in play.
                     bridge.Disconnect();
-                    // Symmetry, and the exit direction of the template's "never let a ghost
-                    // exist before the player is in the game": we tell peers our ghost is gone,
-                    // so theirs must go too. Without this, peer ghosts stayed standing between
-                    // sessions, frozen at their last position, because nothing else destroys
-                    // them -- despawn_remote only ever arrives for a real leave.
-                    //
-                    // *** THIS IS THE MAIN MENU, NOT THE PAUSE MENU. *** Peer ghosts MUST stay
-                    // visible during the pause overlay -- that is wanted behaviour, confirmed by
-                    // the user 2026-08-18. It is safe here because this whole branch is gated on
-                    // `player == null`, and phases/phase6.md records (confirmed live 2026-08-13)
-                    // that the Characters/pause overlay does NOT null the player, so that check
-                    // "safely distinguishes a real menu return from a pause overlay". If a future
-                    // TEVI build ever nulls the player on pause, this call despawns every peer
-                    // ghost mid-session and must be removed -- it is the first thing to suspect.
+                    // Our ghost is gone for peers, so theirs go too: nothing else destroys them. This is the main menu,
+                    // never the pause overlay, where ghosts stay: the pause overlay does not null the player. A build
+                    // that did would despawn every ghost here mid-session.
                     DespawnAllRemoteGhosts();
                 }
-                // DRAINED HERE TOO, and this is not a nicety. `bridge_ready` and `reject` are
-                // parsed inside DrainInto, so while this branch returned early -- the main menu,
-                // the title, every loading screen -- nothing consumed the core's answer to our
-                // hello, and the hello-answer deadline expired against a core that had already
-                // accepted us. The adapter then walked the whole port range spawning a core per
-                // port on every launch. Found live 2026-08-28 with two instances; the cores' own
-                // logs showed each hello accepted at the moment the adapter called it unanswered.
-                //
-                // Remote state is DISCARDED rather than rendered, which keeps the invariant this
-                // gate exists for: no ghost may be built while there is no local player. Only the
-                // control plane gets through, which is exactly what was being starved.
+                // Drained out of play too: bridge_ready and reject are parsed in DrainInto, and an unread answer to the
+                // hello walks the port range spawning cores. Remote state is discarded: no ghost without a player.
                 bridge.DrainInto(DiscardRemoteWhileOutOfPlay, DiscardDespawnWhileOutOfPlay);
 
-                // PROTOCOL.md: send local_state every frame even when there's nothing to send.
+                // local_state goes every frame, even with nothing to send.
                 bridge.SendLocalState(null);
                 return;
             }
 
-            // The in-play drain: the same call as the one above the gate, differing only in that
-            // remote state is RENDERED here rather than discarded. Above the gate a remote's state
-            // could create a ghost while the local player did not exist -- the very thing the gate
-            // is for -- and it would be destroyed again on the same frame by that branch.
             bridge.DrainInto(UpsertRemoteGhost, DespawnRemoteGhost);
 
             if (!orphanSweepDone && GemaPoolManager.Instance != null)
@@ -5514,30 +4297,20 @@ namespace MeshGhostTevi
                 orphanSweepDone = true;
                 SweepOrphanFollowers();
             }
-            // Trails spawn on FRAMES, not on messages -- see TickTrails.
             TickTrails(cloneTemplate);
 
-            // Marker refresh, every frame, from what DrainInto just recorded. Not inside
-            // UpsertRemoteGhost: a marker that only moves when a message arrives cannot hide
-            // itself when the messages stop.
+            // Every frame, not per message: a marker moved only by messages cannot hide when they stop.
             RefreshRemoteMapMarkers();
 
             Vector3 pos = player.t.position;
             byte area = currentLocalArea;
 
-            // Room-grid coordinates for the map marker (step 6.7) -- TEVI's map is room-based,
-            // not continuous-position-based, see UpdateRemoteMapMarker/FindRoomTile above.
-            // Only meaningful together with WorldManager.Instance itself being present.
+            // Room-grid coordinates for the map marker: the map is a grid of rooms.
             int? roomX = WorldManager.Instance != null ? (int?)WorldManager.Instance.CurrentRoomX : null;
             int? roomY = WorldManager.Instance != null ? (int?)WorldManager.Instance.CurrentRoomY : null;
 
-            // Anim sent over the wire is the *real* currently-playing Animator clip name
-            // (SpriteAnimation.GetAnimationTrueName(), reads pixel.anim's own
-            // GetCurrentAnimatorClipInfo directly), not our PlayerAniState enum -- this is what
-            // lets a remote ghost literally Animator.Play() the right thing with zero invented
-            // name-mapping table, the same "read the real vocabulary, don't invent one" posture
-            // as area_id/anim being opaque per contract.md. Falls back to the enum name only if
-            // the animator reference chain isn't available yet (e.g. a very early frame).
+            // The real clip name, so a ghost can Play it with no invented mapping; the enum name only on an early frame
+            // before the animator chain exists.
             string clipName = player.spranim_prefer != null && player.spranim_prefer.pixel != null
                 && player.spranim_prefer.pixel.anim != null
                 ? player.spranim_prefer.GetAnimationTrueName()
@@ -5581,16 +4354,8 @@ namespace MeshGhostTevi
                 OrbFxWhite = localOrbFxWhite,
             });
 
-            // Watcher-side and purely cosmetic: wakes a warp device a peer ghost is standing in,
-            // without going near the trigger that would save, heal and mark the local minimap.
-            //
-            // ALSO while a device still thinks a ghost is inside it. The only code that closes a
-            // portal is the transition branch inside the scan, and with the guard on ghost count
-            // alone the LAST ghost leaving -- a disconnect, a despawn, an area change -- dropped
-            // the count to zero on the same frame, so the scan stopped running before that branch
-            // could fire. The portal stayed on its "assembling" glow until somebody walked on and
-            // off it again. User-reported 2026-08-29 and again 2026-09-02 (a ghost disconnecting on
-            // a portal); the set drains on the next scan and the guard falls back to zero cost.
+            // Also while a device still holds a ghost: only the scan closes a portal, and the last ghost leaving would
+            // otherwise stop the scan first.
             if (remoteVisuals.Count > 0 || warpsWithGhostInside.Count > 0)
             {
                 UpdateWarpDevicesForGhosts();
@@ -5601,11 +4366,7 @@ namespace MeshGhostTevi
             if (DIAG_BULLET_WATCH) DiagBulletWatch(player);
             KeepShieldPostprocess(player);
 
-            // TEMPORARY, with DIAG_HITSTOP_PHASE: ALL FIVE sprite layers, once per hitstop, with
-            // full RGBA. The earlier layer probe edge-triggered on RGB only, so a layer that
-            // varies by ALPHA alone was structurally invisible to it -- which is the shape the
-            // held pose's white-vs-blue difference must have, since the effect layer's colour
-            // follows correctly everywhere else.
+            // All five sprite layers once per hitstop, full RGBA: the RGB-edge probe below cannot see an alpha change.
             if (DIAG_HITSTOP_PHASE && GameSystem.Instance != null
                 && player.spranim_prefer != null && player.spranim_prefer.pixel != null)
             {
@@ -5628,9 +4389,7 @@ namespace MeshGhostTevi
                 }
             }
 
-            // TEMPORARY, with DIAG_HITSTOP_PHASE: which sprite-layer COLOR carries the weapon's
-            // white/blue variant. Edge-triggered on the RGB part only (alpha fades every frame),
-            // so a combo logs a handful of lines, not a stream.
+            // Which layer's colour carries the weapon's variant, edge-triggered on RGB (alpha fades every frame).
             if (DIAG_HITSTOP_PHASE && player.spranim_prefer != null && player.spranim_prefer.pixel != null)
             {
                 var px = player.spranim_prefer.pixel;
@@ -5668,9 +4427,7 @@ namespace MeshGhostTevi
 
             if (DIAG_MENU_GATE && !hadPlayerLastFrame)
             {
-                // The other edge: the frame the player comes BACK. Pairs with the left-play line
-                // above, so one run of open-pause / close-pause / quit-to-title produces exactly
-                // the transitions the gate claims, and the pause overlay produces none of them.
+                // The other edge, the frame the player comes back; the pause overlay produces neither.
                 FullMap gateMap = FullMap.Instance;
                 Logger.LogInfo("MeshGhost/probe menu-gate: taking the ENTER-PLAY branch. "
                     + $"eventManager==null={EventManager.Instance == null} "
