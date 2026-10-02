@@ -1,13 +1,7 @@
 #pragma once
 
-// Real TCP bridge client, real C++ Winsock -- the actual point of the C++ rewrite (7.5's Lua
-// version hit a receive-side corruption bug in the vendored LuaSocket DLL under sustained
-// traffic, never resolved; see agent_docs/risks.md). Wire format ported from the already-proven
-// Lua adapter (adapters/pseudoregalia/probe_ghost/Scripts/main.lua) and
-// adapters/_template/PROTOCOL.md -- NDJSON over a plain TCP socket to the local core's bridge
-// port. Deliberately minimal: connect/send/receive-lines only, no JSON parsing of received
-// payloads yet -- step 2 of the phase's C++ rewrite is proving the transport itself is reliable
-// before building anything on top of it (agent_docs/phases/phase7.md).
+// The bridge client: NDJSON over a plain Winsock TCP socket to the local core's bridge port. It handles the core's
+// answers to the hello itself and hands every other line up to Plugin.
 
 #include <mutex>
 #include <chrono>
@@ -25,92 +19,44 @@ namespace MeshGhostPseudo
         uint64_t lines_malformed{}; // doesn't start with '{' and end with '}' after trimming \r
     };
 
-    // Bounds recv_buffer's post-extraction partial-line remainder -- see poll_lines's own
-    // comment for why this checks only the remainder, not the raw total a single recv() call
-    // appended (a legitimate burst of many small complete lines must not trip this). Generous
-    // above any real bridge message: render_remote's largest component, Extras, is itself
-    // capped at internal/protocol.MaxExtrasBytes=1024 on the Go side. Found in a review pass --
-    // previously unbounded.
+    // Bounds the partial-line remainder left after poll_lines extracts complete lines, never the raw total one recv
+    // appended; generous above any real bridge message.
     inline constexpr size_t MAX_RECV_BUFFER_BYTES = 16 * 1024;
 
-    // Minimum time between connect SWEEPS -- found in a review pass: tick_connect() used to
-    // attempt a fresh connect every single call (this codebase's own on_update() runs at
-    // roughly the UE4SS polling thread's ~5ms cadence), so with the core down that was on the
-    // order of 200 socket create/connect/abort cycles per second. Matches the shape of TEVI's
-    // own BridgeClient.cs ReconnectInterval (2s), a different language but the same problem.
-    //
-    // Deliberately per sweep, not per port: a sweep tries every candidate in one tick (each
-    // costs at most the 2ms select below), so throttling per port would multiply time-to-connect
-    // by the number of candidates for no benefit.
+    // Minimum time between connect sweeps, so a down core is not dialled every tick. Per sweep, not per port: a sweep
+    // tries every candidate in one tick (each at most the 2 ms select), so a per-port throttle would only slow it.
     inline constexpr std::chrono::milliseconds RECONNECT_INTERVAL{2000};
 
-    // The bridge ports an adapter may use, low to high. A core serves one adapter
-    // (agent_docs/contract.md), so a second copy of the game needs a second core on a second
-    // port -- this range is what lets that happen with no configuration, and it is what makes
-    // "two instances" or "two different games at once" work at all.
-    //
-    // A fixed, documented range rather than any free high port: a core someone started by hand,
-    // or one of dev-scripts' launchers, has to remain findable. A random port would be invisible
-    // to everything except the adapter that chose it.
-    // The DEFAULT base of the walk. No longer the only possible base: since 2026-08-28 the range
-    // can be moved by MESHGHOST_BRIDGE_PORT or by "local_game_bridge" in the config.json beside
-    // this DLL (CoreLauncher.hpp's resolve_bridge_base_port). It stayed a hard constant until a
-    // 0.9.9 user reported "setting the config to 7780 it still starts at 7778" -- the setting was
-    // in the file they were told to edit, read only by the core, while the mod chose its own port
-    // and then overrode theirs by passing it to the core with -bridge.
-    //
-    // Still a constant here because it is the value the other three adapters agree on, which
-    // dev-scripts/preflight.ps1 checks across all four.
+    // The bridge ports an adapter may use, low to high: a core serves one adapter, so a second copy of the game needs
+    // a second core on a second port. A fixed range rather than any free port, so a core started by hand or by a
+    // launcher stays findable. BRIDGE_BASE_PORT is the default base, which resolve_bridge_base_port can move; preflight
+    // checks the four adapters agree on it.
     inline constexpr uint16_t BRIDGE_BASE_PORT = 7778;
     inline constexpr uint16_t BRIDGE_PORT_COUNT = 8;
 
-    // How long a port that answered "busy" is skipped before being tried again. Without this,
-    // every sweep would reconnect to a core that already has a game, make it log another refusal,
-    // and hang up -- correct but noisy in someone else's log, which is where a bug report comes
-    // from.
+    // How long a port that answered busy is skipped: otherwise every sweep reconnects to a core that has a game and
+    // makes it log another refusal.
     inline constexpr std::chrono::milliseconds BUSY_PORT_COOLDOWN{10000};
 
-    // How long to wait on the SAME core after it says it cannot reach the relay.
-    //
-    // A core that cannot reach the relay is a perfectly good core, so treating that rejection like
-    // a busy port makes the adapter walk on, find nothing, mark every port busy in turn, and then
-    // start spawning fresh cores at the retry cadence. Crystal has guarded against this since
-    // 2026-08-19 and its comment names the measurement: EMERALD at 5fps doing exactly that while a
-    // relay was full. Emerald got the guard back on 2026-08-28; this is the third sibling, and the
-    // symptom a 0.9.9 user reported -- "the sweep found NO free port to start a core on, every port
-    // in the range either answered or never refused" -- is what it looks like from outside.
+    // How long to wait on the same core after it says it cannot reach the relay: that core is fine, and walking on
+    // marks every port busy in turn and then spawns fresh cores at the retry cadence.
     inline constexpr std::chrono::milliseconds RELAY_DOWN_BACKOFF{10000};
 
-    // How long to wait for the core to answer a hello before giving up on that port.
-    //
-    // **SILENCE IS NOT ACCEPTANCE, and this comment said the opposite until 2026-09-11 (review
-    // I20).** It described a build that treated a silent core as an older one and carried on --
-    // behaviour that was tried and REVERTED, because a test that squats a port with a listener
-    // which never speaks showed the trade is backwards: something that accepts a connection and
-    // then says nothing is far more likely an unrelated program holding a port in our range than
-    // a MeshGhost core, and committing to it strands this adapter with no ghosts and no
-    // explanation. `BridgeClient.cpp`'s `core_accepted` has the full reasoning and the test that
-    // settled it; only an explicit `bridge_ready` counts.
-    //
-    // A doc comment describing reverted behaviour is worse than no comment: it is the first thing
-    // a reader trusts, and it would send them looking for a silence path that no longer exists.
+    // How long the core has to answer a hello before this port is given up. Silence is not acceptance: only
+    // bridge_ready counts (is_ready).
     inline constexpr std::chrono::milliseconds HELLO_ANSWER_TIMEOUT{1500};
 
     class BridgeClient
     {
       public:
-        // Walks BRIDGE_BASE_PORT..+BRIDGE_PORT_COUNT looking for a core that will have it.
-        // base_port is the resolved start of the walk -- see resolve_bridge_base_port. Passed in
-        // rather than read here so the resolution happens once, at construction, and this class
-        // stays what it says it is: a socket.
+        // Walks base_port..+BRIDGE_PORT_COUNT for a core that will have it; base_port is resolved once by the caller.
         BridgeClient(std::string host, uint16_t base_port);
         ~BridgeClient();
 
         BridgeClient(const BridgeClient&) = delete;
         auto operator=(const BridgeClient&) -> BridgeClient& = delete;
 
-        // Call every tick. Non-blocking: returns immediately whether or not a connection exists
-        // yet. On the tick a fresh connection is established, hello_sent_this_connection resets.
+        // Call every tick; non-blocking. A fresh connection resets hello_sent.
         auto tick_connect() -> void;
 
         auto is_connected() const -> bool
@@ -126,23 +72,17 @@ namespace MeshGhostPseudo
         // Call after actually sending the hello line: starts the clock on the core's answer.
         auto mark_hello_sent() -> void;
 
-        // True once the core has accepted this adapter -- either by answering bridge_ready, or by
-        // staying silent past HELLO_ANSWER_TIMEOUT, which means an older core that predates that
-        // message. Nothing game-related should be sent before this: on a busy core the answer is a
-        // reject, and frames sent in the meantime would be talking to a session that is about to
-        // be closed.
+        // True once the core has answered bridge_ready. Nothing game-related goes out before it: a busy core's answer
+        // is a reject, and frames sent meanwhile would talk to a session about to close.
         auto is_ready() const -> bool;
 
-        // The port this client is actually connected to (0 if not connected). Worth logging: with
-        // a walk, "which core am I talking to" stops being a constant anyone can assume.
+        // The port this client is connected to (0 if not connected).
         auto resolved_port() const -> uint16_t
         {
             return connected ? current_port : 0;
         }
 
-        // A port in the range where nothing was listening at all, if the last sweep found one --
-        // i.e. somewhere a new core could be started. Distinct from a port that answered and said
-        // it was busy, which is somebody else's core and must be left alone.
+        // The last port whose core answered busy, 0 until one does.
         auto last_busy_port_answered() const -> uint16_t
         {
             return last_busy_port;
@@ -151,6 +91,8 @@ namespace MeshGhostPseudo
         {
             own_core_port = port;
         }
+        // A port where nothing listened in the last sweep, where a core could be started; never a port that answered
+        // busy, which is someone else's core.
         auto spawnable_port(uint16_t& out) const -> bool
         {
             if (!have_spawnable_port)
@@ -161,22 +103,14 @@ namespace MeshGhostPseudo
             return true;
         }
 
-        // Appends '\n' and sends. Returns false (and closes the connection) on a real send
-        // error; a would-block on a non-blocking socket is not treated as an error since we
-        // resend fresh state next tick regardless (PROTOCOL.md's tick loop already expects that).
+        // Appends '\n' and sends. False (and the connection closed) on a real send error; a would-block counts as sent,
+        // since fresh state goes out next tick anyway.
         auto send_line(const std::string& line) -> bool;
-        // send_edge_line is send_line for a message that is sent ONCE, on a change, and never
-        // restated -- player_frozen being the one this adapter has (ADR 0053).
-        //
-        // The difference is the only one that matters to such a message: send_line reports a
-        // WSAEWOULDBLOCK as success, because PROTOCOL.md's tick loop resends fresh state next
-        // tick anyway, so a dropped state frame costs one frame. An EDGE has no next tick to be
-        // restated on -- a dropped player_frozen means the chaser clock runs through the whole
-        // pause, which is the drift ADR 0053 exists to remove. This one says "it did not go out"
-        // so the caller can leave its latch alone and try again next tick.
+        // send_line for a message sent once, on a change, and never restated (player_frozen): a would-block is a
+        // failure here, so the caller keeps its latch and retries next tick. A dropped player_frozen would run the
+        // chaser clock through the whole pause.
         auto send_edge_line(const std::string& line) -> bool;
-        // The shared body. `dropped` reports a line the OS refused to buffer --
-        // a success for state, a failure for an edge.
+        // The shared body. `dropped` reports a line the OS refused to buffer: fine for state, a failure for an edge.
         auto send_line_inner(const std::string& line, bool& dropped) -> bool;
 
         // Drains all currently-available bytes and returns any complete '\n'-terminated lines.
@@ -190,13 +124,11 @@ namespace MeshGhostPseudo
 
       private:
         auto close_socket() -> void;
-        // One candidate, one attempt. Returns true if connected. Sets refused when nothing was
-        // listening, which is what makes the port a candidate for starting a core on.
+        // One candidate, one attempt; true if connected. Sets refused when nothing was listening.
         auto try_port(uint16_t candidate, bool& refused) -> bool;
 
-        // Can a listener be bound here right now? This is the authoritative "is this port free"
-        // test, because a connect to a closed port does not reliably answer on Windows -- see the
-        // call site in tick_connect for the measurement that forced this.
+        // Whether a listener can bind here now: the authoritative free-port test, since a connect to a closed port
+        // does not reliably answer on Windows.
         auto port_is_bindable(uint16_t candidate) const -> bool;
 
         std::string host;
@@ -207,36 +139,26 @@ namespace MeshGhostPseudo
         std::string recv_buffer;
         BridgeStats counters{};
 
-        // Per-candidate "answered busy, skip me until" stamps, index-aligned with the port range.
-        // The resolved base of this walk. busy_until is indexed relative to it, so the two must
-        // move together -- which is why the index arithmetic below uses base_port and never
-        // BRIDGE_BASE_PORT.
+        // The resolved base of the walk; busy_until is indexed from it, never from BRIDGE_BASE_PORT.
         uint16_t base_port{BRIDGE_BASE_PORT};
 
+        // Per-candidate "answered busy, skip until" stamps.
         std::chrono::steady_clock::time_point busy_until[BRIDGE_PORT_COUNT]{};
 
-        // Set when a core rejects us because IT cannot reach the relay. Until it passes, the
-        // sweep does not run at all: there is nothing to walk to, and walking anyway is the
-        // defect above.
+        // Set when a core rejects us because it cannot reach the relay; until it passes the sweep does not run.
         std::chrono::steady_clock::time_point relay_down_until{};
-        // Where the last sweep found nothing listening, for CoreLauncher to spawn on.
         uint16_t spawnable{0};
         bool have_spawnable_port{false};
-        // The last port whose core answered "busy" (another game is attached), 0 until one
-        // does. CoreLauncher compares it with the port it spawned on: that, and only that, is
-        // the signal its child now belongs to someone else (2026-09-02).
+        // CoreLauncher compares this with the port it spawned on: the only signal its child now serves someone else.
         uint16_t last_busy_port{0};
-        // The port of the core THIS mod spawned and still owns (0 when none). While set and not
-        // yet answered "busy", the sweep tries only it: sweeping is how a second instance
-        // attaches to a core the first one just started, and the two then chase each other's
-        // spawns round the range (watched on Emerald, 2026-09-02).
+        // The port of the core this mod spawned and still owns (0 when none). While set and not answered busy, the
+        // sweep tries only it: otherwise a second instance attaches to the core the first just started, and the two
+        // chase each other's spawns round the range.
         uint16_t own_core_port{0};
-        // Handshake state for the current connection: set when the hello goes out, cleared by an
-        // answer or by close_socket().
+        // Handshake state for the current connection: set when the hello goes out, cleared by close_socket().
         std::chrono::steady_clock::time_point hello_sent_at{};
         bool core_answered_ready{false};
-        // Default-constructed (epoch) so the very first tick_connect() call always attempts
-        // immediately, not after waiting out RECONNECT_INTERVAL.
+        // Epoch, so the first tick_connect() attempts at once.
         std::chrono::steady_clock::time_point last_connect_attempt{};
     };
 } // namespace MeshGhostPseudo

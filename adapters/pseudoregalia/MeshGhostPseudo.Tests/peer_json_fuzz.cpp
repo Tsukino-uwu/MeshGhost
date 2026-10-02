@@ -1,30 +1,14 @@
-// peer_json_fuzz -- hostile input against Pseudoregalia's SHIPPED peer-JSON readers.
+// Hostile input against Pseudoregalia's shipped peer-JSON readers and bounds, compiled from the real PeerJson.hpp.
+// It does not reach handle_bridge_line's dispatch, which lives in Plugin.cpp beside Unreal.
 //
-// WHAT THIS REACHES, stated plainly so a green tick is not read as more than it is. It reaches the
-// seven functions in PeerJson.hpp and the bounds beside them -- json_escape, append_utf8,
-// json_hex4, json_string_field, json_vec3_field, json_number_field, clamp_to_uint8, finite_or,
-// clamp_to_float, clamp_count_to_int -- compiled from the real header, never a copy. It does NOT
-// reach handle_bridge_line's DISPATCH, which is welded to Unreal thousands of lines further down
-// in Plugin.cpp. TEVI's harness is stronger on that axis because its whole decode-and-dispatch
-// path lives in one engine-free file; this adapter's does not, and pretending otherwise would be
-// the "verification that answers a different question" failure lua.yml's header warns about.
+// Every bridge value has already passed the core's wire limits and ValidateState; these checks are for a bridge
+// that is not ours, or a buggy core, since an adapter safe only beside a correct core is not safe.
 //
-// WHY THE ADAPTER TARGETS EXIST AT ALL. Every value in a bridge message has already passed the Go
-// core's wire limits and ValidateState -- MaxLineBytes, MaxExtrasBytes, MaxJSONDepth,
-// IsValidPosition, SanitizeDisplayName. These checks are for the case those cannot reach: a bridge
-// that is not ours, or a core that is compromised or buggy. An adapter that is only safe when
-// paired with a correct core is not safe.
+// sscanf's "%lf" acceptance set is libc-specific (glibc takes nan, inf, hex floats and a sign), so every leniency
+// number printed is a Linux number, a hint about the MSVC build that ships.
 //
-// LIBC MATTERS HERE. sscanf's "%lf" acceptance set is libc-specific: glibc takes nan, inf,
-// infinity, hex floats, leading whitespace and a sign, none of which JSON emits. Every leniency
-// number this prints is therefore a LINUX number and a strong hint -- not a measurement -- about
-// the MSVC build that actually ships.
-//
-// A DETERMINISTIC SEEDED LOOP, not libFuzzer. The input space is one line of text; a fixed corpus
-// plus a seeded generator finds the same defects with no new toolchain, and reproduces exactly.
-//
-// NO assert(). NDEBUG would silently empty this file. Every check appends to `failures` and the
-// run always reaches the end, because the next run costs a push.
+// A deterministic seeded loop, not libFuzzer: the input is one line of text, and it reproduces exactly. No assert(),
+// which NDEBUG would empty: every check appends to g_failures and the run always reaches the end.
 
 #include <PeerJson.hpp>
 
@@ -54,8 +38,7 @@ namespace
         g_report.push_back(msg);
     }
 
-    // Printable form of an arbitrary byte string, so a failure line is readable and a control
-    // character in the corpus cannot scramble the terminal reporting it.
+    // Printable form of a byte string, so a control character in the corpus cannot scramble the terminal.
     auto show(const std::string& s) -> std::string
     {
         std::string out = "\"";
@@ -109,15 +92,8 @@ namespace
         }
     }
 
-    // ------------------------------------------------------------------------------------------
-    // The line the adapter actually receives, in the order Go actually emits.
-    //
-    // Field order is NOT cosmetic here and must not be "tidied": protocol.State declares
-    // player_id, seq, timestamp, area_id, position, orientation(omitempty), anim,
-    // extras(omitempty), prev(omitempty), and encoding/json marshals struct fields in declaration
-    // order. json_number_field finds a key by whole-string search and takes the FIRST match, so
-    // that order is what decides whether a peer can shadow a real field. Shadowing() below tests
-    // exactly that, and it is only meaningful against a realistic line.
+    // The line the adapter receives, in protocol.State's declaration order, which encoding/json keeps. Do not tidy it:
+    // json_number_field takes the first match, so field order decides whether a peer can shadow a real field.
     const std::string kControlLine =
         "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p1\",\"state\":{"
         "\"player_id\":\"p1\",\"seq\":42,\"timestamp\":1690000000000,"
@@ -127,17 +103,8 @@ namespace
         "\"outfit_mesh\":\"/Game/Char/SK_Sybil.SK_Sybil\","
         "\"weapon_mesh\":\"/Game/Weapons/mainWeapon_BusterSword.mainWeapon_BusterSword\"}}}}";
 
-    // Strings a hostile peer might send, plus strings a PERFECTLY LEGITIMATE modded peer sends.
-    //
-    // THE MOD-COMPATIBILITY RULE, and it is a requirement rather than a nicety: a peer running a
-    // modded outfit or a modded weapon must still be visible to a watcher who has that mod
-    // installed locally. resolve_peer_named_asset (Plugin.cpp) enforces that correctly today by
-    // resolving a peer's name against a catalog of the LOCAL game's own loaded assets -- so
-    // anything the watcher could render, it renders, mods included, and only a name absent locally
-    // is refused. Nothing in this harness, and nothing any later hardening pass adds, may narrow
-    // that to a hardcoded vanilla allowlist. At THIS layer the property is narrower and still
-    // load-bearing: an asset path must survive the parser byte-for-byte, because a truncated or
-    // mangled path is a mod that silently stops working.
+    // Strings a hostile peer might send, plus asset paths a legitimate modded peer sends: those must survive the parser
+    // byte for byte, or a modded outfit silently stops working for a watcher who has the mod.
     const std::vector<std::string> kHostileStrings = {
         "p1",
         "Player One",
@@ -150,7 +117,7 @@ namespace
         "<script>alert(1)</script>",
         "a\"b",
         "a\b",
-        "\"h_speed\":9999",              // the escaped-needle control -- must NOT shadow
+        "\"h_speed\":9999",              // the escaped-needle control: must not shadow
         "\\\"h_speed\\\":9999",
         "\xE2\x80\xAE" "evil",           // RTL override
         "\xF0\x9F\x98\x80",              // U+1F600, 4-byte UTF-8
@@ -160,18 +127,13 @@ namespace
         // Vanilla asset paths.
         "/Game/Char/SK_Sybil.SK_Sybil",
         "/Game/VFX/Systems/NS_Healing.NS_Healing",
-        // MODDED asset paths -- these must round-trip exactly, see the rule above.
+        // Modded asset paths, which must round-trip exactly.
         "/Game/Mods/AttireOverhaul/SK_GoldDress.SK_GoldDress",
         "/Game/Mods/My Weapon Pack/SK_Blade #2.SK_Blade #2",
         "/Game/Mods/\xC3\x9C" "bermod/SK_Caf\xC3\xA9.SK_Caf\xC3\xA9",
     };
 
-    // ------------------------------------------------------------------------------------------
-    // 1. THE CONTROL. First and non-negotiable.
-    //
-    // Without it, "nothing crashed" reads identically whether the parser works or has quietly
-    // stopped parsing. TEVI's harness reported 0 renders for every input on its first run and
-    // looked exactly like a broken decoder; it was a broken test using the wrong message shape.
+    // 1. The control, first: without it "nothing crashed" reads the same whether the parser works or has stopped.
     auto control() -> void
     {
         const std::string& l = kControlLine;
@@ -204,13 +166,9 @@ namespace
         expect_true("control absent field reports absent", !json_number_field(l, "no_such_key", v));
         expect_str("control absent string is empty", json_string_field(l, "no_such_key"), "");
 
-        // The escape decoder, value by value -- a table rather than a spot check, because this
-        // decoder was rewritten on 2026-09-03 after a display name with a quote in it rendered
-        // cut off at a backslash.
+        // The escape decoder, value by value.
         struct EscCase { std::string json; std::string want; };
-        // One backslash, built from its byte value so this source contains no ambiguous
-        // escape of its own -- these cases are ABOUT backslashes, and writing them as source
-        // escapes makes the test unreadable and easy to get silently wrong.
+        // One backslash from its byte value: these cases are about backslashes, and source escapes would blur them.
         const std::string B(1, static_cast<char>(92));
         const EscCase esc[] = {
             {"{\"n\":\"a" + B + "\"b\"}", std::string("a\"b")},
@@ -221,7 +179,7 @@ namespace
             {"{\"n\":\"" + B + "u0041\"}", "A"},
             {"{\"n\":\"" + B + "u00e9\"}", std::string("\xC3\xA9")},
             {"{\"n\":\"" + B + "u4e2d\"}", std::string("\xE4\xB8\xAD")},
-            {"{\"n\":\"" + B + "ud83d" + B + "ude00\"}", std::string("\xF0\x9F\x98\x80")},  // surrogate PAIR
+            {"{\"n\":\"" + B + "ud83d" + B + "ude00\"}", std::string("\xF0\x9F\x98\x80")},  // surrogate pair
             {"{\"n\":\"" + B + "ud83d\"}", std::string("\xEF\xBF\xBD")},  // lone high -> U+FFFD
             {"{\"n\":\"" + B + "ude00\"}", std::string("\xEF\xBF\xBD")},  // lone low  -> U+FFFD
             {"{\"n\":\"" + B + "ud83dA\"}", std::string("\xEF\xBF\xBD") + "A"},  // mispaired
@@ -232,10 +190,8 @@ namespace
         }
     }
 
-    // ------------------------------------------------------------------------------------------
-    // 2. ROUND TRIP. json_escape is the sender, json_string_field is the receiver, and the whole
-    // safety argument for a whole-string needle search rests on the pair being exact. Currently
-    // taken on trust; this is the strongest single check available here.
+    // 2. Round trip: json_escape sends, json_string_field receives, and the whole-string search's safety rests on the
+    // pair being exact.
     auto round_trip() -> void
     {
         for (const std::string& s : kHostileStrings)
@@ -252,21 +208,14 @@ namespace
         }
     }
 
-    // ------------------------------------------------------------------------------------------
-    // 3. KEY SHADOWING -- assumption 1, MEASURED rather than restated.
-    //
-    // json_number_field's own comment argues a whole-string search is safe against a hostile peer
-    // because JSON string values are escaped when serialized, so a peer-controlled string field
-    // can never contain a literal, unescaped needle. That argument is correct about STRINGS and
-    // does not cover everything on the wire. Three corners below are expected FINDINGS; three are
-    // expected safe and are asserted, so a later change shows up here.
+    // 3. Key shadowing through the unscoped readers. The escaping argument is right about strings and does not cover
+    // the whole wire: these three corners are safe and asserted; shadowing_findings reports the three that are not.
     auto shadowing() -> void
     {
         double v = 0;
 
-        // (f) THE HARNESS OWN CONTROL. An escaped needle inside a peer string must not shadow.
-        // If this ever shadows, this function cannot tell a shadow from a non-shadow and every
-        // other result in it is worthless.
+        // (f) This function's own control: an escaped needle in a peer string must not shadow, or no result here
+        // means anything.
         {
             const std::string l =
                 "{\"area_id\":\"a\",\"anim\":\"\\\"h_speed\\\":9999\",\"extras\":{\"h_speed\":1.0}}";
@@ -280,7 +229,7 @@ namespace
             }
         }
 
-        // (e) Prefix and suffix collisions. Safe because the needle carries the trailing colon.
+        // (e) Prefix and suffix collisions: safe, because the needle carries the trailing colon.
         {
             const std::string l = "{\"anim_h_speed\":7,\"xh_speed\":8,\"extras\":{\"h_speed\":1.0}}";
             json_number_field(l, "h_speed", v);
@@ -292,8 +241,8 @@ namespace
             }
         }
 
-        // (a) A peer-controlled extras KEY named after a real top-level field. Safe, because
-        // extras marshals AFTER area_id/position/anim and first match wins.
+        // (a) A peer extras key named after a real top-level field: safe, because extras marshals after area_id,
+        // position and anim, and the first match wins.
         {
             const std::string l =
                 "{\"area_id\":\"REAL\",\"position\":[1.0,2.0,3.0],\"anim\":\"run\","
@@ -308,18 +257,14 @@ namespace
         }
     }
 
-    // The three corners the escaping argument does NOT cover. These REPORT rather than fail: they
-    // are the truth about a documented assumption, and fixing them is a separate change from
-    // measuring them. Turning them into failures before that fix would make the harness red on
-    // arrival and its own extraction commit unreviewable.
+    // The three corners the escaping argument does not cover. They report rather than fail: they measure the unscoped
+    // readers, and scoped_reads asserts the fix.
     auto shadowing_findings() -> void
     {
         double v = 0;
 
-        // (c) orientation is json.RawMessage -- raw, UNESCAPED JSON, bounded only by bytes and
-        // depth -- and it marshals BEFORE anim and extras. A peer therefore places a real,
-        // unescaped needle ahead of the real field. The escaping argument never covered this,
-        // because orientation is not a string.
+        // (c) orientation is raw JSON, bounded only by bytes and depth, and marshals before anim and extras, so a peer
+        // places an unescaped needle ahead of the real field.
         {
             const std::string l =
                 "{\"area_id\":\"a\",\"position\":[0,0,0],\"orientation\":{\"h_speed\":1e999},"
@@ -332,9 +277,8 @@ namespace
                  (std::fabs(v - 1.0) > 1e-9 ? "  [SHADOWED: real value was 1.0]" : "  [not shadowed]"));
         }
 
-        // (b) prev is last, so it cannot shadow a field that is PRESENT -- but extras is
-        // omitempty. A sample with no extras of its own, carrying a prev that has them, leaves
-        // exactly one match and it is prev's. The adapter then mirrors a stale value as current.
+        // (b) prev is last, so it cannot shadow a present field, but extras is omitempty: a sample with none of its
+        // own leaves exactly one match, prev's, and a stale value reads as current.
         {
             const std::string l =
                 "{\"area_id\":\"a\",\"position\":[0,0,0],\"anim\":\"run\","
@@ -346,9 +290,8 @@ namespace
                  (ok ? "  [READ FROM prev -- a stale value mirrored as current]" : "  [absent, correct]"));
         }
 
-        // (d) encoding/json marshals MAP keys sorted, so a peer picks an extras key that sorts
-        // before the real one and nests the needle inside it. Depth 2, well inside
-        // MaxJSONDepth=32, so the core's shape bound never touches it.
+        // (d) Map keys marshal sorted, so a peer nests the needle in an extras key that sorts first; depth 2 is well
+        // inside the core's depth bound.
         {
             const std::string l =
                 "{\"area_id\":\"a\",\"extras\":{\"aaa\":{\"h_speed\":9999.0},\"h_speed\":1.0}}";
@@ -361,14 +304,11 @@ namespace
     }
 
 
-    // ------------------------------------------------------------------------------------------
-    // 3b. THE SCOPED READERS FIX ALL THREE. These are the regression tests for the findings
-    // above: same hostile lines, read through root -> payload -> state -> extras at each object's
-    // own top level. Each one FAILS without the scoped readers, which is why it is an assertion
-    // here and a note() up there.
+    // 3b. The scoped readers fix all three: the same hostile lines, read through root, payload, state and extras at
+    // each object's own top level. Each fails without them.
     auto scoped_reads() -> void
     {
-        // Resolve the extras object the way the adapter now does.
+        // Resolves extras the way the adapter does.
         auto extras_of = [](const std::string& l, size_t& b, size_t& e) -> bool {
             size_t rb = 0, re = 0, pb = 0, pe = 0, sb = 0, se = 0;
             return json_root_body(l, rb, re)
@@ -392,7 +332,7 @@ namespace
             expect_num("scoped: orientation no longer shadows h_speed", v, 1.0);
         }
 
-        // (b) no extras of its own, a prev that has them. The correct answer is ABSENT.
+        // (b) no extras of its own, a prev that has them: the right answer is absent.
         {
             const std::string l = pre +
                 "\"area_id\":\"a\",\"position\":[0,0,0],\"anim\":\"run\","
@@ -423,8 +363,7 @@ namespace
             expect_num("scoped: a nested key no longer shadows a top-level one", v, 1.0);
         }
 
-        // The control still works through the scoped path, values and all -- otherwise the fix
-        // would be "nothing is ever found", which passes every test above for the wrong reason.
+        // The control still decodes through the scoped path: "nothing is ever found" would pass every test above.
         {
             size_t b = 0, e = 0;
             double v = 0;
@@ -439,8 +378,7 @@ namespace
                         !json_number_member(kControlLine, b, e, "no_such_key", v));
         }
 
-        // json_number_member refuses what JSON cannot express, so a non-finite value cannot enter
-        // through this door at all rather than relying on a clamp downstream.
+        // json_number_member refuses what JSON cannot express, so no non-finite value enters here.
         {
             const char* bad[] = {"nan", "inf", "-inf", "infinity", "0x1p999", "+1", "true", "null"};
             for (const char* raw : bad)
@@ -457,16 +395,9 @@ namespace
             }
         }
     }
-    // ------------------------------------------------------------------------------------------
-    // 4. THE NUMBER INTAKE -- assumption 2.
-    //
-    // clamp_to_uint8 is sound in itself. The gap the audit found is that nine narrowings in
-    // Plugin.cpp never call it, and that isfinite is not a sufficient guard in front of a float
-    // cast anyway: 1e300 is a finite double that is NOT representable as float, so
-    // static_cast<float>(1e300) is undefined behaviour exactly as static_cast<float>(NaN) is.
-    //
-    // THE OFFENDING CAST IS NEVER PERFORMED HERE. Under -fno-sanitize-recover the demonstration
-    // would abort the run and nothing else would be reported. The value is classified instead.
+    // 4. The number intake: what sscanf hands the unscoped reader, and that the bounds tame every value. isfinite is no
+    // guard before a float cast (1e300 is finite and not a float). The undefined cast is never performed here: under
+    // -fno-sanitize-recover it would abort the run, so the value is classified instead.
     auto numbers() -> void
     {
         const char* raws[] = {
@@ -499,8 +430,7 @@ namespace
                      "; slide_t reaches static_cast<float> at Plugin.cpp:18566 with no guard");
             }
 
-            // Whatever came back, the bounds must tame it. This is the property that matters, and
-            // it is what Part B routes the nine unguarded narrowings through.
+            // Whatever came back, the bounds must tame it.
             const float f = clamp_to_float(v, 0.0f, 1.0f);
             if (!(f >= 0.0f && f <= 1.0f))
             {
@@ -520,10 +450,8 @@ namespace
              "behaviour today at an unguarded static_cast<float>");
     }
 
-    // ------------------------------------------------------------------------------------------
-    // 5. THE BOUNDS THEMSELVES. clamp_to_uint8 is the one function claimed correct, so pin it,
-    // and pin the three added beside it -- Part B routes nine unguarded narrowings through these,
-    // so a defect here would be a defect at all nine sites at once.
+    // 5. The bounds themselves: every peer narrowing in Plugin.cpp goes through them, so a defect here is one at every
+    // call site.
     auto bounds() -> void
     {
         const double qnan = std::numeric_limits<double>::quiet_NaN();
@@ -562,18 +490,15 @@ namespace
             }
         }
 
-        // In-range values must pass through UNCHANGED, or a bound is a silent behaviour change at
-        // every call site rather than a guard.
+        // In-range values pass through unchanged, or a bound is a silent behaviour change rather than a guard.
         expect_true("clamp_to_uint8 passes 3 through", clamp_to_uint8(3.0) == 3);
         expect_true("clamp_to_float passes 0.75 through", clamp_to_float(0.75, 0.0f, 1.0f) == 0.75f);
         expect_true("clamp_count_to_int passes 6 through", clamp_count_to_int(6.0, 1, 64, 0) == 6);
         expect_true("finite_or passes 1.5 through", finite_or(1.5, 0.0) == 1.5);
     }
 
-    // ------------------------------------------------------------------------------------------
-    // 6. MALFORMED AND TRUNCATED. The bar is only that the function RETURNS -- dropping a field is
-    // the correct answer to nonsense. Every prefix of the control line is fed through every
-    // reader, which is the technique that found the 2026-08-25 Lua hang and costs nothing here.
+    // 6. Malformed and truncated: the bar is only that each reader returns, since dropping a field is the right answer
+    // to nonsense. Every prefix of the control line goes through every reader.
     auto malformed() -> void
     {
         const std::string B(1, static_cast<char>(92));
@@ -615,20 +540,14 @@ namespace
             (void)json_number_field(l, "h_speed", a);
         }
 
-        // Needle at the very last byte: pos == s.size(), so c_str() + pos lands on the terminator.
-        // Legal, and worth pinning because it is the one index the readers compute rather than
-        // find.
+        // Needle at the last byte: c_str() + pos lands on the terminator, the one index the readers compute, not find.
         ++g_checks;
         double d = 0;
         (void)json_number_field("{\"h_speed\":", "h_speed", d);
         (void)json_string_field("{\"anim\":\"", "anim");
     }
 
-    // ------------------------------------------------------------------------------------------
-    // 7. WRONG TYPE FOR EVERY FIELD. A field that should be a number arrives as a string, a bool,
-    // null, an array or an object -- and vice versa. This is the category the Emerald gender bug
-    // lived in (a table where a string was expected made the draw loop error every frame for every
-    // peer sorted after it), and the one no adapter harness covered systematically.
+    // 7. Wrong type for every field: a number arrives as a string, bool, null, array or object, and the reverse.
     auto wrong_types() -> void
     {
         const char* shapes[] = {"\"text\"", "true", "false", "null", "[1,2,3]", "{\"a\":1}", "[]", "{}"};
@@ -648,10 +567,7 @@ namespace
         }
     }
 
-    // ------------------------------------------------------------------------------------------
-    // 8. A SEEDED MUTATOR over the control line. Deterministic: the seed is printed, so a failure
-    // reproduces exactly. Not a coverage-guided fuzzer -- the input space is one line of text, and
-    // a fixed corpus plus this finds the same defects with no new toolchain in CI.
+    // 8. A seeded mutator over the control line; the seed is printed, so a failure reproduces exactly.
     auto mutate(uint64_t seed, int rounds) -> void
     {
         uint64_t st = seed;
@@ -695,18 +611,8 @@ namespace
         }
     }
 
-    // THE CONTROL-LINE READERS, and the eighteen-byte remote kill they replaced (review I1).
-    //
-    // BridgeClient classified every line it read by bare substring -- a search for "reject"
-    // anywhere in the line, then a search for "relay" anywhere in the line -- and it ran that over
-    // render_remote lines too. A render_remote carries a peer's orientation blob as RAW JSON: the
-    // core is forbidden to interpret it and passes it through untouched, bounded only by size and
-    // nesting depth. So one peer could write our own control words into their orientation and make
-    // another player's adapter close its bridge, park for the relay backoff, drop every ghost, and
-    // log that the relay was unreachable.
-    //
-    // These read the top-level field the protocol actually defines, so the attack is not a matter
-    // of searching more carefully -- the words simply are not at depth 1.
+    // The control-line readers. A render_remote carries a peer's raw orientation JSON, so a substring classifier lets a
+    // peer write our control words there and close another player's bridge; these read depth 1, where they are not.
     auto control_fields() -> void
     {
         struct Case
@@ -721,7 +627,7 @@ namespace
             {R"({"type":"reject","reason":"busy","code":"busy"})", "code", "busy", "the code beside the prose"},
             {R"({ "type" : "reject" , "code" : "feature_mismatch" })", "code", "feature_mismatch", "whitespace around the colon"},
 
-            // THE ATTACK, in the three shapes it can take.
+            // The attack, in the three shapes it can take.
             {R"({"type":"render_remote","state":{"orientation":{"reject":"relay"}}})", "type", "render_remote",
              "a peer naming our control words inside their own orientation"},
             {R"({"type":"render_remote","state":{"orientation":{"type":"reject"}}})", "type", "render_remote",
@@ -754,7 +660,7 @@ namespace
             }
         }
 
-        // retryable, the flag that decides whether a refusal is worth waiting out.
+        // retryable decides whether a refusal is worth waiting out.
         struct BoolCase
         {
             const char* line;
@@ -781,11 +687,8 @@ namespace
         }
     }
 
-    // The reject rule itself, as BridgeClient applies it: WALK to the next port only for a core
-    // that is busy or serving another game, WAIT on this one for everything else. The old prose
-    // heuristic had this inverted -- every permanent refusal contains the word "relay" because the
-    // core renders relay refusals as "core: relay refused connection: ...", while busy does not --
-    // so a wrong room code read as "the relay is briefly down" and was retried forever.
+    // The reject rule as BridgeClient applies it: walk on only for a core that is busy or serving another game, wait
+    // for everything else. Every permanent refusal's prose says "relay", so a prose rule retries a wrong room code.
     auto reject_rule() -> void
     {
         struct Case
@@ -799,12 +702,8 @@ namespace
              "busy is the one refusal that means try the next port"},
             {R"({"type":"reject","reason":"already serving emerald","code":"already_serving"})", true,
              "another game's core: walk on and let a second core serve this one"},
-            // A PERMANENT refusal with a code. The specific code is deliberately not the
-            // room-code one, even though that is the case that motivated the whole change:
-            // internal/gameblind's TestAdaptersNeverSpeakTheRelayProtocol forbids that literal
-            // in an adapter file, and rightly -- an adapter never sends a room code and never
-            // needs to name one. The RULE under test here is "any code that is not busy means
-            // wait", so any permanent code exercises it.
+            // A permanent refusal with a code, not the room-code one: TestAdaptersNeverSpeakTheRelayProtocol forbids
+            // that literal in an adapter file. Any code but busy means wait, so any permanent code exercises the rule.
             {R"({"type":"reject","reason":"core: relay refused connection: feature mismatch","code":"feature_mismatch","retryable":false})", false,
              "a permanent refusal must NOT walk the ports and spawn cores"},
             {R"({"type":"reject","reason":"core: relay refused connection: server full","code":"server_full","retryable":true})", false,
@@ -831,18 +730,8 @@ namespace
     }
 
 
-    // TWO FINITE ANGLES MUST NOT PRODUCE A NaN (review I3).
-    //
-    // The call site checks all three inputs with std::isfinite and then the old body computed
-    // `to - from` on them. Two finite doubles near the ends of the double range subtract to
-    // infinity, and std::fmod(inf, 360.0) is NaN -- written straight into an FRotator by
-    // K2_SetActorLocationAndRotation, which does not check. A ghost whose rotation is NaN stops
-    // rendering, and that gets blamed on the game.
-    //
-    // GHOST_ROTATION_SLERP is the shipped path, so this is not a theoretical branch.
-    // collapse_latest_render_remote bounds the bridge queue while the game is paused (P2e-2,
-    // 2026-09-16): only a render_remote superseded by a newer one for the SAME player may go, and
-    // every other line keeps its order.
+    // collapse_latest_render_remote bounds the bridge queue while the game is paused: only a render_remote superseded
+    // by a newer one for the same player may go, and every other line keeps its order.
     auto collapse() -> void
     {
         auto rr = [](const char* id, int n) {
@@ -871,6 +760,8 @@ namespace
         expect_true("lines with no player_id collapse as one id and never crash", junk.size() == 3);
     }
 
+    // Two finite angles must not produce a NaN: two finite doubles near the range ends subtract to infinity, fmod(inf)
+    // is NaN, and K2_SetActorLocationAndRotation writes it into an FRotator unchecked, which stops the ghost rendering.
     auto angle_lerp() -> void
     {
         const double huge = 1.7e308; // finite, and the sum of two of these is not
@@ -903,8 +794,7 @@ namespace
             }
         }
 
-        // AND IT MUST STILL TAKE THE SHORT WAY ROUND, which is the whole reason it is not a plain
-        // lerp: 350 -> 10 travels +20 through the seam, not -340 back through the circle.
+        // And still the short way round, the reason it is not a plain lerp: 350 -> 10 travels +20, not -340.
         ++g_checks;
         const double seam = lerp_angle_deg(350.0, 10.0, 0.5);
         if (!(seam > 355.0 && seam < 365.0))

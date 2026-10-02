@@ -3938,3 +3938,20 @@ is [phase12.md](phase12.md), 2026-10-01 (A3). Deployed to both installs; not yet
 The A5 comment pass moved the autoplay driver's game facts that no record held into Pseudoregalia's `MEASURED.md`, entry
 "2026-10-02 — Facts the code comments carried, moved here word for word" (map-read ones under "Not measured yet").
 The account is `phase13.md`, same date.
+
+## 2026-10-02 — the adapter's comments cut to what and why (A5)
+
+`Plugin.cpp` went from 28,834 lines to 20,447 (edited in eight parts by subagents and joined), and `Plugin.hpp`, the
+bridge client, the core launcher, `PeerJson.hpp`, `dllmain.cpp` and the peer-JSON fuzz harness were trimmed with it
+(the account is `phase12.md`, same date). Code unchanged: C++ tokens minus comments identical to the parent (9 files,
+136,430 tokens); the DLL rebuilt from this tree follows in its own commit. History no record held is in
+`pitfalls/by-lesson.md`, "The stories behind the code"; game facts and adapter costs went to `MEASURED.md`, 2026-10-02.
+Stale claims fixed on the way, among them: the bridge client said a silent core counts as accepted (only
+`bridge_ready` does), the core launcher said it searches the mod and dlls folders for `config.json` (the game root
+only), `release_ghost` said it never destroys the actor (it does: `GHOST_DESTROY_ON_DESPAWN`), `CAMERA_TRACE` called a
+gate (it gates nothing), the spawn delay said ~300 ticks (120), and several doc comments that sat above the wrong
+function moved to their own. Found and not changed (code, offered as a separate task): `input_track_sample` can call
+`GetPropertiesSize()` on a null function after logging the refusal, and `hook_disabled` matches `hooks_off.txt` with a
+bare `find("all")`. Still open in the docs: `adr/0061` says the mod searches the mod and dlls folders, `FLAGS.md`'s
+"Dev traces" rows point at "the comment above `Plugin.cpp:NNNN`", and `CoreLauncher.cpp`'s missing-exe message still
+tells a player to try the mod folder (a string: code).

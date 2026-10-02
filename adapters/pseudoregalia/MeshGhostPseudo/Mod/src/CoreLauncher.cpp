@@ -28,13 +28,8 @@ namespace MeshGhostPseudo
                                              .count());
         }
 
-        // Returns the directory this DLL lives in, with no trailing separator.
-        //
-        // Resolved from the module rather than from the working directory or the game's install
-        // path, because neither is reliable here: this mod is dropped into the GAME's UE4SS
-        // Mods folder, so there is nothing to walk up to a MeshGhost release folder, and a
-        // game's working directory is whatever its launcher chose. This DLL's own folder is the
-        // fixed point; the client's folder is found from it (config_search_dirs).
+        // The directory this DLL lives in, no trailing separator; from the module, since a game's working directory is
+        // whatever its launcher chose.
         auto module_directory_impl() -> std::wstring
         {
             HMODULE self{};
@@ -53,9 +48,7 @@ namespace MeshGhostPseudo
                 {
                     return {};
                 }
-                // Truncation is reported by filling the buffer exactly, so grow and retry
-                // rather than silently using a cut-off path (a long Steam library path on a
-                // drive with deep folders is not exotic).
+                // A full buffer means the path was truncated: grow and retry.
                 if (len < path.size())
                 {
                     path.resize(len);
@@ -85,11 +78,8 @@ namespace MeshGhostPseudo
         return module_directory_impl();
     }
 
-    // The folder Steam installed the game into -- the one holding the OUTER "pseudoregalia"
-    // folder, three levels above the game's own exe:
-    //   <Root>\pseudoregalia\Binaries\Win64\pseudoregalia-Win64-Shipping.exe
-    // Resolved from the GAME module (handle nullptr), not from this DLL, so it does not depend on
-    // how deep UE4SS nests its Mods folder. Empty on any failure; every caller skips empties.
+    // The folder holding the outer pseudoregalia folder (<Root>\pseudoregalia\Binaries\Win64\<exe>), from the game
+    // module rather than this DLL, so UE4SS's Mods nesting does not matter. Empty on failure; callers skip empties.
     auto game_root_directory() -> std::wstring
     {
         std::wstring path(MAX_PATH, L'\0');
@@ -119,14 +109,8 @@ namespace MeshGhostPseudo
         return path;
     }
 
-    // Where the client, its config.json, its log and its replay\ folder live: the game's ROOT
-    // folder, and nowhere else. The user's call, 2026-09-05, a full swap: "dll deep nested,
-    // client/config easy access" -- the DLL has to sit where UE4SS loads it, the file a player
-    // edits does not, and five folders deep is where nobody looks. Until v1.1.5 the mod folder
-    // (and the dlls folder beside this DLL) were searched instead; they are deliberately NOT a
-    // fallback now, so there is exactly one place a config can be and the log can name it. A
-    // list rather than a string so the callers' loops read the same as before, and so a second
-    // location can be added without touching them if that decision is ever revisited.
+    // Where the client, config.json, its log and its replay\ folder live: the game's root folder and nowhere else, so
+    // there is one place a config can be and the log can name it. A list so another location needs no caller change.
     auto config_search_dirs() -> std::vector<std::wstring>
     {
         return {game_root_directory()};
@@ -142,29 +126,9 @@ namespace MeshGhostPseudo
         return file_exists(dir + L"\\" + file_name);
     }
 
-    // Reads a STRING value out of the mod's config.json, by key. Same two directories and the
-    // same deliberately small hand parse as resolve_bridge_base_port and
-    // config_disables_autostart -- this file has no JSON library and does not want one for three
-    // keys.
-    //
-
-    // config_text reads the first config.json that exists, and CACHES it.
-    //
-    // **Six of these ran per poll, ~7 times a second, each one opening and slurping the whole
-    // file (review I13, fixed 2026-09-11)** -- and they ran BEFORE the dev-toggle existence check
-    // that was supposed to gate them, so the "one failed file open" note beside that check was
-    // describing something else. Forty-odd file reads a second, on the game thread, to answer
-    // questions whose answers change when a human edits a file.
-    //
-    // THE CACHE IS TIME-BOUNDED AND NOT CONTENT-BOUNDED: re-read at most every
-    // CONFIG_CACHE_MS, and otherwise hand back what was read last. That keeps config.json LIVE --
-    // which it is by design, the client re-reads it too -- at four reads a second instead of
-    // forty. A modification-time check was considered and rejected: it is another filesystem call
-    // per query, so it costs most of what it saves, and the interval is already far below what a
-    // person editing a file can notice.
-    //
-    // `found` distinguishes "no config.json anywhere" from "an empty one", because the callers
-    // treat those the same way (keep your own default) and a future one might not.
+    // config_text reads the first config.json that exists and caches it for CONFIG_CACHE_MS: the readers run several
+    // times per poll, and config.json stays live, as the client re-reads it too. A modification-time check would be
+    // another filesystem call per query, most of what the cache saves. `found` tells "no config.json" from "empty".
     constexpr auto CONFIG_CACHE_MS = 250;
 
     auto config_text(bool& found) -> const std::string&
@@ -200,10 +164,8 @@ namespace MeshGhostPseudo
         return cached;
     }
 
-    // Returns false when the key is absent, so a caller keeps its own default rather than
-    // inheriting an empty string. Whatever is between the quotes is returned verbatim: a colour is
-    // validated by the code that applies it (set_plate_color takes "#RRGGBB" and ignores anything
-    // else), which keeps the "what is a valid colour" answer in one place.
+    // A string value by key, hand-parsed: this file has no JSON library. False when the key is absent, so a caller
+    // keeps its own default; the value comes back verbatim, and the code that applies it validates it.
     auto config_string_value(const char* key, std::string& out) -> bool
     {
         {
@@ -245,9 +207,7 @@ namespace MeshGhostPseudo
         return false;
     }
 
-    // The bool counterpart. `missing` is what an absent key means, which differs per setting --
-    // "indicator" defaults ON because a player who never edits the file should still get feedback
-    // from a hotkey they pressed.
+    // `missing` is what an absent key means, which differs per setting.
     auto config_bool_value(const char* key, bool missing) -> bool
     {
         {
@@ -321,8 +281,7 @@ namespace MeshGhostPseudo
 
     auto resolve_bridge_base_port(uint16_t fallback) -> uint16_t
     {
-        // 1. The environment wins. Same variable name as the two Lua adapters, so one launcher
-        //    setting moves every game's range the same way.
+        // The environment wins: the same variable as the two Lua adapters, so one launcher setting moves every game.
         if (char* env = nullptr; _dupenv_s(&env, nullptr, BRIDGE_PORT_ENV) == 0 && env != nullptr)
         {
             const unsigned long parsed = std::strtoul(env, nullptr, 10);
@@ -333,21 +292,8 @@ namespace MeshGhostPseudo
             }
         }
 
-        // 2. "local_game_bridge" in the mod's config.json -- the file the player is told to edit.
-        //    Read by hand rather than with a JSON parser: this mod has none, the shape is fixed
-        //    ("host:port" in quotes), and adding a parser for one key would be the larger change.
-        //    Anything unrecognised falls through to the default rather than failing.
-        //
-        //    UE4SS LOADS A C++ MOD FROM <ModFolder>\dlls\main.dll, so module_directory() is the
-        //    dlls folder and NOT the folder a player drags into their game -- config.json sits one
-        //    level UP. The first version of this read the dlls folder, found nothing, and silently
-        //    used the default, which the user saw as the config being ignored outright. The
-        //    launcher below has carried a comment saying exactly this since it was written; this
-        //    code was added forty lines away from it and did not read it.
-        //
-        //    Both are checked, parent first, matching how the launcher looks for meshghost.exe:
-        //    the player's folder is the answer, and the dlls folder is there so a developer
-        //    copying files by hand is not caught out.
+        // Then "local_game_bridge" in config.json, read by hand ("host:port" in quotes); anything unrecognised falls
+        // through to the default.
         for (const std::wstring& dir : config_search_dirs())
         {
             if (dir.empty())
@@ -361,8 +307,7 @@ namespace MeshGhostPseudo
                 const std::string key = "\"local_game_bridge\"";
                 if (const size_t k = text.find(key); k != std::string::npos)
                 {
-                    // Value is "host:port"; take the digits after the LAST colon inside the quotes
-                    // so an IPv6 host, or a bare port, still resolves sensibly.
+                    // The digits after the last colon, so an IPv6 host or a bare port still resolves.
                     const size_t open_q = text.find('"', k + key.size());
                     const size_t close_q = open_q == std::string::npos ? std::string::npos : text.find('"', open_q + 1);
                     if (close_q != std::string::npos)
@@ -383,11 +328,8 @@ namespace MeshGhostPseudo
         return fallback;
     }
 
-    // "autostart": false in the config.json the mod's client reads says "do not start a client;
-    // use whichever one is running" -- the user's call 2026-09-03: MESHGHOST_NO_AUTOSTART did the
-    // same job, but "environment variable" means nothing to most players and a line in the file
-    // they already edit does. Same two directories and the same hand parse as
-    // resolve_bridge_base_port. Absent, or anything but false, means autostart.
+    // "autostart": false means use whichever client is running, the env var's job in the file a player already edits.
+    // Absent, or anything but false, means autostart.
     auto config_disables_autostart() -> bool
     {
         for (const std::wstring& dir : config_search_dirs())
@@ -420,9 +362,7 @@ namespace MeshGhostPseudo
 
     CoreLauncher::CoreLauncher()
     {
-        // Env var read once at construction: it's a launch-time decision, and re-reading it
-        // every tick would be a syscall per tick for something that cannot change usefully
-        // mid-session.
+        // Read once: autostart is a launch-time decision.
         size_t required{};
         if (getenv_s(&required, nullptr, 0, NO_AUTOSTART_ENV) == 0 && required > 0)
         {
@@ -460,9 +400,7 @@ namespace MeshGhostPseudo
         }
         if (child_still_running())
         {
-            // The core also exits on its own once this process does (-exit-with-pid), which is
-            // what covers a crash. This is the clean path: stopping it here means the player's
-            // ghost leaves the room the moment they quit, rather than up to a poll later.
+            // -exit-with-pid covers a crash; stopping it here makes the ghost leave the moment the player quits.
             TerminateProcess(static_cast<HANDLE>(child_handle), 0);
         }
         CloseHandle(static_cast<HANDLE>(child_handle));
@@ -472,10 +410,7 @@ namespace MeshGhostPseudo
 
     auto CoreLauncher::tick_connected() -> void
     {
-        // Say which of the two happened, once per connection. "Did it start its own core or
-        // find mine?" is the first question worth answering when someone reports two processes,
-        // a stale config, or a ghost that never appears -- and with no console window anywhere,
-        // this log line is where they'd look.
+        // "Did it start its own core or find mine?" comes first in a report, and with no console this log is where.
         if (child_handle == nullptr && !logged_reuse)
         {
             Output::send(STR("[MeshGhostPseudo] using a MeshGhost core that was already running.\n"));
@@ -491,15 +426,9 @@ namespace MeshGhostPseudo
         }
         if (child_still_running() && last_spawn_port != 0 && busy_port == last_spawn_port)
         {
-            // OUR OWN CHILD'S PORT ANSWERED "BUSY" WHILE THE CHILD IS ALIVE: another copy of the
-            // game reached it first. Read as "my child is running, so I have a core", nothing
-            // below would ever spawn again, and the walk would find silence on every other port
-            // for the rest of the session -- watched on TEVI's launcher 2026-09-02 (two copies
-            // launched a few seconds apart), fixed there the same night and mirrored here. The
-            // child is not terminated: a game is using it. Forget it, so a fresh core starts at
-            // the cursor below. ONLY on "busy": the first version also forgot it when the sweep
-            // merely moved on, and two instances restarting together then chased each other's
-            // fresh cores round the range (Emerald, the same night).
+            // Our own child's port answered busy: another copy of the game reached it first, and "my child runs" would
+            // never spawn again. Forget it, never kill it (a game uses it), and start a fresh core below. Only on busy:
+            // forgetting it whenever the sweep moved on made two restarting instances chase each other's cores.
             Output::send(STR("[MeshGhostPseudo] the core this mod started (pid {}, port {}) is serving another game -- leaving it to that game and starting another on port {}.\n"),
                          child_pid, last_spawn_port, spawn_port);
             CloseHandle(static_cast<HANDLE>(child_handle));
@@ -508,26 +437,19 @@ namespace MeshGhostPseudo
         }
         if (child_still_running())
         {
-            // Spawned already and still alive, just not answering yet -- a core takes a moment
-            // to bind its listener. Waiting is correct; spawning a second one here is how you
-            // get a pile of processes fighting over one port.
+            // Alive but not answering yet: a core takes a moment to bind, and a second spawn would fight it for it.
             return;
         }
 
         uint64_t now = now_ms();
-        // The cooldown is per PORT, not global: if the sweep has moved on to a different free
-        // port, waiting out a previous port's cooldown would be waiting for nothing. This is the
-        // case two games starting at once produce -- both find the same free port, both spawn,
-        // and the loser's core exits immediately because it cannot bind, so its adapter needs to
-        // try the next port promptly rather than in ten seconds.
+        // The cooldown is per port: when two games start at once the loser's core cannot bind and exits, and its
+        // adapter must try the next port promptly, not after the old port's cooldown.
         if (spawn_port == last_spawn_port && last_spawn_ms != 0 && now - last_spawn_ms < SPAWN_RETRY_INTERVAL_MS)
         {
             return;
         }
 
-        // Where the client lives decides where its config.json, meshghost.log and replay\ folder
-        // live too: the child runs with that folder as its working directory. Game root first,
-        // then the mod folder, then the dlls folder -- see config_search_dirs for why that order.
+        // The child runs in the client's folder, so its config.json, meshghost.log and replay\ folder live there too.
         std::wstring exe, dir;
         for (const std::wstring& candidate : config_search_dirs())
         {
@@ -544,10 +466,8 @@ namespace MeshGhostPseudo
         }
         if (exe.empty())
         {
-            // Said once, then never again: a missing exe does not fix itself mid-session, and a
-            // per-tick complaint would bury everything else in the log. This is also what an
-            // antivirus quarantine looks like from in here, so the message names that
-            // possibility -- see agent_docs/risks.md.
+            // Said once: a missing exe does not fix itself mid-session, and it is also what an antivirus quarantine
+            // looks like from in here.
             spawn_disabled = true;
             Output::send(STR("[MeshGhostPseudo] meshghost.exe was not found -- not starting a core. Put it in the "
                              "game's own folder (the one Steam installed, next to the inner pseudoregalia folder) "
@@ -557,8 +477,7 @@ namespace MeshGhostPseudo
         }
         Output::send(STR("[MeshGhostPseudo] using meshghost.exe from {} -- its config.json, meshghost.log and replay folder live there.\n"), dir);
 
-        // No relay settings here, on purpose -- see this class's header comment. The child reads
-        // config.json out of the working directory set below.
+        // No relay settings, on purpose: the child reads config.json from the working directory set below.
         std::wstring command = L"\"" + exe + L"\" -exit-with-pid=" + std::to_wstring(GetCurrentProcessId()) +
                                L" -bridge=127.0.0.1:" + std::to_wstring(spawn_port);
 
@@ -566,9 +485,7 @@ namespace MeshGhostPseudo
         startup.cb = sizeof(startup);
         PROCESS_INFORMATION process{};
 
-        // CREATE_NO_WINDOW is the whole point: a console app spawned this way never creates a
-        // console at all, so there is no window to flash and hide. (A player who wants one back
-        // sets show_console in config.json, which the core acts on itself.)
+        // CREATE_NO_WINDOW: the console app never creates a console, so nothing flashes; the core honours show_console.
         BOOL ok = CreateProcessW(exe.c_str(),
                                  command.data(),
                                  nullptr,

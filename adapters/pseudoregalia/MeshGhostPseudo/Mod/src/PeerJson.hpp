@@ -1,23 +1,8 @@
 #pragma once
 
-// PeerJson -- the peer-facing JSON field readers, and the bounds that make their results safe to
-// hand to the engine.
-//
-// WHY THIS IS A HEADER AND NOT PART OF Plugin.cpp. These functions read bytes a STRANGER wrote.
-// They lived file-local in Plugin.cpp's anonymous namespace, which meant nothing could call them
-// without UE4SS, Unreal and a running game -- so the one part of this adapter that parses hostile
-// input was the one part that could never be tested. Lifted here 2026-09-04 so
-// MeshGhostPseudo.Tests/peer_json_fuzz.cpp can compile them on a Linux CI runner with no game at
-// all. Nothing else changed: every function below is the code that shipped, comments included,
-// because those comments record the reasoning that is now under test.
-//
-// STANDARD LIBRARY ONLY, AND THAT IS THE POINT. No UE4SS type, no Unreal type, no windows.h. The
-// two conversions that DO need them -- to_utf8 (WideCharToMultiByte) and to_wide_ascii (returns
-// StringType) -- deliberately stay in Plugin.cpp. Pulling either one in here would make this
-// header un-compilable on Linux and retire the whole exercise.
-//
-// <cstdint> is included explicitly. MSVC supplies uint32_t transitively through other headers and
-// g++ does not, and this header is compiled by g++ for the first time in its life.
+// The readers of peer-written JSON, and the bounds that make their results safe to hand to the engine. Standard
+// library only, so MeshGhostPseudo.Tests compiles them on Linux with no game: to_utf8 and to_wide_ascii need Windows
+// or UE4SS types and stay in Plugin.cpp. <cstdint> is explicit because g++, unlike MSVC, does not supply it.
 
 #include <cmath>
 #include <cstdint>
@@ -28,21 +13,10 @@
 
 namespace MeshGhostPseudo
 {
-    // Minimal, non-general JSON field extraction -- deliberately not a full parser, matching
-    // the Lua adapter's own minimalism (its jsonString()/hand-built envelopes, not a generic
-    // decoder). This data is NOT trusted input, despite the fixed envelope shape: it arrives
-    // over the bridge socket as a render_remote line originated by a remote peer, forwarded
-    // by the Go core, which only bounds it by total serialized byte size
-    // (protocol.MaxExtrasBytes) -- not by per-field type, range, or finiteness. See
-    // adapters/_template/PROTOCOL.md's own "peer-controlled" warning on render_remote data,
-    // and clamp_to_uint8's comment below for the specific narrowing hazard this file already
-    // guards against. What actually makes this minimal string-search parser safe to use on
-    // untrusted bytes is narrower than "the format is fixed-shape": see json_number_field's
-    // comment just below for the real reason a whole-string search doesn't misparse.
+    // Minimal field extraction, not a parser. The input is untrusted: a render_remote line a remote peer wrote, which
+    // the core bounds by total size, never by per-field type, range or finiteness.
 
-    // Minimal JSON string escaping -- only quote and backslash are realistically possible in
-    // an Unreal object path (e.g. "/Game/Maps/ZONE_LowerCastle.ZONE_LowerCastle:PersistentLevel"),
-    // but escaped defensively to match the Lua adapter's jsonString() safety.
+    // Escapes quote and backslash, the two JSON specials an Unreal object path can realistically hold.
     inline auto json_escape(const std::string& s) -> std::string
     {
         std::string out;
@@ -58,7 +32,7 @@ namespace MeshGhostPseudo
         return out;
     }
 
-    // Appends one code point to out as UTF-8. Used by json_string_field's \uXXXX handling.
+    // Appends one code point to out as UTF-8.
     inline auto append_utf8(std::string& out, uint32_t cp) -> void
     {
         if (cp <= 0x7F)
@@ -85,8 +59,7 @@ namespace MeshGhostPseudo
         }
     }
 
-    // Reads exactly four hex digits at pos. Not strtol, which would read past four and accept
-    // a sign.
+    // Exactly four hex digits at pos; not strtol, which reads past four and accepts a sign.
     inline auto json_hex4(const std::string& s, size_t pos, uint32_t& out) -> bool
     {
         if (pos + 4 > s.size())
@@ -107,26 +80,8 @@ namespace MeshGhostPseudo
         return true;
     }
 
-    // ESCAPES ARE HONOURED HERE, AND IT IS NOT POLISH. Until 2026-09-03 this scanned for the
-    // next bare '"' and returned the raw bytes between, so a display name containing a quote --
-    // which the wire carries as \" -- ended the string early and the player saw their name cut
-    // at a backslash. Found live by the user testing a deliberately nasty name:
-    // uwu325235#"..."****?_ rendered on the ghost's nametag as `uwu325235#\`. The same bug
-    // handed back \uXXXX and \ literally, so either one displayed as its escape rather than
-    // as the character it stands for.
-    //
-    // Both Pokemon adapters had their own JSON decoders fixed the same day (a depth cap on
-    // one, a \uXXXX decoder on the other). This file is the sibling that was missed -- the
-    // shape ideas.md calls "rules that live in one code path and are missing from their
-    // sibling".
-    //
-    // Still deliberately NOT a general JSON parser: it finds one key by whole-string search
-    // and reads one string value. Why that stays safe on hostile input is json_number_field's
-    // comment below -- and note that argument RESTS on values being properly escaped on the
-    // wire, which is exactly what this function now decodes instead of taking on trust.
-    // Decode a JSON string body starting at `pos`, which is the byte AFTER the opening quote.
-    // Split out of json_string_field 2026-09-04 so the scoped readers below can reuse the
-    // escape handling without re-finding the key. The body is untouched.
+    // Decodes a JSON string body from `pos`, the byte after the opening quote, escapes included: a name holding a
+    // quote arrives as \", and a raw scan to the next quote would cut it there.
     inline auto json_decode_string_at(const std::string& s, size_t pos) -> std::string
     {
         std::string out;
@@ -164,9 +119,7 @@ namespace MeshGhostPseudo
                     return {}; // malformed: refuse the field rather than guess
                 }
                 i += 4;
-                // A surrogate PAIR is two escapes standing for one character; a lone or
-                // mispaired surrogate is not a code point at all and becomes U+FFFD rather
-                // than being encoded as though it were one.
+                // A surrogate pair is two escapes for one character; a lone or mispaired surrogate becomes U+FFFD.
                 if (cp >= 0xD800 && cp <= 0xDBFF)
                 {
                     uint32_t lo = 0;
@@ -217,17 +170,8 @@ namespace MeshGhostPseudo
         return std::sscanf(s.c_str() + pos, "%lf,%lf,%lf", &a, &b, &c) == 3;
     }
 
-    // Same minimal-parser philosophy as json_string_field/json_vec3_field above. Used for the
-    // animation-state fields nested under "extras" -- key names (move_state, h_speed, etc.)
-    // are distinct enough that a whole-string search is safe without properly scoping to the
-    // "extras" object, same tradeoff already made for every other field here. This holds even
-    // against a hostile peer, not just a well-behaved one: JSON string values are escaped when
-    // serialized, so a peer-controlled string field (e.g. anim, area_id, player_id) can never
-    // contain a literal, unescaped `"h_speed":` substring that this search could mistake for
-    // the real key -- any such content would itself be escaped (e.g. `\"h_speed\":`) in the
-    // serialized bytes, which does not match the bare needle searched for here. The numeric
-    // *value* found this way is still fully attacker-controlled, though -- that's what
-    // clamp_to_uint8 below exists to bound before use.
+    // A whole-string search: a peer string value is escaped on the wire, so it can never hold a bare "key": needle,
+    // but other fields can (see scoped reading below). The value is attacker-controlled either way.
     inline auto json_number_field(const std::string& s, const std::string& key, double& out) -> bool
     {
         std::string needle = "\"" + key + "\":";
@@ -240,14 +184,8 @@ namespace MeshGhostPseudo
         return std::sscanf(s.c_str() + pos, "%lf", &out) == 1;
     }
 
-    // Clamps a remote-controlled double to a valid uint8_t range before narrowing. Added in
-    // a review pass: static_cast<uint8_t>(double) is undefined behavior -- not just "wraps",
-    // the way an integer-to-integer narrowing would -- if the value is NaN or outside
-    // [0, 255]. move_state/action_state/anim_jump_type/movement_mode all come from a remote
-    // peer's extras map, which the Go core only bounds by serialized byte size
-    // (protocol.MaxExtrasBytes), not by per-field numeric range or finiteness -- unlike
-    // Position, which the core's own storeRemoteState now rejects outright if non-finite
-    // (see the ADR in agent_docs/architecture.md), extras values reach here unchecked.
+    // static_cast<uint8_t>(double) is undefined, not a wrap, for NaN or anything outside [0, 255], and extras values
+    // reach here unchecked by the core.
     inline auto clamp_to_uint8(double value) -> uint8_t
     {
         if (std::isnan(value) || value < 0.0)
@@ -261,35 +199,16 @@ namespace MeshGhostPseudo
         return static_cast<uint8_t>(value);
     }
 
-    // ---------------------------------------------------------------------------------------
-    // SCOPED READING, 2026-09-04 -- because the whole-string search above is shadowable.
+    // Scoped reading. The whole-string search above is shadowable, because not every field is an escaped string
+    // (protocol.State marshals in declaration order: player_id, seq, timestamp, area_id, position, orientation, anim,
+    // extras, prev):
+    //   - orientation is raw JSON and marshals before anim and extras, so it can carry a bare needle;
+    //   - extras is omitempty, so a sample with none of its own matches the needle in prev's;
+    //   - map keys marshal sorted, so a peer nests the needle in an extras key that sorts first.
+    // These read a named member of a named object at its own top level, tracking depth and string state. The
+    // unscoped readers stay correct for the envelope (type, payload, player_id), where no peer key precedes a real one.
     //
-    // json_number_field's comment argues a bare needle search is safe against a hostile peer
-    // because peer STRINGS are escaped, so one can never contain a bare needle. That is true, and
-    // it is not the whole wire. Measured by MeshGhostPseudo.Tests/peer_json_fuzz.cpp against the
-    // real field order of protocol.State (player_id, seq, timestamp, area_id, position,
-    // orientation, anim, extras, prev -- encoding/json emits struct fields in declaration order):
-    //
-    //   * orientation is json.RawMessage: raw, UNESCAPED JSON, bounded only by bytes and depth,
-    //     and it marshals BEFORE anim and extras. "orientation":{"h_speed":1e999} put +inf in
-    //     front of the real h_speed. The escaping argument never covered it, because orientation
-    //     is not a string.
-    //   * extras is omitempty, so a sample carrying no extras of its own but carrying a prev
-    //     that has them left exactly one match, and it was prev's: a stale value read as current.
-    //   * encoding/json marshals MAP keys sorted, so a peer picks an extras key that sorts before
-    //     the real one and nests the needle inside it. Depth 2, well inside MaxJSONDepth.
-    //
-    // The fix is to stop searching the whole line and instead read a named member of a named
-    // object at ITS OWN top level. Still not a general JSON parser and still allocation-free: it
-    // tracks nesting depth and string state, which is exactly what "first match wins" lacked.
-    //
-    // The unscoped readers above are KEPT and still correct for the bridge envelope (type,
-    // payload, player_id), where there is one object and no peer-controlled key precedes a real
-    // one.
-    //
-    // These use named byte constants rather than character escapes on purpose: this code is
-    // ABOUT quotes and backslashes, and spelling them as escapes is how such a scanner ends up
-    // subtly wrong in a way review does not catch.
+    // Named byte constants rather than escapes: this code is about quotes and backslashes.
     inline constexpr char kJsonQuote = static_cast<char>(34);
     inline constexpr char kJsonBackslash = static_cast<char>(92);
 
@@ -316,8 +235,8 @@ namespace MeshGhostPseudo
         return std::string::npos;
     }
 
-    // Position of the VALUE of top-level member `key` within the object body [begin, end), or
-    // npos. Nested members are skipped, so a key inside a sub-object never matches.
+    // Position of the value of top-level member `key` within the object body [begin, end), or npos. Nested members are
+    // skipped, so a key inside a sub-object never matches.
     inline auto json_member_value(const std::string& s, size_t begin, size_t end, const std::string& key) -> size_t
     {
         if (end > s.size())
@@ -449,14 +368,8 @@ namespace MeshGhostPseudo
         {
             return false;
         }
-        // The value must START with a digit or a minus sign. JSON allows nothing else to begin a
-        // number, while glibc's sscanf happily accepts nan, inf, infinity, a leading plus, and
-        // hex floats -- 34 of 39 raw forms, measured by the harness. Refusing them here means a
-        // non-finite value cannot enter through this door at all, rather than being caught later
-        // by whichever clamp the call site remembered to apply.
-        // A minus sign may lead, but a DIGIT must follow it. Checking only "digit or minus" is
-        // not enough and the harness caught exactly that: "-inf" passes a leading-sign test and
-        // sscanf then returns -infinity. JSON has no leading plus and no bare sign either.
+        // A digit, or a minus then a digit, as JSON requires: sscanf also takes nan, inf, "-inf", a leading plus and
+        // hex floats, so a non-finite value cannot enter here.
         size_t d = v;
         if (s[d] == '-')
         {
@@ -469,15 +382,8 @@ namespace MeshGhostPseudo
         return std::sscanf(s.c_str() + v, "%lf", &out) == 1;
     }
 
-    // A JSON BOOL, which json_number_member cannot read: `true` is not a number, and every reader
-    // above refuses it correctly. Added 2026-09-04 for recording_state, whose `recording` field is
-    // a Go bool and therefore lands on the wire as a bare literal.
-    //
-    // Exact-match only, and that is the point rather than strictness for its own sake: `true` is
-    // the ONLY thing that means true here. A missing key, `false`, `null`, `"true"`, `1` or any
-    // object all read as false, so a malformed or hostile line can turn an indicator ON only by
-    // spelling the literal correctly -- and the false direction, which is what hides a stale
-    // indicator, is reachable by every other input including a truncated line.
+    // A JSON bool, exact match only: `true` is the only thing that means true, and every other input, a truncated line
+    // included, reads false, the side that hides a stale indicator.
     inline auto json_bool_member(const std::string& s, size_t begin, size_t end, const std::string& key) -> bool
     {
         const size_t v = json_member_value(s, begin, end, key);
@@ -499,32 +405,17 @@ namespace MeshGhostPseudo
         return std::sscanf(s.c_str() + v + 1, "%lf,%lf,%lf", &a, &b, &c) == 3;
     }
 
-    // ---------------------------------------------------------------------------------------
-    // THE BOUNDING VOCABULARY, 2026-09-04. clamp_to_uint8 above was the first of these and was
-    // the only one until 2026-09-04; an audit of every peer double in Plugin.cpp then found NINE
-    // narrowings that never called it, including static_cast<uint8_t>(target_weapon_state) --
-    // literally the operation it exists for. Three more shapes were needed, so they are named
-    // here, next to it, rather than hand-written at each call site where nobody can check them.
-    //
-    // isfinite IS NOT ENOUGH IN FRONT OF A float CAST, and that is the part that keeps being
-    // missed. 1e300 is a perfectly finite double and is NOT representable as a float, so
-    // static_cast<float>(1e300) is undefined behaviour exactly as static_cast<float>(NaN) is.
-    // Any guard that only asks isfinite still admits it. clamp_to_float therefore bounds
-    // MAGNITUDE, and its lo/hi are floats precisely so that the value is provably inside float's
-    // range by the time the cast happens.
+    // Bounds for peer doubles, named here beside clamp_to_uint8 so every narrowing site uses a fuzzed one. isfinite is
+    // not enough before a float cast: 1e300 is finite and not a float, so clamp_to_float bounds magnitude.
 
-    // A non-finite peer value becomes the caller's stated fallback. Use where the value is a
-    // double all the way down and no narrowing follows -- the shape the orientation guard in
-    // handle_bridge_line already applies by hand.
+    // A non-finite peer value becomes the caller's fallback, for a double that is never narrowed.
     inline auto finite_or(double value, double fallback) -> double
     {
         return std::isfinite(value) ? value : fallback;
     }
 
-    // Narrow a peer double to float, safely. NaN and anything outside [lo, hi] are pinned to the
-    // range rather than refused, because these are continuous visual quantities (a capsule
-    // height, a timeline position, a colour channel) where a bounded wrong value is a ghost that
-    // looks odd for one frame and an unbounded one is undefined behaviour.
+    // NaN and anything outside [lo, hi] are pinned, not refused: these are continuous visual quantities, where a
+    // bounded wrong value looks odd for a frame.
     inline auto clamp_to_float(double value, float lo, float hi) -> float
     {
         if (std::isnan(value) || value < static_cast<double>(lo))
@@ -538,8 +429,7 @@ namespace MeshGhostPseudo
         return static_cast<float>(value);
     }
 
-    // ARRAYS (2026-09-08, for remote_input): the same scoped discipline as the object readers
-    // above -- an array member is a span, and a caller walks the values inside that span only.
+    // Arrays, with the same scoped discipline: an array member is a span, and a caller walks only inside it.
     // Body span of the array whose opening bracket sits at `pos`; [begin, end) excludes the brackets.
     inline auto json_array_body_at(const std::string& s, size_t pos, size_t limit, size_t& begin, size_t& end) -> bool
     {
@@ -697,7 +587,6 @@ namespace MeshGhostPseudo
                 {
                     out[n++] = v;
                 }
-                // Skip the number's characters.
                 while (d < end && (s[d] == '.' || s[d] == 'e' || s[d] == 'E' || s[d] == '+' || s[d] == '-' || (s[d] >= '0' && s[d] <= '9')))
                 {
                     ++d;
@@ -731,11 +620,8 @@ namespace MeshGhostPseudo
         return n;
     }
 
-    // Narrow a peer double to int, safely. Out of range REFUSES to the fallback rather than
-    // pinning, which is the opposite of clamp_to_float and deliberately so: these are counts and
-    // discrete states, where a clamped value is a wrong action taken confidently and the
-    // fallback is "behave as though the peer had not sent this". Generalised from the bound
-    // afterimage_n already carries (finite, 1..MAX_PEER_AFTERIMAGE_SPAWN, else the historical 6).
+    // Out of range refuses to the fallback, unlike clamp_to_float: for counts and discrete states a clamped value is a
+    // wrong action taken confidently, and the fallback behaves as though the peer had not sent it.
     inline auto clamp_count_to_int(double value, int lo, int hi, int fallback) -> int
     {
         if (!std::isfinite(value) || value < static_cast<double>(lo) || value > static_cast<double>(hi))
@@ -744,29 +630,9 @@ namespace MeshGhostPseudo
         }
         return static_cast<int>(value);
     }
-    // json_top_level_string reads the value of a TOP-LEVEL string field out of one
-    // NDJSON line, without a JSON parser and without ever looking inside a nested
-    // object.
-    //
-    // WHY THIS EXISTS, and it is a security fix rather than tidiness (review I1).
-    // Every line was classified by bare substring -- a search for "reject" and then
-    // for "relay" -- over EVERY line, including render_remote. A render_remote
-    // carries a peer's orientation blob as raw JSON that the core is forbidden to
-    // interpret and passes through untouched, bounded only by size and nesting
-    // depth. So a peer sending an orientation object containing our own control
-    // words made the victim's adapter close its bridge, park for the relay backoff,
-    // drop every ghost, and log that THE RELAY was unreachable. Eighteen bytes,
-    // from anyone in the room, against a player whose own machine was fine.
-    //
-    // The fix is not "search harder" -- any substring rule over a field that may
-    // contain arbitrary peer JSON has this shape. It is to read the field the
-    // protocol actually defines, at the depth it is defined at.
-    //
-    // Deliberately NOT a JSON parser: it tracks string state (so a brace or a quote
-    // inside a value is not structure), escapes, and nesting depth, and answers one
-    // question -- what is the value of this key at depth 1. Anything it cannot
-    // answer confidently comes back empty, which every caller treats as "not that
-    // kind of line".
+    // json_top_level_string reads a top-level string field of one NDJSON line, never looking inside a nested object: a
+    // render_remote carries a peer's raw orientation JSON, so any substring rule lets a peer forge our control words.
+    // It tracks string state, escapes and depth; anything it cannot answer confidently comes back empty.
     inline std::string json_top_level_string(const std::string& line, const char* key)
     {
         const std::string want = std::string("\"") + key + "\"";
@@ -795,7 +661,6 @@ namespace MeshGhostPseudo
             }
             if (c == '"')
             {
-                // A key we care about can only be at depth 1.
                 if (depth == 1 && line.compare(i, want.size(), want) == 0)
                 {
                     size_t j = i + want.size();
@@ -819,9 +684,7 @@ namespace MeshGhostPseudo
                         const char v = line[j];
                         if (esc)
                         {
-                            // Only the escapes these fields can legitimately
-                            // contain; anything else is passed through as written,
-                            // since this value is only ever compared and logged.
+                            // Anything else passes through as written: this value is only compared and logged.
                             switch (v)
                             {
                             case 'n': out.push_back('\n'); break;
@@ -854,8 +717,7 @@ namespace MeshGhostPseudo
         return std::string();
     }
 
-    // json_top_level_true reports whether a top-level key is literally true. Used
-    // for "retryable", which is a bool rather than a string.
+    // json_top_level_true reports whether a top-level key is literally true (retryable).
     inline bool json_top_level_true(const std::string& line, const char* key)
     {
         const std::string want = std::string("\"") + key + "\"";
@@ -899,33 +761,10 @@ namespace MeshGhostPseudo
     }
 
 
-    // SHORTEST-ARC interpolation between two angles in DEGREES -- the scalar form of a slerp,
-    // and the correct one for this game, whose orientation on the wire is a plain
-    // pitch/yaw/roll triple rather than a quaternion.
-    //
-    // WHY NOT A PLAIN LERP. Yaw 350 -> 10 lerps BACKWARDS through 340 degrees instead of
-    // forward through 20: a ghost spinning the long way round every time it crosses the seam,
-    // which is worse than the step this replaces. Folding the delta into the short half of the
-    // range first is the whole fix, and it is the same principle a quaternion slerp applies by
-    // negating one of the pair when their dot product is negative -- far cheaper on a scalar.
-    //
-    // The result is deliberately NOT re-wrapped into any particular range. FRotator accepts an
-    // unnormalized angle and the engine normalizes on use, and clamping here would reintroduce
-    // a discontinuity at whatever boundary was picked.
-    //
-    // EACH INPUT IS FOLDED BEFORE THE SUBTRACTION, and that is a fix rather than a tidy-up
-    // (review I3, 2026-09-11). The call site checks all three inputs with std::isfinite and then
-    // this computed `to - from` on them: two FINITE doubles near the ends of the double range
-    // subtract to infinity, and std::fmod(inf, 360.0) is NaN. That NaN went straight into an
-    // FRotator through K2_SetActorLocationAndRotation, which does not check -- and a ghost whose
-    // rotation is NaN stops rendering, which gets blamed on the game rather than on the parser.
-    // The 2026-09-02 review closed this on the raw orientation path and left the bracket path,
-    // which is the SHIPPED one, open.
-    //
-    // std::fmod of a finite value is always finite, so after folding, the difference is at most
-    // 720 in magnitude and nothing downstream can overflow. The final guard is belt-and-braces
-    // for an input this function may be handed in future: returning `from` unchanged is the same
-    // answer the rest of this file gives to a value it cannot trust -- hold the last good one.
+    // Shortest-arc interpolation between two angles in degrees: the wire carries pitch/yaw/roll, and a plain lerp from
+    // 350 to 10 spins the long way round. Not re-wrapped, since FRotator normalizes on use and a clamp adds a seam.
+    // Each input is folded before subtracting: two finite doubles near the range ends subtract to infinity, fmod(inf)
+    // is NaN, and a ghost with a NaN rotation stops rendering. A value it cannot trust holds `from`.
     inline double lerp_angle_deg(double from, double to, double t)
     {
         if (!std::isfinite(from) || !std::isfinite(to) || !std::isfinite(t))
@@ -947,17 +786,9 @@ namespace MeshGhostPseudo
         return std::isfinite(out) ? out : from;
     }
 
-    // collapse_latest_render_remote keeps, in order, every line except a render_remote that a
-    // NEWER render_remote for the same player_id supersedes. The state plane is latest-wins by
-    // contract, so what is dropped was never owed; every other line (despawn, names, policy) keeps
-    // its place relative to the states that survive.
-    //
-    // Lifted out of game_thread_tick's drain (2026-09-01, the 150-peer death spiral) on
-    // 2026-09-16 so the QUEUE can use it too: the drain does not run while the pause menu or an
-    // item popup is open, and the on_update thread kept appending every line the core sent, so a
-    // paused game's queue grew for as long as it stayed paused -- faster with a peer padding its
-    // states -- and the unpause replayed all of it in one frame (pass 5 of the adversarial review,
-    // P2e-2). Here, where the fuzz harness compiles it, rather than in Plugin.cpp.
+    // collapse_latest_render_remote keeps, in order, every line except a render_remote that a newer one for the same
+    // player_id supersedes: the state plane is latest-wins, so nothing owed is dropped, and every other line (despawn,
+    // names, policy) keeps its place. The drain uses it, and so does the queue, which grows while a pause stops it.
     inline auto collapse_latest_render_remote(std::vector<std::string>& lines) -> void
     {
         if (lines.size() < 2)

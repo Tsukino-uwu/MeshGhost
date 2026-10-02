@@ -1,6 +1,4 @@
-// Windows DLL entry point (UE4SS loads this module). Mod logic lives in Plugin.cpp/hpp.
-// Shape confirmed against RE-UE4SS's own cppmods/EventViewerMod/src/dllmain.cpp and
-// cppmods/KismetDebuggerMod/src/dllmain.cpp (MIT, see agent_docs/licensing.md).
+// The two exports UE4SS loads this DLL through, shaped as in the dllmain.cpp of RE-UE4SS's cppmods examples.
 
 #include <Plugin.hpp>
 
