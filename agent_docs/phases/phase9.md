@@ -1597,3 +1597,18 @@ RAM under the same title; runtime address discovery from the ROM's code was scop
 The A5 comment pass moved the autoplay driver's game facts that no record held into Crystal's `MEASURED.md`, entry
 "2026-10-02 — Facts the code comments carried, moved here word for word" (map-read ones under "Not measured yet").
 The account is `phase13.md`, same date.
+
+## 2026-10-02 — the adapter's comments cut to what and why (A5)
+
+`meshghost_crystal.lua` went from 11,424 lines to 5,950 (whole-line comments 6,338 → 865), edited in five parts by
+subagents and joined (the account is `phase12.md`, same date). Code unchanged: `luac -l -l` listings of the parent and
+of this file, line numbers stripped, identical. History no record held is in `pitfalls/by-lesson.md`, "The stories
+behind the code"; game facts and adapter timings went to `MEASURED.md`, 2026-10-02. Stale claims fixed on the way,
+among them: the header said vanilla V1.0 only, spawned ghosts and a log beside the script (the code knows V1.1,
+Archipelago and Speedchoice, ships drawn-only and logs to `logs/` with the pid), the idle-passable rule said five
+seconds (3600 frames), the wire said to carry the whole-table sprite signature (it carries the per-sprite one), a
+ghost said never to survive a battle (only an area change clears ghosts), and the turbo gait said 4 px a frame. Found
+and not changed (code): the walk read-back in `stepGhost` compares `4 + dir` where the write is `group * 4 + dir`, so a
+bike or slow-gait step logs a false "WROTE WALKING"; the no-icon Fly fallback ends its drop at 44 frames while the fall
+runs only frames 32-43. Records that disagree: `UNVERIFIED.md` still says the turbo gait is 4 px a frame where
+`documentation.md` says 8, 0, 8, 0; the 2026-08-22 turn notes against `documentation.md`'s turn-in-place pose.
