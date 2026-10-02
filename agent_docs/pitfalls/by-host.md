@@ -605,7 +605,7 @@ RE-UE4SS entry records the pin. Re-check before relying on them after a pin bump
   the *other* core (`p2`) really was receiving and storing it. The bug wasn't in any of that.
   - **Actual cause**: the second BizHawk instance was launched by double-clicking `EmuHawk.exe`
     directly, rather than through a wrapper that sets `MESHGHOST_BRIDGE_PORT=7779` first. The
-    Lua adapter (`meshghost_emerald.lua:134`) reads that env var and silently falls back to 7778
+    Lua adapter (`BRIDGE_PORT_OVERRIDE` in `meshghost_emerald.lua`) reads that env var and silently falls back to 7778
     (the same default `meshghost.exe -bridge` uses) if it's unset — so *both* BizHawk instances
     connected to the *same* core process's bridge. The second core (the real, correctly-running
     peer on port 7779) sat there with no adapter ever talking to it, so it had nothing of its

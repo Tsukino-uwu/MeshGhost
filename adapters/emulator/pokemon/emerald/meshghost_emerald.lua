@@ -1,7 +1,8 @@
 -- MeshGhost: the Pokémon Emerald adapter.
 --
 -- Writes game RAM, object RAM only (gObjectEvents, gSprites, the sprite-tile allocation bitmap, and the shadow-OAM
--- window above gOamLimit that the hardware tier uses), never a save; cosmetic only, behind the ROM guard below.
+-- window above gOamLimit that the hardware tier uses), never a save; cosmetic only, and spawnGhost writes nothing until
+-- the player's own object/sprite cross-link proves gSprites' address.
 -- A pokeemerald symbol named in a comment says where the decompilation puts a mechanism: a pointer, never evidence.
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
@@ -15,7 +16,7 @@ local SPRITE_SIZE = 0x44
 local GSPRITECOORDOFFSETX_ADDR = 0x02021bbc
 local GSPRITECOORDOFFSETY_ADDR = 0x02021bbe
 
--- Archipelago's recompile moves gObjectEvents and gPlayerAvatar by this much; detected at startup, never assumed.
+-- Archipelago's recompile shifts gObjectEvents and gPlayerAvatar by this; found once the player exists, never assumed.
 local AVATAR_ADDR_ARCHIPELAGO_SHIFT = 0x284
 -- Other builds' shifts are literals at their use sites: the main chunk is at Lua's 200-local ceiling.
 
@@ -59,10 +60,7 @@ local ADAPTER_VERSION = "phase8-spawn"
 
 local FACING = { [1] = "south", [2] = "north", [3] = "west", [4] = "east" }
 
-----------------------------------------------------------------------------
--- Sprite decode, both genders: decoded once at start, since the ROM data never changes.
-----------------------------------------------------------------------------
-
+-- Both genders' sprites, decoded once at start: the ROM data never changes.
 local GOBJECTEVENTPIC_BRENDANNORMAL_ADDR = 0x084975f8
 local GOBJECTEVENTPAL_BRENDAN_ADDR = 0x084987f8
 local GOBJECTEVENTPIC_MAYNORMAL_ADDR = 0x084a3078
@@ -275,10 +273,7 @@ end
 
 local SCRIPT_DIR = scriptDir()
 
-----------------------------------------------------------------------------
 -- LuaSocket, with lua54.dll preloaded by full path: the socket DLL imports it by name, and Windows won't find it.
-----------------------------------------------------------------------------
-
 -- LoadLibrary does not accept forward slashes, so DLL paths get backslashes.
 local function dllPath(rel)
     return (SCRIPT_DIR .. rel):gsub("/", "\\")
@@ -389,10 +384,6 @@ end
 
 local socketCore = loadSocketCore()
 
-----------------------------------------------------------------------------
--- Minimal JSON.
-----------------------------------------------------------------------------
-
 local JSON_STRING_ESCAPES = {
     ["\\"] = "\\\\", ['"'] = '\\"', ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t",
 }
@@ -470,7 +461,7 @@ end
 
 local ENCODED_NO_SEND = '{"type":"local_state","payload":{"state":null}}'
 
-local decodeValue -- forward declaration
+local decodeValue
 
 local function skipWs(s, i)
     local _, j = s:find("^[ \t\r\n]*", i)
@@ -596,10 +587,6 @@ local function jsonDecode(line)
     return val
 end
 
-----------------------------------------------------------------------------
--- Bridge connection.
-----------------------------------------------------------------------------
-
 -- Declared here because the port walk below reads it; a later local would be a nil global there.
 local frameCounter = 0
 
@@ -672,9 +659,7 @@ local function connectBridge()
     end
 end
 
--- ---------------------------------------------------------------------------
 -- Autostart: start a core ourselves, and let it die with the emulator.
---
 -- os.execute and io.popen run cmd, whose window flashes. luanet's ProcessStartInfo with UseShellExecute false and
 -- CreateNoWindow true has no shell and no window, and -exit-with-pid (EmuHawk's pid) ends the core with it.
 local coreChild, coreSpawnFrame, coreSpawnFailed = nil, nil, false
@@ -799,10 +784,6 @@ local function sendLine(line)
     resetBridge()
 end
 
-----------------------------------------------------------------------------
--- Local state reading.
-----------------------------------------------------------------------------
-
 -- One table, not two locals (the 200-local ceiling).
 local lastMap = { group = nil, num = nil }
 
@@ -893,11 +874,8 @@ local function readLocalGender()
     return (gender == 1) and "female" or "male"
 end
 
-----------------------------------------------------------------------------
 -- Sub-tile position smoothing. The save block holds whole tiles, so the sender ramps from the previous tile to the
 -- new one over the step's fixed frame count; measuring the gap instead misreads tap-then-pause play.
-----------------------------------------------------------------------------
-
 local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 
 -- A drawn peer is smoothed by a rate-limited filter with no clock of its own, so it cannot beat against the game's
@@ -1146,7 +1124,6 @@ local function playerScreenPos()
     local coordOffsetX = memory.read_s16_le(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0))
     local coordOffsetY = memory.read_s16_le(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0))
 
-    -- Diagnostic: each term of the sum, spriteId included, during real glides only.
     if DIAG_SCREENPOS_PARTS and inRealGlide and diag.screenPosLogs < DIAG_SCREENPOS_PARTS_MAX_LOGS then
         diag.screenPosLogs = diag.screenPosLogs + 1
         console.log(string.format(
@@ -1157,11 +1134,8 @@ local function playerScreenPos()
     return sx + sx2 + cx + coordOffsetX, sy + sy2 + cy + coordOffsetY
 end
 
-----------------------------------------------------------------------------
 -- Remote ghost set (the tick model): upserted by render_remote, removed by despawn_remote, redrawn every frame.
 -- Updates merge into the entry, so the walk cycle survives a new position.
-----------------------------------------------------------------------------
-
 local remotes = {}
 
 -- Cross-map ghosts: a peer on a map connected to ours (a route seam) is translated at ingest into our tile frame, so
@@ -1642,10 +1616,6 @@ local function drainBridge()
     end
 end
 
-----------------------------------------------------------------------------
--- Drawing
-----------------------------------------------------------------------------
-
 local function advanceAnim(remote, dirInfo)
     if remote.lastAnim ~= remote.anim or remote.lastOrientation ~= remote.orientation then
         remote.animTimer = 0
@@ -1867,13 +1837,10 @@ local LOOPBACK_GHOST_OFFSET_TILES_Y = (os.getenv("MESHGHOST_LOOPBACK_TRAIL") and
 -- two left, so whatever the painted tier lacks shows in the same frame and lighting.
 local COMPARE_TIERS = (MESHGHOST_COMPARE_TIERS or os.getenv("MESHGHOST_COMPARE_TIERS")) and true or false
 
-----------------------------------------------------------------------------
 -- Spawning real object events, a dev tier (tiering.budget's cap defaults to 0): a peer as an ObjectEvent plus Sprite
 -- that the engine draws, animates and walks. The Sprite is copied from the player's (four ROM pointers) but needs its
 -- own VRAM tiles; MovementType_None is the one movement type with no autonomous behaviour that still plays held
 -- movements.
-----------------------------------------------------------------------------
-
 local MAX_SPRITES = 64
 local MAP_OFFSET = 7
 
@@ -1909,8 +1876,8 @@ local WALK_ACTION = { [1] = 0x08, [2] = 0x09, [3] = 0x0a, [4] = 0x0b }
 -- the player's graphics.
 local RUN_ACTION = { [1] = 0x35, [2] = 0x36, [3] = 0x37, [4] = 0x38 }
 
--- A ledge hop is one JUMP_2 action over two tiles, 0x0C + (dir - 1) in DIR_ID order (the decompilation's numbering),
--- written inline below: the main chunk is at Lua's 200-local ceiling.
+-- A ledge hop is one JUMP_2 action over two tiles, ids 0x0C..0x0F in DIR_ID order (the decompilation's numbering),
+-- written as literals below: the main chunk is at Lua's 200-local ceiling.
 
 local function w8(a, v) memory.write_u8(a, v & 0xff) end
 local function w16(a, v) memory.write_u16_le(a, v & 0xffff) end
@@ -2304,7 +2271,6 @@ genderFrames.coverMask = function(metatileId, who)
     return rows
 end
 
-----------------------------------------------------------------------------
 -- The occlusion chain (map grid -> metatile id -> gMapHeader -> tileset -> attributes) starts at two addresses that
 -- patched builds move, so both are found: the grid by the player standing inside it, then the header as the word
 -- pointing at a ROM layout whose width and height are the grid's minus 15 and 14 (the decompilation's margins).
@@ -2400,7 +2366,6 @@ genderFrames.mapLayoutPtr = function()
     genderFrames.mhNext = frameCounter + 120
     return nil
 end
-----------------------------------------------------------------------------
 
 -- Whether the map can be read on this build at all; if not, painted ghosts go without occlusion, logged once.
 genderFrames.mapReadable = function()
@@ -2682,7 +2647,6 @@ genderFrames.grassRuns = function(behaviour, frame)
     if not tmpl then return nil end
     local images = r32(tmpl + 0x0c)
     if not isRomPtr(images) then return nil end
-    -- Find a live sprite already drawing this effect and take its palette slot.
     local pal = nil
     for i = 0, 63 do
         local d = sprAddr(i)
@@ -2963,7 +2927,7 @@ local function cameraIsSettled()
         and memory.read_s32_le(GFIELDCAMERA_Y_ADDR + (genderFrames.camOffset or 0)) == 0
 end
 
--- ghosts[playerId] = { objId, sprId, localId, tileStart, tileCount, mapX, mapY }
+-- ghosts[playerId]: the spawned tier's record, built in spawnGhost.
 local ghosts = {}
 
 -- Skips slots our ghosts hold, which read inactive while culled in a doorway. Downward from 15, since
@@ -3462,7 +3426,6 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
         w16(dst + 0x02, (r16(dst + 0x02) & 0x3fff) | (r16(info.oam + 0x02) & 0xc000))
     end
 
-    -- The ROM pointers to the graphic's pixels and animations.
     w32(dst + 0x08, info.anims)
     w32(dst + 0x0c, info.images)
     w32(dst + 0x10, info.affineAnims)
@@ -3532,7 +3495,7 @@ end
 -- MESHGHOST_EMERALD_NO_BLOB, a probe: spawned ghosts get no blob, separating a ghost from its field effects.
 -- Never ship it set.
 spawnSurfBlob = function(g, mapX, mapY)
-    if MESHGHOST_EMERALD_NO_BLOB then return nil end   -- surf blob only; see NO_BOBBER
+    if MESHGHOST_EMERALD_NO_BLOB then return nil end
     if COMPARE_TIERS then
         local who = debug.getinfo(2, "l")
         logFile(string.format("BLOB SPAWN from line %s at tile (%d,%d) f=%d",
@@ -3630,7 +3593,7 @@ function spawnGhostShadow(g)
     -- The frame's byte count: a frame image is a data pointer, then a u16 size.
     local bytes = r16(imagesPtr + 4)
     local nTiles = math.max(1, bytes // 32)
-    -- A shadow frame is 32, 64, 128 or 1024 bytes; anything else means the image read is wrong.
+    -- A shadow frame is 32, 64, 128 or 1024 bytes; past 1024 or off a whole tile means the image read is wrong.
     if bytes == 0 or bytes > 1024 or bytes % 32 ~= 0 then
         logFile(string.format("shadow sprite: refusing a %d-byte frame (images=%08x)",
             bytes, imagesPtr))
@@ -3733,10 +3696,9 @@ despawnSurfBlob = function(g)
     end
     g.blobSprId, g.blobTileStart = nil, nil
 end
-----------------------------------------------------------------------------
+
 -- Fly and Briney's boat: the engine hides the player's object and draws something else. Read from the engine: the
 -- invisible bit, the boat object on the player's tile, and the fly task's bird sprite.
-----------------------------------------------------------------------------
 -- The boat's graphic uses an NPC palette slot, not the player's, so a ghost cannot simply wear it.
 flyRide.BOAT_GFX = 88
 
@@ -3800,13 +3762,11 @@ flyRide.sample = function(objId, sprId)
     end
 end
 
-----------------------------------------------------------------------------
 -- The door a ghost opens: the engine's own door task for the tile, which retires itself. That it redraws only the
 -- door's tiles and tilemap, never the map grid, a save or an object, is the decompilation's reading, unmeasured.
 -- Kinds: "o" open, "c" close, "h" hold open (the task started on its last open frame), since leaving a house shows
 -- the door already open. The wire carries the tile, never a pointer; no sound, as the SFX belongs to the warp.
 -- Vanilla addresses, shifted per build by flyRide.rom; TASK_ANIMATE is code, which does not shift with romOffset.
-----------------------------------------------------------------------------
 genderFrames.door = {
     TASK_ANIMATE = 0x0808a655,
     FRAMES_OPEN = 0x08496f8c,
@@ -4693,7 +4653,7 @@ function applyHeldPose(g, remote)
 end
 
 -- The OAM entries the hardware draws for the ghost's and the player's tiles (128 entries, 8 bytes apart), for the
--- animation trace: struct fields only feed these, and in the fishing work they agreed while OAM x moved 8px and back.
+-- animation trace: struct fields only feed these, and can all agree while the screen does not.
 function oamEntryFor(ghostTile, playerTile)
     local gout, pout = "-", "-"
     for i = 0, 127 do
@@ -4823,7 +4783,6 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused, 
             end
         end
     elseif UNDERWATER_GFX[graphicsId] then
-        -- Diving is a warp, so the spawn path usually makes the bobber; a peer spawned as a walker comes through here.
         if not g.blobSprId then spawnUnderwaterBobber(g) end
     else
         despawnSurfBlob(g)
@@ -4959,7 +4918,6 @@ local function syncGhost(playerId, remote)
                 w8(objAddr(g.objId) + 0x01, r8(objAddr(g.objId) + 0x01) | 0x08)
             end
         elseif remote.spaused and remote.sidx then
-            -- The held pose, through the helper the spawn path shares.
             if COMPARE_TIERS then
                 logFile(string.format("HELD LOAD: g.gfx=%s live=%d sanim=%s sidx=%s tileStart=%s"
                     .. " oamTile=%d", tostring(g.gfx), r8(objAddr(g.objId) + 0x05),
@@ -5189,7 +5147,6 @@ local function syncGhost(playerId, remote)
         or (remote.act >= 0x42 and remote.act <= 0x45)
         or (remote.act >= 0x74 and remote.act <= 0x7b)
         or (remote.act >= 0x80 and remote.act <= 0x8b))
-    -- Compare mode: one line per change of the peer's action, with what the ghost is doing at that moment.
     if COMPARE_TIERS and g.lastAct ~= remote.act then
         g.lastAct = remote.act
         -- The sent graphic beside the received one: only both together say which end is wrong.
@@ -5309,7 +5266,6 @@ local function syncGhost(playerId, remote)
             if g.needsSettle then
                 g.needsSettle = nil
                 g.frameFor = nil
-                -- The static pose on a bike, and after any graphic change.
                 if COMPARE_TIERS and g.settleStatic then logFile(string.format("f=%d SETTLE fires", frameCounter)) end
                 requestAction(g, ((g.settleStatic or isBikeGfx(remote.gfx))
                     and FACE_STILL_ACTION or FACE_ACTION)[dir])
@@ -5418,8 +5374,7 @@ end
 
 -- The engine binds a jump shadow by localId and a ghost wears LOCALID_PLAYER, so the shadow under a jumping ghost is
 -- ours. Rather than approximate it, learn the game's own shadow sprite while the local player hops (in use, 16x8, near
--- the player, mid-jump) and draw that; the ellipse is only the fallback.
--- A global: this chunk is at Lua's 200-local ceiling.
+-- the player, mid-jump) and draw that; the ellipse is only the fallback. A global, for the 200-local ceiling.
 function learnShadowArt()
     if genderFrames.shadowArt ~= nil then return end
     local pObj = objAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05))
@@ -5679,12 +5634,11 @@ function anchorFrame(localAreaId, playerScreenX, playerScreenY, playerMapX, play
     return camPixX, camPixY, playerMapX, playerMapY
 end
 
--- ================= Tier two: hardware sprites the PPU draws =================
---
--- A peer with no object slot gets a real hardware sprite in gMain's OAM buffer, entries 64..119: the engine's layout
--- pass stops at gOamLimit (64 on the overworld), yet all 128 entries go to the hardware every VBlank. The PPU gives it
--- background priority and the live palette; it has no collision, engine animation or walking, and it loses overlap ties
--- to the engine's own sprites. On the table, not in locals: this chunk is at Lua's 200-local ceiling.
+-- Tier two, hardware sprites the PPU draws. A peer with no object slot gets a real hardware sprite in gMain's OAM
+-- buffer, entries 64..119: the engine's layout pass stops at gOamLimit (64 on the overworld), yet all 128 entries go to
+-- the hardware every VBlank. The PPU gives it background priority and the live palette; it has no collision, engine
+-- animation or walking, and it loses overlap ties to the engine's own sprites. On the table, not in locals: this chunk
+-- is at Lua's 200-local ceiling.
 tiering.hw = {
     -- Off by default, a dev tool ("1" turns it on): it borrows the live palette, so it cannot show a peer of the other
     -- gender. Read at file load, so a loader script sets it before the adapter.
@@ -6200,7 +6154,7 @@ end
 tiering.chooseHardware = function(localAreaId, playerX, playerY, spawnSet)
     local set = {}
     if not tiering.hw.on then return set end
-    -- Same post-load quiet as chooseSpawned, same reason, same measurement.
+    -- Same post-load quiet as chooseSpawned, for the same reason.
     if genderFrames.loadQuietUntil and frameCounter < genderFrames.loadQuietUntil then
         return set
     end
@@ -7217,7 +7171,6 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                                 if not hi or y2 > hi then hi = y2 end
                                             end
                                         end
-                                        -- And where the frame's own ink is, in the same box.
                                         local ilo, ihi = nil, nil
                                         if wruns then
                                             for _, rr in ipairs(wruns) do
@@ -7387,11 +7340,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     end
 end
 
-----------------------------------------------------------------------------
 -- Main loop. The adapter always drives: once per emulator frame, connect if needed, send local
 -- state, drain what the core pushed back, then redraw every known remote.
-----------------------------------------------------------------------------
-
 if not memory.usememorydomain("System Bus") then
     console.log("ERROR: 'System Bus' memory domain not found on this core.")
     console.log("Domains available: " .. memory.getmemorydomainlist())
@@ -7557,7 +7507,6 @@ local function runFrame()
         end
         -- Spawn only after a full sweep found nothing, so a running core is always used and never doubled.
         if not connected then
-            -- On the port the sweep just found empty (firstFreePort).
             startCore(firstFreePort)
         end
         if connected then
@@ -7722,7 +7671,6 @@ local function runFrame()
                 genderFrames.sendGfx = localGraphicsId()
                 flyRide.sample(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05),
                     r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
-                -- The door the engine has open now, if any.
                 genderFrames.dk, genderFrames.dx, genderFrames.dy = genderFrames.door.sample()
                 genderFrames.sendAnim, genderFrames.sendIdx = genderFrames.coherentAnim(
                     genderFrames.sendGfx,
@@ -7774,11 +7722,9 @@ local function runFrame()
         -- The smoothed self-position just sent anchors the remotes; the rare nil-state frame skips drawing rather
         -- than read a raw position that disagrees with it.
         if connected and inOverworld() and smoothX then
-            -- One render path on both builds: spawnGhost refuses to write unless the player's own object/sprite
-            -- cross-link resolves through gSprites, so a build that moved it gets a logged refusal.
             -- The door first: it is background scenery and belongs to no tier, so a peer no tier could take keeps it.
             genderFrames.doorTick(smoothAreaId)
-            -- TIER ONE: real object events, as many as the map can spare (nearest peers win).
+            -- Tier one: real object events, as many as the map can spare (nearest peers win).
             if MESHGHOST_EMERALD_PROFILE then tiering.profT = os.clock() end
             local spawnSet = tiering.chooseSpawned(smoothAreaId, smoothX, smoothY)
             syncRemoteGhosts(smoothAreaId, spawnSet)
@@ -7793,7 +7739,7 @@ local function runFrame()
                 tiering.prof.shadows = (tiering.prof.shadows or 0) + (os.clock() - tiering.profT)
                 tiering.profT = os.clock()
             end
-            -- TIER TWO: hardware sprites the PPU draws, for peers the engine had no room for: cheaper than painting,
+            -- Tier two: hardware sprites the PPU draws, for peers the engine had no room for: cheaper than painting,
             -- with real background priority and a live palette. Flag-gated.
             local hwSet = tiering.chooseHardware(smoothAreaId, smoothX, smoothY, spawnSet)
             renderHardwareGhosts(smoothAreaId, smoothX, smoothY, hwSet)
@@ -7805,7 +7751,7 @@ local function runFrame()
                 for id in pairs(spawnSet) do drawnSkip[id] = true end
                 for id in pairs(hwSet) do drawnSkip[id] = true end
             end
-            -- TIER THREE: everyone else, painted over the finished frame so no peer is absent. Flag-gated; it clips
+            -- Tier three: everyone else, painted over the finished frame so no peer is absent. Flag-gated; it clips
             -- against tiering.scanPanel's rows rather than paint over a text box.
             if tiering.drawn then
                 drawRemotes(smoothAreaId, smoothX, smoothY, drawnSkip)
@@ -7825,11 +7771,10 @@ end
 -- One table rather than two locals: the main chunk is at Lua's 200-local ceiling.
 local frameErrors = { lastLogged = nil, consecutive = 0 }
 
--- The seam trace: a window around every crossing, one line per frame with, for each peer, the connection
--- table, the wire, the translation, the glide and the painted position, the five things that must agree.
--- conns comes first: xmapBuild stamps connsFor before reading, so a mid-load read can latch an empty table.
--- Defined here because every local it reads is declared after the xmap block; on tiering for the 200-local
--- ceiling.
+-- The seam trace: a window around every crossing, one line per frame with, for each peer, the connection table,
+-- the wire, the translation, the glide and the painted position, the five things that must agree. conns comes
+-- first: xmapBuild stamps connsFor before reading, so a mid-load read can latch an empty table. Defined here because
+-- every local it reads is declared after the xmap block; on tiering for the 200-local ceiling.
 tiering.seamTraceTick = function()
     local xm = genderFrames.xmap
     local key = genderFrames.xmapLocalKey()

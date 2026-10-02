@@ -1364,3 +1364,17 @@ change). Found and not changed (a printed string is code): `playersprite_probe` 
 should be near the screen centre. The docs that pointed into probe headers (the README's `phase5_5_sprite` note,
 `PROBES.md` for `testkit` and `cmd_drive`, `pitfalls/by-lesson.md` for `oaminject_probe`, and
 `_template/PROTOCOL.md` for `phase3_loopback`) now point where the text went.
+
+## 2026-10-02 — A5's second pass: the adapter's remaining comments read against the code
+
+Every comment left in `meshghost_emerald.lua` was read beside its code (whole-line comments 1,315 to 1,269; what remains
+is mostly the one line of why at its site). Eleven section banners and eight restatements went. Comments the code
+contradicts were fixed: the header named a ROM guard that does not exist (the guard is `spawnGhost`'s object/sprite
+cross-link refusal), the avatar offset was said to be detected at startup (it is retried every frame until the player
+exists), the shadow frame was said to accept only 32, 64, 128 or 1024 bytes (it refuses 0, over 1024, or a size that is
+not whole tiles), a ledge-hop expression was described that the code writes as a range, and two comments still
+mentioned the underwater bobber, which `spawnUnderwaterBobber` no longer makes. `luac -l -l` listings without line
+numbers identical; the three emulator tests pass. Docs that cited line numbers in the file (`FLAGS.md`, `BANDAGES.md`,
+`ideas.md`, `pitfalls/by-host.md`) now name the symbol. Found and not changed: `spawnGhost` and the graphic swap still
+call the bobber stub and log its nil sprite, `tiering.applyShowMonWindow` uses vanilla addresses so the HM-banner
+clip never applies on a patched build, and `hwFxHide(rec, "dust")` hides nothing (no pool assigns a dust slot).

@@ -1753,12 +1753,12 @@ repeating immediately rather than every 10s.
 **Two defects, and the same line states both wrongly.**
 
 1. **The cooldown is bypassed.** `connectBridge` returns early when `BRIDGE_PORT_OVERRIDE` is set
-   (`meshghost_emerald.lua:964`, `meshghost_crystal.lua:9268`) and that early path never consults
+   (`connectBridge` in `meshghost_emerald.lua` and `meshghost_crystal.lua`) and that early path never consults
    `busyUntil`, which is checked only in the port-walk loop below it. So `markPortBusy` logs
    *"skipping it for 10s"* and the next frame retries the same port anyway. The 10s is real for the
    walk and fiction for the override.
 2. **The reason is invented.** `handleBridgeLine` passes a hardcoded *"is a core that already has an
-   adapter"* to `markPortBusy` for EVERY rejection (`meshghost_emerald.lua:1941`). The actual reason
+   adapter"* to `markPortBusy` for EVERY rejection (its reject branch in `meshghost_emerald.lua`). The actual reason
    string is printed on the line above and, here, said the relay could not be dialled. The code
    comment is right that no rejection should be BRANCHED on; it does not follow that every rejection
    should be DESCRIBED as the same thing.
@@ -2526,8 +2526,8 @@ effort; once a decoder is a pure function from a line to a table/object, the fuz
 few dozen lines. So each stage below is "split it, then fuzz it", never "fuzz it".
 
 **1. Lua first, because it needs no new toolchain and buys two adapters at once.** The decoder is
-`decodeValue` / `decodeString` (`adapters/emulator/pokemon/emerald/meshghost_emerald.lua:823` and
-`:830`), duplicated in the Crystal adapter. It is pure string handling and touches no BizHawk API,
+`decodeValue` / `decodeString` (in
+`adapters/emulator/pokemon/emerald/meshghost_emerald.lua`), duplicated in the Crystal adapter. It is pure string handling and touches no BizHawk API,
 but it lives inside a script that calls BizHawk at load, so it cannot be `require`d standalone.
 **Step: lift the JSON decoder into a shared module both Pokemon adapters require.** That is worth
 doing on its own merits (one copy of the parser instead of two, per the "rules that live in one
