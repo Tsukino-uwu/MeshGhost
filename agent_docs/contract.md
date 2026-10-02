@@ -279,9 +279,9 @@ signal joins/leaves — `despawn_remote(id)` had nothing to trigger it without a
 | `pake` | both ways | one step of the room-code proof (ADR 0067): the relay's `ke2` answering a hello's `pake_ke1`, then the client's `ke3`; base64, each at most `MaxPakeFieldLen` (1536) bytes. Only ever between a hello and its `welcome` or `transports`; anywhere else it is ignored. A relay with a code refuses a hello that offers no proof exactly as it refused a wrong code. |
 | `transports` | relay → client | the transports this relay actually serves, as `kind` + `port` pairs (never a host). The reply to a `hello` carrying `query_only: true` — sent *instead of* `welcome`, with no room joined and no `player_id` assigned, and the relay closes immediately after. See Transport below |
 | `reject` | relay → client | a `code` from the frozen set, a human `reason`, and `retryable` — the last line written before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap. **The close is graceful, not immediate** — see "Closing a connection" below, which exists because a plain close would have discarded this message |
-| `join` | relay → client | a peer's `player_id`, an optional `nametag`, plus an optional initial `state`. The state is populated **only** for a recipient that negotiated `snapshot.v1` — **the RECIPIENT's own capability, not the room's** (`relay/states.go:182-187`), so a room may freely mix members that want a seed and members that do not. Such a client is sent one `join` per existing member carrying that member's most recent sample; otherwise still absent, as it was from 2026-08-11 to 2026-08-17. |
+| `join` | relay → client | a peer's `player_id`, an optional `nametag`, plus an optional initial `state`. The state is populated **only** for a recipient that negotiated `snapshot.v1` — **the RECIPIENT's own capability, not the room's** (`seedArrivalInto` in `relay/states.go`), so a room may freely mix members that want a seed and members that do not. Such a client is sent one `join` per existing member carrying that member's most recent sample; otherwise still absent, as it was from 2026-08-11 to 2026-08-17. |
 | `prefs` | client → relay | mid-session re-negotiation of per-client delivery preferences, pointer fields with absent = unchanged (today: `own_area_only`); applied silently, nothing is sent back (the relay's `TypePrefs` case in `relay.go` updates the client's flag under its lock and returns) — a client that wants confirmation observes the next `state` it does or does not receive. Added 2026-08-28; "answered with `prefs_ack`" stood here until 2026-09-06 and no such type ever existed |
-| `leave` | **both directions** | relay → client: a peer's `player_id` — one of the two things that drive `despawn_remote`. **It is no longer the only one: since 2026-08-28 the core also ages a remote out after `DefaultRemoteStaleAfter` of silence** (3s, `core/core.go:255`; `core/remotes.go:222-227`) whether or not a `leave` ever arrives — and since a live peer restates itself every keepalive, that is the path which actually fires when a client vanishes without saying goodbye. client → relay (since 2026-08-17): a voluntary goodbye, payload ignored — see `resume_token` |
+| `leave` | **both directions** | relay → client: a peer's `player_id` — one of the two things that drive `despawn_remote`. **It is no longer the only one: since 2026-08-28 the core also ages a remote out after `DefaultRemoteStaleAfter` of silence** (3s, `DefaultRemoteStaleAfter` in `core/core.go`; the age-out in `core/remotes.go`) whether or not a `leave` ever arrives — and since a live peer restates itself every keepalive, that is the path which actually fires when a client vanishes without saying goodbye. client → relay (since 2026-08-17): a voluntary goodbye, payload ignored — see `resume_token` |
 | `state` | both directions | the packet schema above |
 | `event` | both directions | an opaque payload, a `to` addressee (or absent for room broadcast), a relay-stamped `from`, a room-wide `seq`, and an optional `corr_id`. **Implemented 2026-08-17**; requires `event.v1`. See Extensibility below |
 | `lease` / `lease_state` | client → relay / relay → client | exclusive hold of an opaque key: `claim`/`renew`/`release`, answered with the current holder and expiry. Requires `lease.v1` |
@@ -765,9 +765,10 @@ ends and the next begins.
     that port number too by default (`listen_quic: ""`). Because quic is itself carried over
     UDP, it collides with plain `udp` — and **it is `udp` that gives way, not `quic`**: when both
     are served, quic keeps `listen_on`'s port and plain udp silently relocates to
-    `FallbackUDPAddr`, 127.0.0.1:7780 (`cmd/meshghost-relay/main.go:170`, applied at `:252`).
+    `FallbackUDPAddr`, 127.0.0.1:7780 (`relocatedUDPAddr` in `cmd/meshghost-relay/udp_dev.go`; plain udp
+    exists only in a dev build since ADR 0065, and a release refuses it).
     **Nothing refuses to start.** An operator who names either port explicitly — `listen_quic`, or
-    `listen_udp` (`main.go:75`, shipped at `packaging/release/config.json:61`) — is believed
+    `listen_udp` (dev build only; a release refuses a non-empty one) — is believed
     without further checking, on the grounds that naming a port is the act of taking
     responsibility for forwarding it.
   - **The handshake is always tcp, and is not configurable.** `transport` is not *how* a client
@@ -817,7 +818,7 @@ ends and the next begins.
     send time, and turns a reply into a round-trip time and a clock offset, keeping the sample
     with the **lowest** RTT rather than an average (a slow sample is slow because it was delayed
     asymmetrically, which is exactly what corrupts an offset estimate). The estimate is exposed
-    as `Stats.ClockOffsetMs`/`Stats.RelayRTTMs` (`core/stats.go:157-158`; the `Core.*` accessors
+    as `Stats.ClockOffsetMs`/`Stats.RelayRTTMs` (`core/stats.go`; the `Core.*` accessors
     this once named were deleted 2026-08-27, with no call sites anywhere including tests), and is
     *applied* to timestamps only in a room that negotiated `clock.v1`. The burst exists because a 20s heartbeat would take a minute to form
     an estimate — precisely the minute a player is first walking into everyone else's view. This
@@ -1147,8 +1148,8 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   use (3, for a 3D game); the schema still never fixes this at 2 or 3.
 - Each `position` component must be finite and within **±1e7** (`MaxPositionComponent`,
   `protocol.IsValidPosition`) — NaN/±Infinity/absurd magnitudes are rejected, dropping the
-  whole `state` message rather than clamping it. Enforced at the relay (`relay/states.go:49`) and
-  at the core on receive (`core/remotes.go:30`, and `core/replay.go` for a replayed sample),
+  whole `state` message rather than clamping it. Enforced at the relay (`forwardState` in `relay/states.go`) and
+  at the core on receive (`storeRemoteState` in `core/remotes.go`, and `core/replay.go` for a replayed sample),
   added in the 2026-08-14 relay-safety hardening pass.
 - Max serialized size of `orientation`: **256 bytes** (`MaxOrientationBytes`) — generous above
   any real representation (a handful of floats).

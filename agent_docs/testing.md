@@ -343,9 +343,8 @@ was spent closing the restart/re-attach cluster instead (`core/reconnect_test.go
    so a relay that closed the connection *without* its reason would still pass.
 3. **Transport conformance and fault injection.** `netx/conformance_test.go` carries four
    assertions and never sends anything unreliable, so the reliable/unreliable split is unasserted
-   across transports — the one place a divergence is cheapest to catch. `WriteTimeout` has no test
-   anywhere in the repo. Line limits are tested only at the no-delimiter extreme, never at the
-   boundary and never for resync. And `cmd/meshghost-netsim`'s own `-duplicate`, `-reorder` and
+   across transports — the one place a divergence is cheapest to catch. (`WriteTimeout`, and the
+   line limit at its boundary and with no resync, are tested now: `transport/transportfix_test.go`.) And `cmd/meshghost-netsim`'s own `-duplicate`, `-reorder` and
    partial-loss paths have no tests, which is exactly the "a checker with no test of its own passes
    forever" failure this file already warns about for the fakeadapter checkers.
 
@@ -582,13 +581,11 @@ regression test.
   the relay is unreachable, so the adapter's own loop retries later (see `core.go`'s bridge
   `hello` handler and `adapters/_template/PROTOCOL.md`). An adapter without that loop appears to
   work whenever the relay happens to start first and silently never recovers otherwise.
-- **A client can receive a `Leave` before its own `Welcome`.** The relay adds a joining client to
-  the room before sending its Welcome, so a peer departing at that instant gets its Leave
-  forwarded to the newcomer first. This is harmless in production (`core` ignores a
-  Leave for a player it never knew), but a test that asserts the Welcome is the *first* message —
-  as `relay_test.go`'s `expectWelcome` does — will fail on a busy room. Use a helper that skips
-  ahead to the Welcome, like `leak_test.go`'s `awaitWelcome`. Found 2026-08-16 by CI: it failed
-  all three `-race` runs while passing locally, purely on timing.
+- **A client's first message is its own `Welcome`.** The relay adds a joining client to the room
+  before its Welcome is written, so a peer departing at that instant once reached the newcomer as a
+  Leave first (found 2026-08-16 by CI, on timing alone). The relay now holds what the room sends a
+  client until its Welcome is out (`holdUntilWelcome` in `relay/relay.go`), and `leak_test.go`'s
+  `awaitWelcome` fails a test that reads anything else first.
 - **Never set `NDJSONConn.MaxLineBytes`/`IdleTimeout`/`WriteTimeout` after `FromConn`.** `FromConn`
   starts the read loop before returning, so the assignment races it. Use `FromConnWithLimits`.
   This exact mistake, in two tests, was the intermittent failure found on 2026-08-16.

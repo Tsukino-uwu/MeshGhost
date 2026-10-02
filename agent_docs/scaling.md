@@ -503,7 +503,7 @@ bytes, ~983 bytes per sample, 87.5 Hz average with 5-12ms between samples. In th
 something to a person: **~310 MB/hour of recording**, and a ten-minute run is ~52 MB.
 
 **The rate is deliberate and should not be "fixed".** The recorder taps at the top of
-`forwardLocalState` (`core/sending.go:55`), BEFORE the send-rate limit and before the relay check,
+`forwardLocalState` (`core/sending.go`), BEFORE the send-rate limit and before the relay check,
 so a recording samples at the GAME's frame rate rather than the 15 Hz `DefaultSendHz` — which is
 why a replay looks better than a live peer and why recording works with no relay at all. Cutting
 the rate would cut fidelity; the size is worth attacking from the encoding end instead.

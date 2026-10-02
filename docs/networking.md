@@ -341,8 +341,8 @@ little locking.
 (`transport.go`) reads lines from one connection on one goroutine and calls `onReceive`
 inline, one at a time. So everything reachable only from inside `handleConn`'s `OnReceive`
 callback is single-threaded by construction and needs no mutex: `rateWindow`/`rateCount`
-(`relay.go`), `loopbackGhostSent` (`relay.go`), the resolved `sendHz`/`msgLimit`. The
-comment at `relay.go` records that a `rateMu` guarding the rate counters was *removed* in a
+(`relay.go`), `loopbackGhostSent` (`relay.go`), the resolved `sendHz`/`msgLimit`. A
+`rateMu` guarding the rate counters was *removed* in a
 review as genuinely unnecessary rather than kept as defence in depth — that's the intended
 posture. `room`/`playerID` are the exception within `handleConn`, guarded by a local `mu`,
 because the hello timer's separate `AfterFunc` goroutine reads `room` too (`relay.go`).
@@ -527,7 +527,7 @@ happens when each one trips*.
 - **Display name** — `protocol.MaxDisplayNameBytes` (64) and `MaxDisplayNameRunes` (24), both,
   on `hello.display_name`: a name over either is truncated by the sanitizer, never a reason to
   refuse the connection.
-- **Flood cap** — a tumbling one-second window at `relay.go`. Over
+- **Flood cap** — a leaky bucket at `relay.go`, so any one-second span allows the same. Over
   `max(120, send_hz × 6)` (`MaxMessagesPerSecondFor`, `relay/limits.go`) the relay sends a
   `reject` with `ReasonRateLimited` and **closes**, rather than silently dropping the excess: a
   client flooding the relay isn't behaving as this project's own adapters do, and there's

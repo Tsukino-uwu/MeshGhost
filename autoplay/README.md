@@ -438,7 +438,7 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   `interact_changed` and `popup_shown`.
   Each is reported while a core is connected; what happened between two cores is not (the HP it cost still reads). An `observe` the agent calls also reads what is around the player
   from the game's state (`Surroundings.cs`): `player` physics, `view` (the camera's edges; a pixel is a world unit), a
-  27-by-17-tile `local_map` of the game's collision grid (`#` byte 1, `.` 0, `=` 255, a platform stood on from above, slopes
+  101-by-51-tile `local_map` of the game's collision grid (`#` byte 1, `.` 0, `=` 255, a platform stood on from above, slopes
   by byte range) with characters, items and the elements a player meets drawn over it, `nearby`, `elements`, `items`,
   `projectiles`, `area_elements` (every element of the whole area by type: its count and nearest 3, to aim a teleport off
   screen), `screen_text` (every visible text object's words, top to bottom: tutorial windows, popups, the HUD), and `dialogue`

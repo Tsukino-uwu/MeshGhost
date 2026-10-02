@@ -36,7 +36,7 @@ renderers on screen at once, judged at each setting: 100ms visibly chops an engi
 while running, 250ms is *"1:1:1 perfect"* (`verified.md`). The default is 250ms and the comment
 says why, including what it costs.
 
-**What has NOT closed:** `protocol/limits.go:75-91` built the `MinSendHz = 10` floor on top of the
+**What has NOT closed:** `MinSendHz` in `protocol/limits.go` built the `MinSendHz = 10` floor on top of the
 old number, and a client using the documented, supported `min_send: 150ms` still lands in exactly
 the degraded regime that floor exists to prevent. The floor was derived from a guess; it now sits
 under a measurement it was never re-checked against.
@@ -46,14 +46,14 @@ rederived from `protocol.DefaultSendHz` specifically "so the two numbers cannot 
 
 ### 2. `DefaultHeartbeatInterval` is a hand-picked margin against another package's constant
 
-`core/core.go:152-163`. The heartbeat itself is the correct fix for a real, live-diagnosed
+`DefaultHeartbeatInterval` in `core/core.go`. The heartbeat itself is the correct fix for a real, live-diagnosed
 bug (idle timeout → fresh `player_id` every minute → every peer sees a despawn/respawn). The
 **constant** is the bandage: 20s was chosen as "comfortable margin" under `transport`'s 60s, but
 `relay.Server.IdleTimeout` is a per-server override, so a relay configured below ~20s silently
 reintroduces the exact churn this was chosen to prevent.
 
 **Fix:** `DefaultIdleTimeout / 3`. The repo already does this correctly elsewhere —
-`relay/limits.go:65` derives its headroom "so the stated relationship can't silently break".
+`RateLimitHeadroomMultiple` in `relay/limits.go` derives its headroom "so the stated relationship can't silently break".
 
 ### 3. `MaxEventBytes` is a margin asserted against a datagram limit it does not actually fit
 
@@ -80,9 +80,9 @@ transport-dependent (`beyond-cosmetic.md` §9) — its own decision, not a hot-f
 
 ## Borderline — noted, not urgent
 
-- **`udpconn.go:134-140`.** Retry budget asserted to fit inside `relay.DefaultHelloTimeout` in
+- **`netx/udpconn`'s retry constants.** Retry budget asserted to fit inside `relay.DefaultHelloTimeout` in
   prose only, not derived. Same drift shape as #2, lower impact.
-- **`cmd/meshghost/parent_windows.go:31-43`.** Windows PID reuse could make a dead parent look alive forever; not
+- **`cmd/meshghost/parent_windows.go`'s parent watch.** Windows PID reuse could make a dead parent look alive forever; not
   called out anywhere.
 
 ## Deliberate — do NOT "fix" these
