@@ -205,7 +205,7 @@ func (c *Core) replayLast() error {
 		}
 	}
 	// The newest file may be the recording still open, so flush it: the clip then holds everything up to now, not up to
-	// the last time a 64KiB buffer filled.
+	// the recorder's last once-a-second flush.
 	c.flushRecordingIfOpen()
 	// Read before the load: a zip attaches its track at parse time, which the clip.track == nil test below cannot gate.
 	c.mu.Lock()
@@ -215,7 +215,7 @@ func (c *Core) replayLast() error {
 	if err != nil {
 		return err
 	}
-	// The newest recording's track is often still being written; flushRecordingIfOpen flushed it with the clip.
+	// The newest recording's track may still be open: only what it has flushed so far is read.
 	if wantTracks && clip.track == nil && clip.header.RecordingID != "" {
 		c.attachTrackFromIndex(clip, name, c.inputTrackIndex())
 	}

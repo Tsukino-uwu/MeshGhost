@@ -155,7 +155,7 @@ func TestOutboxPreservesOrder(t *testing.T) {
 	}
 }
 
-// A refused client's Reject travels this queue, so discarding on close would turn the refusal into a bare hangup.
+// A member removed cleanly is still owed the lines already queued for it, so close drains rather than discards.
 func TestCloseDrainsWhatIsAlreadyQueued(t *testing.T) {
 	rt := &recordingTransport{}
 	o := newOutbox("p1", rt)

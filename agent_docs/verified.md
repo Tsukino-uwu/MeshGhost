@@ -2379,3 +2379,7 @@ comment in the file named by each heading, at `f64560cc`.
 
 **`.github/workflows/release.yml`**
 - NOT stripped, since 2026-09-22. Until then -ldflags="-s -w" dropped the symbol table and DWARF debug info (stack traces unaffected, verified 2026-08-18; 9.4 MB -> 6.5 MB on disk at the time). Four VirusTotal uploads of the same source on 2026-09-22 settled it the other way: the stripped builds drew Bkav and Elastic, the unstripped builds did not, and an unstripped build with -trimpath scored 0/70 -- the stripped bytes were what those engines reacted to, and the missing -trimpath (this machine's paths in the binary) was what Microsoft's !ml verdict followed. Measured on the client the same day: 8.7 MB -> 12.5 MB on disk, 3.3 MB -> 6.4 MB zipped; nothing at runtime. agent_docs/security-design.md, code-signing section, has the table.
+
+**`protocol/linecap_test.go`**
+
+- The envelope, not the bare state, is what the reader measures; the bare state alone is one byte under the cap.

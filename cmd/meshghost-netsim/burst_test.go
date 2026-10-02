@@ -16,8 +16,7 @@ func burstFaults(loss float64, mean time.Duration) *faults {
 	}
 }
 
-// runLengths replays a 15Hz stream through the model and returns the length of
-// every run of consecutive losses.
+// runLengths feeds samples spaced by spacing through the model and returns the length of each run of lost ones.
 func runLengths(f *faults, samples int, spacing time.Duration) []int {
 	now := time.Unix(0, 0)
 	var runs []int

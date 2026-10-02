@@ -69,7 +69,7 @@ func TestWriteUnreliableDoesNotAllocatePerCall(t *testing.T) {
 }
 
 // TestConcurrentWriteUnreliableKeepsDatagramsIntact: the lock covers the write itself, not merely the framing, so a
-// second caller cannot overwrite a datagram still being sent. It catches that under -race, as CI runs it.
+// second caller cannot overwrite a datagram still being sent. It catches that under -race.
 func TestConcurrentWriteUnreliableKeepsDatagramsIntact(t *testing.T) {
 	l := listenTest(t)
 	rawClient, server := dialAndAccept(t, l)

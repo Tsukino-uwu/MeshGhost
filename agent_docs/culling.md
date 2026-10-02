@@ -266,7 +266,7 @@ stage except the last one. A single-area room is the shipped filter's worst case
 so this is the case worth attacking next.
 
 **The shape, if built:** a new optional field beside `OwnAreaOnly`, NOT anything in `extras` —
-`extras` is opaque to the core by contract (`protocol.go:49`), so the relay may never read it. The
+`extras` is opaque to the core by contract (`State.Extras` in `protocol/protocol.go`), so the relay may never read it. The
 adapter declares a radius in its own units (a game-specific number that stays adapter-side, exactly
 as `RenderAllAreas` does today), the core forwards it as a declaration, and the relay applies pure
 game-blind arithmetic to coordinates it already relays. Absent means send everything, for the same

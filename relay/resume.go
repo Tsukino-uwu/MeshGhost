@@ -13,10 +13,6 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// ---------------------------------------------------------------------------
-// Session resumption
-// ---------------------------------------------------------------------------
-
 // suspendedSession is a dropped client's identity, held for protocol.DefaultResumeGrace in case it comes back. It
 // lives in memory only: it survives a network blip, not a relay restart.
 type suspendedSession struct {
@@ -69,7 +65,7 @@ func (s *Server) suspend(r *Room, c *Client, token string) {
 		return
 	}
 	sess.suspended = true
-	// Set under s.mu, where every Stop of it runs, since a takeover can race this; resumeGrace takes no lock.
+	// Set under s.mu, which orders it against a racing takeSession or forgetSessionsOf; resumeGrace takes no lock.
 	sess.timer = time.AfterFunc(s.resumeGrace(), func() { s.expireSuspended(token) })
 	s.mu.Unlock()
 	log.Printf("relay: %s dropped from room %q — holding its identity for %s in case it reconnects",

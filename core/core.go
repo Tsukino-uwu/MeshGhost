@@ -124,7 +124,7 @@ const DefaultInterpolationDelay = 450 * time.Millisecond
 
 // DefaultLocalGhostDelay is the render delay for a ghost this core invented, a replay or chaser: a local sample never
 // crossed a network. Not zero, or render time lands on the newest sample and holds, a stair-step at the feed rate;
-// 25ms is about two intervals at a game's frame rate. Derived per buffer it would go non-monotone under a hitch.
+// 25ms is one or two intervals at a game's frame rate. Derived per buffer it would go non-monotone under a hitch.
 const DefaultLocalGhostDelay = 25 * time.Millisecond
 
 // DefaultIdleKeepalive is how often an unchanged state is sent anyway once change suppression is dropping repeats.
@@ -331,7 +331,7 @@ type Core struct {
 	dry           dryMeter
 	transit       transitMeter
 	// DryLog, when set, receives at most one line a second naming the samples around a dry render (dev only).
-	// dryLoggedAt is the render time of the last line, guarded by mu.
+	// dryLoggedAt is the nowMs of the last line, guarded by mu.
 	DryLog      func(string)
 	dryLoggedAt int64
 
@@ -406,7 +406,7 @@ type Core struct {
 	renderedNow int64
 
 	// timeSrc is the clock this Core reads for logic whose other end is our own code, not a socket, process or human.
-	// Nil means the wall clock; only tests set it, through the accessor in clock.go, so it is never lazily assigned.
+	// Nil means the wall clock; only tests set it, and clk() reads it without ever assigning it.
 	timeSrc coreClock
 
 	// roster is the set of player_ids seen via Welcome or Join; a State for any other id is dropped, so a hostile
@@ -424,9 +424,9 @@ type Core struct {
 	// and an empty one would disable the second-Welcome guard.
 	welcomed bool
 
-	// agedOut is every id the age-out took a roster seat from without a Leave. Such a peer may only be paused (a
-	// BizHawk window that stopped its adapter), so a state from it retakes its seat through the same capped
-	// admission; an id the relay never admitted is still refused. A Leave clears it.
+	// agedOut is every id the age-out took a roster seat from without a Leave. Such a peer may only be paused (an
+	// emulator that stopped its adapter), so a state from it retakes its seat through the same capped admission; an
+	// id the relay never admitted is still refused. A Leave clears it.
 	agedOut map[string]struct{}
 
 	// localPeers is the set of ids this Core invented, replays and chasers. Each is also in the roster, or its state

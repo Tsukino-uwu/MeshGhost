@@ -209,7 +209,7 @@ func (c *Core) recordLocal(state *protocol.State) {
 	c.rec.mu.Unlock()
 
 	// A failed write stopped the recording, so the adapter is told, as on every other stop, or its indicator stays
-	// lit. After the unlock: both calls take c.rec.mu, and pushRecordingState takes c.mu, never held under it.
+	// lit. After the unlock: both calls take c.rec.mu.
 	if writeFailed {
 		c.rearmTap()
 		c.pushRecordingState()
@@ -311,8 +311,7 @@ func (r *recorder) closeLocked() (path string, written int, err error) {
 }
 
 // Rounding applied to every float on its way into a file: json.Marshal's 17-digit tails are binary noise, not
-// information. 3 decimals of a position unit is 10 micrometres in the one 3D game here, and 1e-6 radians is a fifth
-// of an arcsecond.
+// information. 3 decimals is 10 micrometres where a unit is a centimetre, and 1e-6 radians is a fifth of an arcsecond.
 const (
 	replayPosDigits    = 3
 	replayOrientDigits = 6
@@ -456,8 +455,8 @@ var replayStat = os.Stat
 // same-second collisions the answers are not to be believed.
 const replayNameAttempts = 100
 
-// replayFileName is rec-YYYYMMDD-HHMMSS.ndjson, or last-... for a save-last file; a same-second collision gets a -2,
-// -3 suffix. Any Stat error but not-exist ends the search: this runs under c.rec.mu, which recordLocal takes on every
+// replayFileName is <prefix>-YYYYMMDD-HHMMSS.ndjson (rec, last, in or inlast); a same-second collision gets a -2, -3
+// suffix. Any Stat error but not-exist ends the search: it can run under c.rec.mu, which recordLocal takes on every
 // frame.
 func replayFileName(dir, prefix string, at time.Time, gz bool) (string, error) {
 	ext := ".ndjson"
@@ -481,7 +480,7 @@ func replayFileName(dir, prefix string, at time.Time, gz bool) (string, error) {
 
 // StartRecording arms the state recording and, when ReplayInputs is on, the input track beside it, both carrying the
 // same recording_id. The path is decided now; the file appears at the first sample. Two calls, not one body: the
-// state half holds c.rec.mu throughout, and the input half takes c.mu, which must never be taken under it.
+// state half holds c.rec.mu throughout, and the input half takes inputMeta's mutex, which is never taken under it.
 func (c *Core) StartRecording() (string, error) {
 	path, err := c.startStateRecording()
 	if err != nil {

@@ -270,7 +270,7 @@ func TestShippedStackRejectsAWrongRoomCode(t *testing.T) {
 	})
 	t.Run("plaintext is refused before the code is even read", func(t *testing.T) {
 		c := dialRaw(t, addr)
-		// A plaintext client with the right code is the stale build the sniff exists to turn away.
+		// A plaintext client, right code or none, is the stale build the sniff exists to turn away.
 		env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeHello})
 		if err != nil {
 			t.Fatal(err)
@@ -333,7 +333,6 @@ func TestShippedStackCapsOpenConnectionsFromOneSource(t *testing.T) {
 	// Let the accept loop take them all: one the OS accepted but the limiter has not counted would let the next in.
 	time.Sleep(200 * time.Millisecond)
 
-	// One more from the same address is closed at once.
 	extra := dialRaw(t, addr)
 	expectClosed(t, extra, hostileDialTimeout)
 
@@ -398,7 +397,6 @@ func TestShippedStackThrottlesRoomCodeGuessesFromOneSource(t *testing.T) {
 		}
 		break
 	}
-	// The budget is spent: the right code and another wrong one are both refused as rate limited.
 	for _, code := range []string{"right-code", "wrong"} {
 		c := dialTLS(t, addr)
 		// Blocked before the proof: the hello with KE1 gets the Reject at once.

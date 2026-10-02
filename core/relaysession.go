@@ -81,7 +81,6 @@ func (c *Core) ConnectRelay(gameID string) error {
 	// default idle and write timeouts.
 	conn := transport.FromConnWithLimits(netConn, protocol.MaxLineBytes, 0, 0)
 	c.mu.Lock()
-	// The dial succeeded, so this transport's run of consecutive failures is over.
 	delete(c.transportDialFailures, kind.String())
 	// Taking the slot over forgets what was in it: a previous connection's identity left in place would make this
 	// connection's Welcome look like an illegal second one (see forgetRelaySessionLocked).
@@ -110,9 +109,9 @@ func (c *Core) ConnectRelay(gameID string) error {
 	conn.OnDisconnect(func(err error) {
 		log.Printf("core: relay disconnected: %v", err)
 		goneOnce.Do(func() { close(gone) })
-		// Dropping the remotes makes the next adapter frame despawn each one; nothing else would, since a buffer
-		// holds its newest sample forever. The wasCurrent guard is load-bearing: this runs on readLoop's own
-		// goroutine, after Close returns, possibly once a newer connection is live.
+		// Dropping the remotes makes the next adapter frame despawn each one, not the age-out seconds later. The
+		// wasCurrent guard is load-bearing: this runs on readLoop's own goroutine, after Close returns, possibly once
+		// a newer connection is live.
 		wasCurrent, retry := c.clearRelaySession(conn)
 
 		if wasCurrent {
@@ -194,7 +193,7 @@ func (c *Core) ConnectRelay(gameID string) error {
 	select {
 	case w := <-welcome:
 		// The client half of the version floor, reported as a permanent refusal naming both versions: retrying
-		// changes neither build. A relay advertising 0 predates the field and fails the same comparison.
+		// changes neither build.
 		if rej := c.refuseWelcomeVersion(w); rej != nil {
 			_ = conn.Close()
 			c.clearRelayIfCurrent(conn)
@@ -363,7 +362,7 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 	roomCodeDue := cachedCode == protocol.CodeInvalidRoomCode &&
 		time.Since(cachedAt) >= RoomCodeRetryInterval // wall-clock: paces a real retry, like the backoff sleeps
 	if cachedGame == gameID && cachedReason != "" && !roomCodeDue {
-		// Logged once already; only a config edit and restart changes it.
+		// Logged once already, when it was cached.
 		return &RejectError{Reason: cachedReason, Code: cachedCode}
 	}
 
@@ -515,7 +514,7 @@ func (c *Core) reconnectWithBackoff(gameID, adapterGameVersion string, bridgeCon
 // resumeReconnectBackoff decides what a starting reconnect loop waits from what the previous session managed;
 // holdFirst means wait before the first dial. The threshold is the backoff itself: a session that outlived the wait
 // is progress, so a relay restart resets and a flaky link settles where its uptime matches its backoff, instead of
-// escalating past DefaultResumeGrace.
+// escalating past protocol.DefaultResumeGrace.
 func (c *Core) resumeReconnectBackoff(initial, max time.Duration) (backoff time.Duration, holdFirst bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -668,9 +667,8 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 			default:
 			}
 
-			// After the send, never before: storing a name can block on the bridge and would delay the Welcome the
-			// handshake waits on. The adapter gets these names from pushRemoteNames when it attaches. Outside the
-			// lock: storeRemoteName takes c.mu.
+			// The adapter gets these names from pushRemoteNames when it attaches. Outside the lock: storeRemoteName
+			// takes c.mu.
 			c.storeRosterNames(w.Nametags)
 		}
 	case protocol.TypeReject:

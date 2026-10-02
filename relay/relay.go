@@ -81,9 +81,7 @@ type Room struct {
 	// written under. It outlives the lease and its writer by design (see freeLeaseLocked).
 	world map[worldKey]*worldEntry
 
-	// Cross-area fan-out counters, read by snapshot(): what was sent after filtering (Out, BytesForwarded), what went
-	// to a recipient in another area, the ceiling a filter could reach (Cross, BytesCrossArea), and what the filter
-	// suppressed (Filtered, BytesFiltered). Forwarded+Filtered is the pre-filter total both shares divide by. A
+	// Cross-area fan-out counters, copied by snapshot() into StateFanoutSnapshot, whose fields say what each counts. A
 	// recipient counts as elsewhere only when both areas are known and differ.
 	statesIn                uint64
 	stateRecipientsOut      uint64
@@ -246,7 +244,7 @@ func (r *Room) forwardLine(payload []byte, to []string, unreliable bool) {
 		// sender invisible until it speaks again.
 		if c.holdUntilWelcome {
 			// The outbox's two-class policy: a dropped state is harmless, a dropped join or leave leaves a peer
-			// invisible for the session. A large room alone can fill this during one Welcome write.
+			// invisible for the session.
 			if len(c.pending) >= maxPendingBeforeWelcome {
 				drop := -1
 				for i, u := range c.pendingUnreliable {
@@ -993,7 +991,6 @@ func (s *Server) handleConn(conn net.Conn) {
 		// socket, and each pipelined line could log twice.
 		handshakeRejected bool
 
-		// loopbackGhostSent tracks whether this connection was sent a Join for its own "<id>-ghost".
 		loopbackGhostSent bool
 	)
 

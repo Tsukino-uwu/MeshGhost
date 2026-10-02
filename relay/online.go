@@ -89,10 +89,6 @@ func (r *Room) memberIDsLocked() []string {
 	return ids
 }
 
-// ---------------------------------------------------------------------------
-// Event plane
-// ---------------------------------------------------------------------------
-
 // handleEvent stamps and routes one client event, overwriting From with the sender's relay-assigned id. The sender
 // always gets its own event back: the stamp is the relay's, so the echo is how it learns where its event landed in
 // the total order. An event addressed to a player not in the room reaches only that echo, with no error: the relay
@@ -129,7 +125,7 @@ func (r *Room) handleEvent(from string, ev protocol.Event) {
 	}
 }
 
-// maxMissedEventsPerMember bounds one suspended member's event backlog to a quarter of maxSnapshotLines, so a full
+// maxMissedEventsPerMember bounds one suspended member's event backlog to a third of maxSnapshotLines, so a full
 // backlog cannot push the escrow, world and lease lines off the resume snapshot. The grace window can carry more, so
 // this is a ceiling on the guarantee; overflow is logged once per room.
 const maxMissedEventsPerMember = 64

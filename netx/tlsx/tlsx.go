@@ -63,9 +63,8 @@ const certificateValidity = 20 * 365 * 24 * time.Hour
 // its own, so matching any later entry accepts a certificate the peer holds no key for.
 type Verifier func(leafDER []byte) error
 
-// TrustAnyCertificate is the Verifier that accepts every certificate, for tests and dev tools only
-// (cmd/meshghost-netsim stands between two ends it owns). No shipped client path uses it, and a nil Verifier is an
-// error rather than this.
+// TrustAnyCertificate is the Verifier that accepts every certificate, for tests and dev tools only. No shipped client
+// path uses it, and a nil Verifier is an error rather than this.
 func TrustAnyCertificate([]byte) error { return nil }
 
 // newCertificate generates a fresh Ed25519 self-signed certificate and returns it with its fingerprint.

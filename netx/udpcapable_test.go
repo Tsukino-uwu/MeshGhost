@@ -2,7 +2,7 @@ package netx
 
 import "testing"
 
-// A probe that false-negatives would silently take quic away from every player.
+// TestUDPUsableIsTrueOnAMachineThatHasUDP: a false-negative probe would silently take quic away from every player.
 func TestUDPUsableIsTrueOnAMachineThatHasUDP(t *testing.T) {
 	if !UDPUsable() {
 		t.Fatalf("UDPUsable said no on a machine that plainly has udp: %s", UDPUnusableReason())
@@ -12,7 +12,7 @@ func TestUDPUsableIsTrueOnAMachineThatHasUDP(t *testing.T) {
 	}
 }
 
-// Cached, so calling it on every connect attempt costs one syscall per process.
+// TestUDPUsableIsStable: cached, so calling it on every connect attempt costs one syscall per process.
 func TestUDPUsableIsStable(t *testing.T) {
 	first := UDPUsable()
 	for range 100 {

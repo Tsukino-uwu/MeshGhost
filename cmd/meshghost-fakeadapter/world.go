@@ -147,7 +147,7 @@ func (w *worldChecker) onLeaseState(st protocol.LeaseState) {
 	w.drainPendingLocked()
 }
 
-// onWorldState applies one world message and runs invariants 4-8 against it.
+// onWorldState applies one world message, checks invariants 4, 5, 7 and 8, and collects the adoption for 6.
 func (w *worldChecker) onWorldState(st protocol.WorldState) {
 	if st.Authority != w.cfg.authority {
 		return

@@ -160,8 +160,8 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			c.adapterReady = true
 			c.mu.Unlock()
 			c.armRing()
-			// The input ring is always on from attach, so save-last needs nothing armed in advance; reset first, since
-			// a new adapter's bits and frame counter are its own.
+			// With replay inputs on, the input ring runs from attach, so save-last needs nothing armed in advance;
+			// reset first, since a new adapter's bits and frame counter are its own.
 			c.inputMeta.reset()
 			c.armInputRing()
 			// record_on_launch arms at attach; the file appears at the first in-game sample, so the main menu is never
@@ -207,7 +207,6 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			}
 			c.SetPlayerFrozen(msg.Frozen)
 		case bridge.TypeChaserReset:
-			// Logged either way, like replay_control.
 			if n, ok := c.ResetChasers(); ok {
 				log.Printf("core: chaser_reset from the adapter: the pack starts over (%d ghost(s))", n)
 			} else {
@@ -400,8 +399,7 @@ func (c *Core) onAdapterFrameInProcess(adapter Adapter, rendered map[string]bool
 	)
 }
 
-// sendRenderRemote takes cosmetic from the id, never from c.localPeers membership: a seam drops and re-admits a local
-// peer, and a tick inside it would tell the adapter a replay ghost is solid for that frame.
+// sendRenderRemote takes cosmetic from the id, never from c.localPeers membership (see isLocalPeerID).
 func (c *Core) sendRenderRemote(nd transport.Transport, playerID string, st protocol.State, br orientBracket) error {
 	msg := bridge.RenderRemote{PlayerID: playerID, State: st, Cosmetic: isLocalPeerID(playerID)}
 	if br.Have {
@@ -426,8 +424,8 @@ func rejectBridge(nd transport.Transport, reason, code string, retryable bool) {
 }
 
 // pushSessionPolicy resolves the room policy against this Core's own preference and sends it to the attached adapter
-// when it changed, so the Welcome handler can call it unconditionally. The send is outside mu: a wedged adapter
-// socket must not stall every relay message.
+// when it changed, so the Welcome handler can call it unconditionally. The send is outside mu: at the queue cap it
+// runs the writer's onDead, which takes mu.
 func (c *Core) pushSessionPolicy() {
 	// Offline is a known policy, not an unanswered one: there is no room, so the player's own setting is the whole
 	// answer, and chaser_contact, a solo feature, rides this message. Read outside the lock: offline() takes its own.
@@ -476,8 +474,8 @@ func (c *Core) pushRecordingState() {
 	c.pushRecordingStateValues(recording, startedMs)
 }
 
-// pushRecordingStateValues touches only c.mu, for callers that already hold c.rec.mu (StartRecording does, and Go
-// mutexes are not reentrant). The recorder is always released before c.mu is taken, so the two never nest.
+// pushRecordingStateValues touches only c.mu, for callers that already hold c.rec.mu (startStateRecording does, and
+// Go mutexes are not reentrant). c.mu may be taken under c.rec.mu, never the reverse.
 func (c *Core) pushRecordingStateValues(recording bool, startedMs int64) {
 	if !recording {
 		startedMs = 0
@@ -528,7 +526,6 @@ func (c *Core) sendToAdapter(nd transport.Transport, t bridge.MessageType, paylo
 			m.renderOf = rr.PlayerID
 		}
 	case bridge.TypeDespawnRemote:
-		// Stop coalescing onto this peer's queued render, so a later respawn lands after the despawn.
 		if dr, isDespawn := payload.(bridge.DespawnRemote); isDespawn {
 			w.forgetPending(dr.PlayerID)
 		}

@@ -11,9 +11,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// correctionSafetyFactor widens the warp bound: a wrong guess can be wrong by
-// twice the distance travelled (predicted forward, peer went back), and speed
-// is a decayed maximum that may sit a little under the true one.
+// correctionSafetyFactor widens the warp bound: a wrong guess can be wrong by twice the distance travelled (predicted
+// forward, peer went back), and speed is a decayed maximum that may sit a little under the true one.
 const correctionSafetyFactor = 2.5
 
 // correctionEpsilon is where a decayed offset is dropped rather than carried as a denormal; no game resolves a

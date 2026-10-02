@@ -51,7 +51,6 @@ func TestRelayReloadAppliesTheThreeLiveKeysWithoutDroppingAnyone(t *testing.T) {
 	writeRelayConfig(t, path, `{"server":{"room_code":"second","only_game":"game-a","max_clients":2}}`)
 	settle(w)
 
-	// The old code is refused, the new one admitted, other games refused.
 	c := dialTLS(t, addr)
 	sendHelloWithCode(t, c, helloFor(), "first", srv.PakeIdentity)
 	if rej := readReject(t, c); rej.Code != protocol.CodeInvalidRoomCode {
@@ -82,9 +81,8 @@ func TestRelayReloadAppliesTheThreeLiveKeysWithoutDroppingAnyone(t *testing.T) {
 	}
 }
 
-// TestRelayReloadFallsBackToTheFlagValueAndNamesRelaunchOnlyKeys: a removed
-// key returns to what the flags said, and a changed relaunch-only key is
-// reported once and does not carry forward.
+// TestRelayReloadFallsBackToTheFlagValueAndNamesRelaunchOnlyKeys: a removed key returns to what the flags said, and a
+// changed relaunch-only key is reported against the running value on every save and never carries forward.
 func TestRelayReloadFallsBackToTheFlagValueAndNamesRelaunchOnlyKeys(t *testing.T) {
 	captureLog(t)
 	path := filepath.Join(t.TempDir(), "config.json")

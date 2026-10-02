@@ -2882,3 +2882,24 @@ record held went to [verified.md](../verified.md), same date; a doc pointer a co
   `Nametags`), a nil known-relays store said to act in-memory (`verify` refuses it; the Core holds the in-memory one), a
   writer's empty queue said to mean everything reached the transport, a saved room or relay said to move a running
   session (relaunch-only), and tcp called unencrypted. The replay and recording files are in `phase11.md`'s note.
+
+## 2026-10-02 — A5's second pass: the Go side's remaining comments read against the code
+
+Every comment the first pass left in `relay/`, `transport/`, `bridge/`, `pake/`, `core/` (not its tests), `cmd/`,
+`internal/`, `protocol/` and `netx/` (227 files) was read beside the code it describes. Few lines went (whole-line
+comments 6,683 to 6,608): what is left is doc comments on exported names and real whys. About sixty claims the code
+contradicts were fixed, among them: the relay's missed-event cap called a quarter of the snapshot (a third), `pake`
+said it registers its record at startup (at the first login), the recorder's lock order stated backwards (`c.mu` may be
+taken under `c.rec.mu`, never the reverse), `onDead` said to run only on the writer goroutine (also at the queue cap),
+`relaysession` said a buffer holds its newest sample forever (the age-out despawns it), the fakeadapter's package doc
+said no bridge socket (`-bridge` drives one), udp's reliable stream said to carry only lifecycle messages (every
+reliable message), and tlsx said netsim trusts any certificate (only tests do). Code unchanged: Go tokens minus comments
+identical (227 files), gofmt clean, `run-gotests.bat` green.
+
+Found and not changed, for a decision (each a code change): `flushInputTrackIfOpen` has no caller, so replay-last can
+load an input track missing up to its last second; the fakeadapter's `attach` runs before `ConnectRelay`, so every
+synthetic client's own id is empty; the relay's `-room-code` help still says the code crosses in plaintext (a test pins
+the word); `opaqueStringWireLen` counts five JSON escapes at six bytes (two); `"Client"`/`"Server"` sections are found
+case-sensitively by three config readers; and netsim's tcp partition pushes a chunk's due time back 50 ms per 5 ms
+slept, so a 2 s partition stalls tcp about 20 s. Living docs that cited line
+numbers in these files (`security-design.md`, `networking.md`, `ideas.md`, `culling.md`) now name the symbol.

@@ -1,7 +1,6 @@
 package core
 
-// The send path: local state out to the relay, and keeping the link alive. The effective send interval is the slower of
-// this client's own minimum and the relay's advertised rate, so a relay can never speed a client past a rate it chose.
+// The send path: local state out to the relay, and keeping the link alive.
 
 import (
 	"bytes"

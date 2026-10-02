@@ -76,13 +76,11 @@ func TestPendingConnectionsAreCappedPerSourceAndDrain(t *testing.T) {
 		t.Fatalf("pending = %d after the refusal, want 2: a refused connection must not be counted", got)
 	}
 
-	// Drain: closing the held ones returns the count to zero.
 	for _, qc := range held {
 		_ = qc.CloseWithError(0, "")
 	}
 	waitPending(0)
 
-	// And the address is admitted again.
 	again, err := dial()
 	if err != nil {
 		t.Fatalf("dial after drain: %v", err)

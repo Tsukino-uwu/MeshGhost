@@ -12,10 +12,6 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// ---------------------------------------------------------------------------
-// The state plane's inbound path
-// ---------------------------------------------------------------------------
-
 // forwardState is everything the relay does with one inbound state: decode, validate, stamp the sender's real id,
 // remember it for late joiners, and fan it out. It returns the stamped state for the dev loopback echo, and ok=false
 // for anything dropped. Its own function so forward_bench_test.go measures this path, not a copy of it.
@@ -108,10 +104,6 @@ func (r *Room) seedArrivalInto(arrival, area string) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Late-join snapshot
-// ---------------------------------------------------------------------------
 
 // recordState remembers a player's most recent valid state for late joiners, in every room: storage is one State per
 // member, and whether to send a seed is the recipient's question. It returns the area the player was in before this

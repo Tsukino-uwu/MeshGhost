@@ -148,7 +148,6 @@ func TestUnvalidatedSourceNeverReachesAccept(t *testing.T) {
 func TestCookieFromOneAddressDoesNotValidateAnother(t *testing.T) {
 	l := listenTest(t)
 
-	// Obtain a real cookie the legitimate way, from address A.
 	a := dialRaw(t, l.Addr())
 	defer a.Close()
 	if _, err := a.Write([]byte{ctrlPrefix, ctrlHello}); err != nil {
@@ -167,7 +166,6 @@ func TestCookieFromOneAddressDoesNotValidateAnother(t *testing.T) {
 	}
 	cookie := append([]byte(nil), buf[2:2+cookieLen]...)
 
-	// Replay it from a different source address B.
 	b := dialRaw(t, l.Addr())
 	defer b.Close()
 	if _, err := b.Write(append([]byte{ctrlPrefix, ctrlConfirm}, cookie...)); err != nil {
@@ -306,8 +304,6 @@ func TestInjectionFromTheRightAddressWithTheWrongTokenIsDropped(t *testing.T) {
 		t.Fatalf("server read %q, want %q", got, real)
 	}
 
-	// Now forge one from the client's own socket — same source address,
-	// same framing, wrong token.
 	raw := client.(*Conn)
 	forged := append([]byte{ctrlPrefix, ctrlLossy}, make([]byte, tokenLen)...)
 	for i := range forged[2 : 2+tokenLen] {

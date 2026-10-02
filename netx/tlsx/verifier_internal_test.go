@@ -37,9 +37,9 @@ func newDER(t *testing.T, cn string) []byte {
 	return der
 }
 
-// The verifier must be handed only the leaf: with InsecureSkipVerify there is no chain building, and only the first
-// certificate is bound to the handshake signature. The genuine relay's certificate is present here, just not where
-// it proves anything.
+// TestTheVerifierIsHandedOnlyTheLeafCertificate: with InsecureSkipVerify there is no chain building, and only the
+// first certificate is bound to the handshake signature. The genuine relay's certificate is present here, just not
+// where it proves anything.
 func TestTheVerifierIsHandedOnlyTheLeafCertificate(t *testing.T) {
 	relay := newDER(t, "relay")
 	attacker := newDER(t, "attacker")

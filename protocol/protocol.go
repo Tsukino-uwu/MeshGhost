@@ -267,8 +267,8 @@ const (
 	ReasonGameNotAllowed = "game not allowed on this relay"
 	// ReasonServerFull means the relay is at MaxClients across every room combined, not that one room is full.
 	ReasonServerFull = "server full"
-	// ReasonRateLimited: the connection exceeded the per-client message cap and is being closed. Usually sent after
-	// a join, and retryable: a reconnecting client re-reads the room's send rate and may fit under the cap.
+	// ReasonRateLimited: the connection exceeded the per-client message cap and is being closed, or its address is
+	// over the wrong-room-code budget. Retryable: a reconnecting client re-reads the room's send rate and may fit.
 	ReasonRateLimited = "rate limited"
 )
 

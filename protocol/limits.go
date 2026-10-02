@@ -129,7 +129,7 @@ func ValidateState(st State) bool {
 	if !IsValidPosition(st.Position) {
 		return false
 	}
-	// Last on purpose: the only check that serializes anything, and nothing observes which check rejected a state.
+	// After the cheap checks on purpose: it serializes, and nothing observes which check rejected a state.
 	if !extrasWithinLimit(st.Extras) {
 		return false
 	}

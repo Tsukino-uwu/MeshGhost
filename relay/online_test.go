@@ -107,8 +107,6 @@ func (tc *testClient) expectNothingOfType(unwanted protocol.MessageType, window 
 	}
 }
 
-// Feature negotiation.
-
 // TestRoomFeatureSetIsStickyAndMismatchIsRefused: a client that claims leases beside one that simply acts makes
 // conflict resolution fail silently; refusing at the handshake makes it legible.
 func TestRoomFeatureSetIsStickyAndMismatchIsRefused(t *testing.T) {
@@ -163,8 +161,6 @@ func TestEventDroppedWhenRoomDidNotNegotiateIt(t *testing.T) {
 	c1.send(protocol.TypeEvent, protocol.Event{Payload: json.RawMessage(`{"hi":1}`)})
 	c1.expectNothingOfType(protocol.TypeEvent, 300*time.Millisecond)
 }
-
-// Event plane.
 
 // TestEventBroadcastReachesEveryoneIncludingSender: the echo is the sender's only way to learn where its own action
 // landed in the total order.
@@ -302,8 +298,6 @@ func TestSequencerGivesEveryMemberOneIdenticalTotalOrder(t *testing.T) {
 	}
 }
 
-// Leases.
-
 // TestExactlyOneClaimantWinsAContestedLease: the relay judges arrival, not merit, and tells everyone one holder.
 func TestExactlyOneClaimantWinsAContestedLease(t *testing.T) {
 	const claimants = 6
@@ -428,8 +422,6 @@ func TestLeaseIsFreedWhenItsHolderDisconnects(t *testing.T) {
 		t.Fatalf("after the holder dropped got %+v, want free with reason %q", st, protocol.LeaseHolderLeft)
 	}
 }
-
-// Escrow.
 
 func openEscrow(t *testing.T, a, b *testClient, id, withID string) {
 	t.Helper()
@@ -572,8 +564,6 @@ func TestEscrowRefusesANonMemberCounterparty(t *testing.T) {
 	}
 }
 
-// Late-join snapshot.
-
 // TestLateJoinerIsSeededWithExistingPlayersState: without Join.State a newcomer sees nobody until each player moves.
 func TestLateJoinerIsSeededWithExistingPlayersState(t *testing.T) {
 	addr := startServer(t)
@@ -619,8 +609,6 @@ func TestNoSnapshotWithoutTheCapability(t *testing.T) {
 	c2.expectWelcome(timeout)
 	c2.expectNothingOfType(protocol.TypeJoin, 300*time.Millisecond)
 }
-
-// Session resumption.
 
 // TestResumeKeepsThePlayerIDAndTheRoomNeverSeesALeave: a network blip must not cost the room a despawn and respawn.
 func TestResumeKeepsThePlayerIDAndTheRoomNeverSeesALeave(t *testing.T) {
@@ -828,8 +816,6 @@ func TestStaleResumeTokenJoinsFreshRatherThanFailing(t *testing.T) {
 	}
 }
 
-// Introspection.
-
 // The snapshot never shows a resume token (a credential) or an escrow blob (a trade's contents).
 func TestSnapshotReportsWhatTheRelayThinksIsTrue(t *testing.T) {
 	s := &Server{rooms: make(map[string]*Room), MaxClients: DefaultMaxClients}
@@ -897,8 +883,6 @@ func TestSnapshotReportsWhatTheRelayThinksIsTrue(t *testing.T) {
 		t.Fatalf("rendered snapshot does not flag the suspended member:\n%s", snap.String())
 	}
 }
-
-// Room-scoped and client-scoped capabilities.
 
 // TestClientScopedCapabilitiesDoNotSplitARoom: no peer takes part in a client-scoped capability, so there is nothing
 // for the room to agree on.

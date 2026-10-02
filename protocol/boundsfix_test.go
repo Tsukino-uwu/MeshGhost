@@ -7,7 +7,7 @@ import (
 )
 
 // maxDatagramBudget is netx/udpconn's MaxDatagramBytes, a literal because protocol may not depend on a transport;
-// netx/udpconn/world_bounds_test.go asserts the real constant from the other side.
+// netx/udpconn/world_bounds_test.go checks the world bounds against the real constant.
 const maxDatagramBudget = 1200
 
 // worldStateWireBytes is the world_state line the relay would send for one entry, framing included.
@@ -145,8 +145,8 @@ func TestApplyPrevNeverProducesAStateValidateStateRejects(t *testing.T) {
 	}
 }
 
-// TestEveryHelloStringFieldIsBounded covers the whole set, so the next field added to Hello and forgotten fails here
-// rather than reaching the relay unbounded.
+// TestEveryHelloStringFieldIsBounded: the table is kept by hand, so a new Hello string field goes into it and into
+// ValidateHelloFields together.
 func TestEveryHelloStringFieldIsBounded(t *testing.T) {
 	over := strings.Repeat("x", MaxHelloFieldLen+1)
 	for name, h := range map[string]Hello{

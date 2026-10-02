@@ -58,7 +58,7 @@ func SanitizeDisplayName(s string) string {
 		}
 
 		if unicode.IsSpace(r) {
-			// A tab or no-break space looks like a space on screen but not to a string comparison.
+			// A no-break space looks like a space on screen but not to a string comparison.
 			if lastWasSpace || runes == 0 {
 				continue
 			}

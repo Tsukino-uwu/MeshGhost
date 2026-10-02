@@ -52,7 +52,7 @@ func ParseKind(s string) (Kind, error) {
 	case "tcp":
 		return TCP, nil
 	case "udp":
-		// A release refuses the name rather than fall back to tcp, as the default arm does for a typo.
+		// A release refuses the name, as the default arm refuses a typo, rather than fall back to tcp.
 		return parseUDPKind()
 	case "quic":
 		return QUIC, nil

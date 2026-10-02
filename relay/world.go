@@ -1,7 +1,7 @@
 package relay
 
 // World custody: the relay holds the latest opaque blob per entity and hands the same set to whoever takes the
-// authority lease next, so which peer takes over no longer changes what the world becomes. Custody, not simulation:
+// authority lease next, so which peer takes over does not change what the world becomes. Custody, not simulation:
 // the relay stores bytes it cannot read, and running the world stays on a client.
 //
 // Lock order is sendMu then mu, as in online.go; every entry point below takes both.

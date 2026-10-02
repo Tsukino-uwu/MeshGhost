@@ -3,8 +3,8 @@
 //
 // The relay learns that the client knows the code and the client learns that the relay knows it, and neither side's
 // transcript lets a third party guess a short code offline. The relay is the OPAQUE server: with a room code
-// configured it registers one record for the code at startup, playing both roles in-process, and every client logs in
-// against that record.
+// configured it registers one record for the code at the first login, playing both roles in-process, and every client
+// logs in against that record.
 //
 // # Binding to the relay's identity
 //

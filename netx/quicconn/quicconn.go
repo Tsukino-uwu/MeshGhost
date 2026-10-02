@@ -249,7 +249,7 @@ func (c *Conn) WriteUnreliable(p []byte) (int, error) {
 
 	// SendDatagram blocks with no timeout once quic-go's queue is full, so it runs on a goroutine the write deadline
 	// can abandon. A datagram that cannot be queued counts as written: the next sample supersedes it, and an error
-	// would make transport.Send close the connection. One slot, because a relay client has one writer goroutine.
+	// would end the relay's writer for this client. One slot, because a relay client has one writer goroutine.
 	dl := c.writeDeadlineNow()
 	select {
 	case c.dgramSlot <- struct{}{}:
@@ -494,7 +494,7 @@ func (l *Listener) noteSourceRefusal() {
 		"may; %d refused so far for that reason", n)
 }
 
-// maxPending bounds connections that have handshaked and not yet opened a stream. Sized from the accept channel,
+// maxPending bounds connections that have handshaked and not yet opened a stream. A multiple of the accept channel,
 // since this package does not know the relay's MaxOpenConns: a client opens its stream in one round trip. A var only
 // so a test can lower it rather than complete 257 TLS handshakes; each Listener copies it in ListenWith.
 var maxPending = 256

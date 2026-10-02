@@ -36,8 +36,7 @@ import (
 )
 
 const (
-	// replayGapSeamMs: a recorded gap longer than this is a seam, not a blend. Under the 3s stale age-out, so the
-	// despawn is explicit rather than the age-out's.
+	// replayGapSeamMs: a recorded gap longer than this is a seam, not a blend.
 	replayGapSeamMs = 1500
 	// replayMaxSamples bounds how many samples one file holds (memory is replayMaxBytes' job): ~11 hours at 50Hz.
 	replayMaxSamples = 2_000_000
@@ -124,8 +123,8 @@ type replayClip struct {
 	// first and last surviving sample, and every gap cut in order.
 	trimFirst, trimLast int64
 	gapCuts             []gapCut
-	// track is the clip's input track, mapped into the clip's own stamp
-	// domain, or nil for a clip that has none or an adapter that did not ask.
+	// track is the clip's input track, mapped into the clip's own stamp domain, or nil for a clip that has none or an
+	// adapter that did not ask.
 	track *inputTrack
 }
 
@@ -348,8 +347,7 @@ func readZipEntry(entry *zip.File, name string, maxSamples, maxBytes int) (*repl
 // errReplayScanBudget is what scanCappedReader returns past its budget.
 var errReplayScanBudget = errors.New("the replay read budget is spent")
 
-// scanCappedReader reads at most left bytes from r, then fails with
-// errReplayScanBudget, and counts what it read.
+// scanCappedReader reads at most left bytes from r, then fails with errReplayScanBudget, and counts what it read.
 type scanCappedReader struct {
 	r    io.Reader
 	left int
@@ -419,7 +417,6 @@ func parseReplayWithin(r io.Reader, name string, maxSamples, maxBytes int) (*rep
 		return nil, 0, fmt.Errorf("%s: line 1 has no meshghost_replay key -- not a replay file", name)
 	}
 	if hdr.Format > replayFormatVersion {
-		// Latest version assumed; an older reader plays what it understands.
 		log.Printf("core: replay %s is format %d, this build reads %d -- playing what it understands", name, hdr.Format, replayFormatVersion)
 	}
 
@@ -500,9 +497,8 @@ func parseReplayWithin(r io.Reader, name string, maxSamples, maxBytes int) (*rep
 	return clip, spent, nil
 }
 
-// mergeCarriedExtras applies one delta line's extras onto the running value.
-// A nil result stays nil rather than becoming an empty map, so a clip whose
-// game sends no extras at all is byte-identical to what it always was.
+// mergeCarriedExtras applies one delta line's extras onto the running value. A nil result stays nil rather than
+// becoming an empty map, so a clip whose game sends no extras at all loads as a non-delta one would.
 func mergeCarriedExtras(carried, delta map[string]any) map[string]any {
 	if len(carried) == 0 {
 		return delta
@@ -528,8 +524,8 @@ func mergeCarriedExtras(carried, delta map[string]any) map[string]any {
 	return out
 }
 
-// sanitizeReplayHeader clamps every player-editable key. The recorder-written
-// keys are passed through: they are read for a warning and nothing else.
+// sanitizeReplayHeader clamps every player-editable key. The recorder-written keys are passed through: they are read
+// for a warning and nothing else.
 func sanitizeReplayHeader(h replayHeader) replayHeader {
 	h.Name = protocol.SanitizeDisplayName(h.Name)
 	h.Color = protocol.SanitizeNameColor(h.Color)
@@ -554,8 +550,7 @@ func sanitizeReplayHeader(h replayHeader) replayHeader {
 	return h
 }
 
-// parseReplayDuration is time.ParseDuration clamped to [0, replayMaxDelay];
-// anything unparseable is 0.
+// parseReplayDuration is time.ParseDuration clamped to [0, replayMaxDelay]; anything unparseable is 0.
 func parseReplayDuration(s string) time.Duration {
 	d, err := time.ParseDuration(strings.TrimSpace(s))
 	if err != nil || d < 0 {
@@ -567,8 +562,8 @@ func parseReplayDuration(s string) time.Duration {
 	return d
 }
 
-// applyTrim drops samples before trim_start (or, for "auto", before the
-// position first changes) and after the last sample minus trim_end.
+// applyTrim drops samples before trim_start (or, for "auto", before the position first changes) and after the last
+// sample minus trim_end.
 func (rc *replayClip) applyTrim() {
 	n := len(rc.samples)
 	first := rc.samples[0].Timestamp
@@ -598,8 +593,8 @@ func (rc *replayClip) applyTrim() {
 	}
 }
 
-// applySkipGaps collapses every gap longer than skip_gaps to one millisecond
-// and marks a forced seam there, so cut time is a jump and never a blend.
+// applySkipGaps collapses every gap longer than skip_gaps to one millisecond and marks a forced seam there, so cut
+// time is a jump and never a blend.
 func (rc *replayClip) applySkipGaps() {
 	d := parseReplayDuration(rc.header.SkipGaps)
 	if d <= 0 || len(rc.samples) < 2 {
@@ -684,8 +679,8 @@ func replayWaitFor(ms int64) time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
-// sleepUntil waits for the clock to reach due, in slices short enough that a stop or a seek is noticed promptly and a
-// stall never approaches the stale age-out. It returns a command if one arrived first; stopped means halted.
+// sleepUntil waits for the clock to reach due, in slices short enough that a stop or a seek is noticed promptly. It
+// returns a command if one arrived first; stopped means halted.
 func (p *replayPlayer) sleepUntil(due int64) (cmd *replayCmd, stopped bool) {
 	for {
 		if p.stopped() {
@@ -840,9 +835,8 @@ func (p *replayPlayer) run() {
 			if !p.seam(tag) {
 				return
 			}
-			// Edges past the gap may already have gone out ahead of it, and
-			// the adapter dropped them with the pawn: send them again from
-			// here, behind a reset.
+			// Edges past the gap may already have gone out ahead of it, and the adapter dropped them with the pawn:
+			// send them again from here, behind a reset.
 			p.inputReset(s.Timestamp - clip.t0)
 		}
 		due := start + int64(float64(s.Timestamp-clip.t0)/clip.speed)
@@ -858,9 +852,8 @@ func (p *replayPlayer) run() {
 		}
 		now := p.c.nowMs()
 		if now < prevNow-replayBackstepMs {
-			// The clock stepped back (a relay session reset mid-replay):
-			// re-base so this sample is due now, and make it a seam so the
-			// buffer never sees time run backwards.
+			// The clock stepped back (a relay session reset mid-replay): re-base so this sample is due now, and make it
+			// a seam so the buffer never sees time run backwards.
 			setStart(now - (due - start))
 			due = now
 			if !p.seam(tag) {
@@ -872,8 +865,7 @@ func (p *replayPlayer) run() {
 		st := s
 		st.Timestamp = due
 		if !p.c.feedLocalPeer(p.id, st) {
-			// Dropped from outside (StopReplays) or refused by a full roster
-			// after a reconnect. Either way this lap is over.
+			// Dropped from outside (StopReplays) or refused by a full roster after a reconnect; the player stops.
 			if p.stopped() {
 				return
 			}
@@ -883,16 +875,15 @@ func (p *replayPlayer) run() {
 		p.mu.Lock()
 		p.idx = i
 		p.mu.Unlock()
-		// After the sample, never before: a seam above has re-admitted the
-		// ghost by now, so the reset this may carry lands behind the despawn.
+		// After the sample, never before: a seam above has re-admitted the ghost by now, so the reset this may carry
+		// lands behind the despawn.
 		p.streamInputs(start, now)
 		i++
 	}
 }
 
-// StartReplays loads every file in <ReplayDir>/active/ and arms them to start
-// at the player's first in-game frame. Called when the adapter attaches; safe
-// to call again (running players are stopped first). Returns how many loaded.
+// StartReplays loads every file in <ReplayDir>/active/ and arms them to start at the player's first in-game frame.
+// Called when the adapter attaches; safe to call again (running players are stopped first). Returns how many loaded.
 func (c *Core) StartReplays() int {
 	c.StopReplays()
 	if c.replayDir() == "" {
@@ -1004,8 +995,8 @@ func (c *Core) pruneFinishedReplaysLocked() {
 	}
 }
 
-// StopReplays halts every player and drops its ghost. Called when the adapter
-// detaches, so a relaunched game starts every replay from the top.
+// StopReplays halts every player and drops its ghost. Called when the adapter detaches, so a relaunched game starts
+// every replay from the top.
 func (c *Core) StopReplays() {
 	atomic.StoreUint32(&c.replaysPending, 0)
 	c.replayMu.Lock()

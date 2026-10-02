@@ -128,7 +128,6 @@ func (p *bridgePeer) readLoop(stop <-chan struct{}) {
 	}
 }
 
-// sendLoop sends one local_state per tick over the socket.
 func (p *bridgePeer) sendLoop(tick time.Duration, stop <-chan struct{}) {
 	t := time.NewTicker(tick)
 	defer t.Stop()

@@ -13,7 +13,7 @@ import (
 // hand-maintained ladders over one set of rules; and anything accepted is within the bounds, re-derived from the
 // constants so a validator that always returned true would still fail.
 func FuzzValidateInputSampleAgreesWithItsOwnRejectReason(f *testing.F) {
-	// The two shapes one shipped adapter emits, pinned by hand in TestPseudoregaliaAdapterLinesAreAccepted.
+	// The three shapes one shipped adapter emits, pinned by hand in TestPseudoregaliaAdapterLinesAreAccepted.
 	f.Add(`{"labels":["jump","attack"],"axes":["move_x","move_y"],"source":"imc_keys","edges":[{"f":1041,"t":17350,"m":1,"ax":[0,0]}]}`)
 	f.Add(`{"edges":[{"f":1043,"t":17383,"m":0,"ax":[0.5,-0.25]},{"f":1044,"t":17400,"m":9,"ax":[0.5,-0.25]}]}`)
 	f.Add(`{"labels":["jump"],"edges":[]}`)

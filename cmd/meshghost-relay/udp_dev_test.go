@@ -71,7 +71,6 @@ func TestResolveUDPAddr(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		// The port moves; the interface does not.
 		want := "0.0.0.0:" + FallbackUDPPort
 		if got != want {
 			t.Fatalf("got %q, want %q -- udp takes the odd port when quic is served, on -addr's own interface", got, want)

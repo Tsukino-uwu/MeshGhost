@@ -237,7 +237,7 @@ func validateFeatures(features []string) bool {
 	}
 	for _, f := range features {
 		// Not len(): a feature name decides what a whole room negotiates, so an invalid-UTF-8 one is a capability
-		// nobody can name the same way twice. Only the decoder in front keeps it off the wire, and this is exported.
+		// nobody can name twice. The decoder in front keeps it off the wire, but ValidateHelloFields is exported.
 		if !ValidOpaqueString(f, MaxFeatureLen) {
 			return false
 		}
@@ -249,7 +249,6 @@ func validateFeatures(features []string) bool {
 // authentication, is within its bound. It returns a plain bool, never the offending value: a caller must not log
 // field contents on failure, which would write unbounded attacker-controlled bytes into the relay's log.
 func ValidateHelloFields(h Hello) bool {
-	// One list rather than a chain of ors, so bounding a new Hello string field is a one-line edit in one place.
 	for _, s := range []string{
 		h.GameID, h.Room, h.DisplayName, h.GameVersion, h.NameColor,
 	} {

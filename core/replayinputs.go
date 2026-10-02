@@ -57,7 +57,7 @@ func (rc *replayClip) attachTrack(t *inputTrack) {
 		if e.Ts < rc.trimFirst || e.Ts > rc.trimLast {
 			continue
 		}
-		// Advance to the last cut that starts before this edge.
+		// Skip every cut that ended at or before this edge.
 		for cut < len(rc.gapCuts) && rc.gapCuts[cut].to <= e.Ts {
 			cut++
 		}

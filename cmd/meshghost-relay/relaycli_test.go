@@ -72,7 +72,6 @@ func TestShutdownTellsEveryConnectedClient(t *testing.T) {
 			"long before")
 	}
 
-	// And nothing is accepted after the listeners are closed.
 	if c, err := net.DialTimeout("tcp", raw.Addr().String(), 500*time.Millisecond); err == nil {
 		c.Close()
 		t.Fatal("the relay still accepted a connection after shutdown")
@@ -125,7 +124,7 @@ func (c *fullConn) CloseWrite() error                     { c.closedWrite = true
 func (c *fullConn) TransportName() string                 { return "quic" }
 func (c *fullConn) WriteUnreliable(p []byte) (int, error) { return len(p), nil }
 
-// oneConnListener hands out c once, then blocks forever on Accept.
+// oneConnListener hands out c once, then reports itself closed.
 type oneConnListener struct {
 	net.Listener
 	c    net.Conn

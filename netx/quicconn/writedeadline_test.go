@@ -76,13 +76,13 @@ func dialOne(t *testing.T) (server, client *Conn) {
 func TestAnUnreliableWriteHonoursItsWriteDeadline(t *testing.T) {
 	_, client := dialOne(t)
 
-	// Far more than quic-go's 32-frame queue, so at least one send is parked when the deadline runs.
 	payload := make([]byte, 1000)
 	if err := client.SetWriteDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
 		t.Fatalf("set deadline: %v", err)
 	}
 
 	deadline := time.Now().Add(20 * time.Second)
+	// Far more than quic-go's 32-frame queue, so at least one send is parked when the deadline runs.
 	for i := 0; i < 2000 && time.Now().Before(deadline); i++ {
 		start := time.Now()
 		if _, err := client.WriteUnreliable(payload); err != nil {

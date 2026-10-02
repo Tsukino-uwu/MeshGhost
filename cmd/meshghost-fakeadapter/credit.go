@@ -397,7 +397,7 @@ func (c *creditChecker) resetToIssue(i int) creditMsg {
 	return creditMsg{Op: creditReset, Key: key, Gen: c.gen[key] + 1}
 }
 
-// stats is the end-of-run summary line for this plane.
+// stats formats this plane's counters, stale reports included, as one line.
 func (c *creditChecker) stats() string {
 	return fmt.Sprintf("hits=%d kills=%d rewards=%d agreed=%d resets=%d stale=%d",
 		c.hits.Load(), c.kills.Load(), c.rewards.Load(),

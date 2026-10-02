@@ -115,8 +115,8 @@ type Stats struct {
 	DryP95Ms int64
 	DryP99Ms int64
 
-	// Sample transit (see transitMeter): samples timed, mean and worst arrival
-	// delay, and how many took longer than slowTransitMs.
+	// Sample transit (see transitMeter): samples timed, mean and worst arrival delay, and how many took longer than
+	// slowTransitMs.
 	TransitSamples uint64
 	TransitAvgMs   float64
 	TransitMaxMs   int64

@@ -95,15 +95,15 @@ is USED, that project is checked and recorded there first.
    not a hypothetical.
 
 3. **Nameplates.** Genuinely blocked, not just unbuilt. `Hello.DisplayName` reaches the relay
-   (`protocol/protocol.go:126`, sourced from `config.json`'s `"name"`) and is only
-   *logged* there (`relay/relay.go:846`, `:1295`) — never redistributed. **Whenever this is
+   (`Hello.DisplayName` in `protocol/protocol.go`, sourced from `config.json`'s `"name"`) and is only
+   *logged* there (`Server.rejectAndClose` and the join line in `Server.handleConn`, `relay/relay.go`) — never redistributed. **Whenever this is
    built, the display name becomes the project's FIRST peer-controlled string rendered on
    another player's screen, and it must be sanitised at that point, not merely length-bounded** —
    reject control characters outright, the way Archipelago's `Say` handler requires
    `.isprintable()` and not just `str` (`MultiServer.py:2141`, read for facts 2026-08-24,
    `licensing.md`). Today `area_id`/`anim` are UTF-8-validated but not control-character-filtered,
    which is harmless only because nothing displays them. See the security umbrella entry below.
-   `Welcome.Roster` is `[]string` of ids (`protocol.go:224`); `Join` carries only `player_id` (+ optional,
+   `Welcome.Roster` is `[]string` of ids (`protocol/protocol.go`); `Join` carries only `player_id` (+ optional,
    never-populated `State`). **No adapter can learn any peer's display name today.** Two routes:
    a roster/`join` shape revision to actually carry `display_name` (correct, needs an ADR per
    `contract.md:3-5`), or smuggling it through `extras` (cheap, but the wrong layer — `extras`

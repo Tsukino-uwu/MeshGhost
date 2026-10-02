@@ -70,7 +70,6 @@ func TestWorldCheckerCatchesARollback(t *testing.T) {
 	}
 
 	got = withCleanViolationCount(func() {
-		// A newer stamp carrying an older generation.
 		w.onWorldState(written(t, 5, "p1", "e0", 2))
 	})
 	if got != 1 {
@@ -123,7 +122,6 @@ func TestWorldCheckerDiscardsAStampOlderThanOneAlreadyApplied(t *testing.T) {
 	got := withCleanViolationCount(func() {
 		w.onLeaseState(granted(1, "p1"))
 		w.onWorldState(written(t, 10, "p1", "e0", 5))
-		// Arrives late, stamped earlier, carrying an older generation.
 		w.onWorldState(written(t, 9, "p1", "e0", 4))
 	})
 	if got != 0 {
@@ -165,7 +163,6 @@ func TestWorldCheckerDoesNotArmAdoptionOnARenew(t *testing.T) {
 		w.onWorldState(protocol.WorldState{
 			Authority: "sim", Holder: "self", Seq: 2, Reason: protocol.WorldSnapshot,
 		})
-		// Renews: same holder, no snapshot owed, and none sent.
 		w.onLeaseState(granted(3, "self"))
 		w.onLeaseState(granted(4, "self"))
 		w.onLeaseState(released(5))
@@ -222,7 +219,6 @@ func TestWorldCheckerCatchesAnEntityLostAcrossAHandover(t *testing.T) {
 		w2.onWorldState(written(t, 3, "p1", "e1", 1))
 		w2.onLeaseState(released(4))
 		w2.onLeaseState(granted(5, "self"))
-		// e1 is missing from the adoption.
 		w2.onWorldState(protocol.WorldState{
 			Authority: "sim", Holder: "self", Seq: 6, Reason: protocol.WorldSnapshot,
 			Entries: []protocol.WorldEntry{{Key: "e0", Blob: genBlob(t, 1)}},

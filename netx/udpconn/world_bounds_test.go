@@ -13,8 +13,7 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// maximalWorldStateLine is the largest single-entry world message the protocol
-// permits, rendered exactly as the relay would put it on the wire.
+// maximalWorldStateLine is the largest single-entry world message a relay sends, rendered as it goes on the wire.
 func maximalWorldStateLine(t *testing.T) int {
 	t.Helper()
 	// A JSON string of exactly MaxWorldBlobBytes, quotes included, is the

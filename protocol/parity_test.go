@@ -67,7 +67,7 @@ func TestNormalizeFeaturesIsBounded(t *testing.T) {
 }
 
 // TestValidateFeaturesUsesTheOpaqueStringRule: only the decoder in front keeps invalid UTF-8 off the wire, which is a
-// property of the decoder, not of this exported function.
+// property of the decoder, not of ValidateHelloFields, which is exported.
 func TestValidateFeaturesUsesTheOpaqueStringRule(t *testing.T) {
 	if validateFeatures([]string{string([]byte{0xff, 0xfe})}) {
 		t.Fatal("accepted a feature name that is not valid UTF-8 -- a name that does not survive " +

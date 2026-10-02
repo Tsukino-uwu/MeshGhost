@@ -36,7 +36,7 @@ const (
 // LoadOrCreateIdentity returns the listener's TLS configuration for the identity kept in dir, creating one when the
 // folder holds none. The rules are all-or-nothing, and never silent:
 //
-//   - Neither the key nor the certificate exists: generate both, write the three files (each through a temporary
+//   - Neither the key nor the certificate exists: generate both, write the four files (each through a temporary
 //     file and a rename), and return them.
 //   - Both exist and agree: load them.
 //   - Anything else (one missing, either unreadable or unparsable, the key not matching the certificate) is an error

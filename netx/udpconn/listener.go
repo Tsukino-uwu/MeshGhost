@@ -23,8 +23,8 @@ type Listener struct {
 	mu    sync.Mutex
 	conns map[string]*Conn
 
-	// wmu serializes writes on pc, which every accepted Conn shares: the write deadline is per-socket state (see
-	// Conn.socketWriteMu).
+	// wmu serializes the accepted Conns' writes on pc, which they all share: the write deadline is per-socket state
+	// (see Conn.socketWriteMu). The listener's own handshake replies do not take it.
 	wmu sync.Mutex
 }
 

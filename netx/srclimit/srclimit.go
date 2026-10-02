@@ -144,7 +144,7 @@ func (t *Table) NoteAuthFailure(conn net.Conn) {
 	defer t.mu.Unlock()
 	e := t.lookupLocked(key)
 	if e == nil {
-		return // table full of active entries: the attempt goes uncounted, not unrefused elsewhere
+		return // table full of active entries: the attempt goes uncounted
 	}
 	t.leakLocked(e)
 	e.level++

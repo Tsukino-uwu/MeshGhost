@@ -1092,8 +1092,6 @@ func TestIdleConnectionWithoutPingIsDroppedByIdleTimeout(t *testing.T) {
 	}
 }
 
-// Send and receive rate control.
-
 func TestWelcomeAdvertisesConfiguredSendRate(t *testing.T) {
 	s := NewServer()
 	s.SendHz = 50

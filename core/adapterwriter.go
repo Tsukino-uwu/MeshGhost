@@ -63,8 +63,8 @@ type queuedMsg struct {
 
 type adapterWriter struct {
 	nd transport.Transport
-	// onDead runs once, on the writer goroutine, when a write fails: it frees the core's admission slot at once, so a
-	// game reconnecting within milliseconds is not refused "busy".
+	// onDead runs when the connection is found dead, by a failed write or at the queue cap: it frees the core's
+	// admission slot at once, so a game reconnecting within milliseconds is not refused "busy".
 	onDead func()
 
 	mu sync.Mutex

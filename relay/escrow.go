@@ -11,10 +11,6 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// ---------------------------------------------------------------------------
-// Escrow
-// ---------------------------------------------------------------------------
-
 // escrow is one two-sided exchange. A lease grants exclusive access, never an atomic swap: if one side of a trade
 // vanishes after handing over, an item is destroyed or duplicated, so both-or-neither needs its own mechanism.
 type escrow struct {
@@ -315,8 +311,8 @@ func (r *Room) abortEscrowsOfLocked(party string) []outgoing {
 }
 
 // maxEscrowSnapshotLines bounds the escrow section of a resume snapshot to a quarter of maxSnapshotLines, as
-// maxMissedEventsPerMember does: anyone can open exchanges naming a client, and without it could push that client's
-// world, lease and state seeds off the snapshot.
+// maxMissedEventsPerMember bounds the events: anyone can open exchanges naming a client, and without it could push
+// that client's world, lease and state seeds off the snapshot.
 const maxEscrowSnapshotLines = maxSnapshotLines / 4
 
 // escrowSnapshotLocked returns the state of every exchange to is a party to, retained terminal ones included, so a

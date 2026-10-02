@@ -1,8 +1,6 @@
 package netx_test
 
 // TLS over the tcp transport, tested at the netx seam where the relay and the core reach it.
-// TestTheRoomCodeIsNotReadableOnTheWireWithTLS taps the bytes crossing the socket, with a negative control: over a
-// raw socket the secret is readable, so the test fails if TLS stops working and if the test stops looking.
 
 import (
 	"bufio"

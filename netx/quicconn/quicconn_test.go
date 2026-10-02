@@ -253,7 +253,7 @@ func readFull(c net.Conn, buf []byte) (int, error) {
 	return total, nil
 }
 
-// TestMaximalWorldStateFitsAQuicDatagram: the largest world message the protocol permits arrives intact through
+// TestMaximalWorldStateFitsAQuicDatagram: the largest world message a relay sends arrives intact through
 // WriteUnreliable on quic, the default transport. A line too large for a datagram rides the stream, so this proves
 // delivery, not that the message fit one datagram.
 func TestMaximalWorldStateFitsAQuicDatagram(t *testing.T) {

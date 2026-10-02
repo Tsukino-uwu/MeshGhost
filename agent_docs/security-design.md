@@ -76,8 +76,8 @@ is broken today, and one of the costs below argues for waiting.
 ### What's actually missing
 
 Only confidentiality. The application layer is already hardened: server-stamped `player_id`
-(`relay/relay.go:825`, never trusted from the payload), constant-time room-code compare
-(`:653-660`), hello timeout, per-connection flood cap, global client cap, `ValidateState` that
+(`Room.forwardState` in `relay/states.go`, never trusted from the payload), a room code proved without being sent (`pake/`,
+since 2026-09-15), hello timeout, per-connection flood cap, global client cap, `ValidateState` that
 drops rather than truncates, and a fuzz harness driving the relay over `net.Pipe`. What's left is
 that `transport` is plaintext NDJSON over TCP, so `room_code` crosses the wire readable
 — already recorded at `risks.md:111`, `contract.md:195`, and the room-code ADR's own "a separate,
@@ -456,7 +456,7 @@ keeping the requirement. Two things follow from how strongly it was put:
 
 ### Why this cannot be prose, stated once so it is not re-litigated
 
-`internal/gameblind`'s own header already settled this argument for the game-blindness rule: *"Prose
+`internal/gameblind`'s header (as of `e63b3bc2`) settled this argument for the game-blindness rule: *"Prose
 is a statement of intent, not enforcement: nothing failed when it was crossed. These tests fail."*
 Every requirement below therefore names **what breaks when it is violated** — and one that cannot
 name that is a wish, not a requirement, and is marked as such.
@@ -615,7 +615,7 @@ Audited against exactly that, and every one of these was traced rather than assu
 | **Code execution** | **No path found.** No `load`/`loadstring`/`dofile` in either Lua adapter; the only `io.popen` is the literal `"cd"`. |
 | **Native memory corruption** | The one real hazard — `static_cast<uint8_t>(NaN)` is UB — is clamped in 15 places. The one peer-named engine lookup is type-checked against `AnimMontage` before use. |
 | **File write / path traversal** | **No peer data reaches any file path.** Adapter log names are built from pid + date + bridge port (`crystal:572`, `emerald:564`); Emerald's cache path is the literal `logs/xmap_cache.txt`. There is no attacker-influenced filename anywhere. |
-| **Unbounded memory growth** | Every per-peer map is keyed by the RELAY-ASSIGNED `player_id`, bounded by `MaxClients` (8) — not by a peer-chosen string. The one map keyed by `AreaID` (`relay/introspect.go:241`) is built per-snapshot from live membership and discarded, so its size is member count, not key space. |
+| **Unbounded memory growth** | Every per-peer map is keyed by the RELAY-ASSIGNED `player_id`, bounded by `MaxClients` (8) — not by a peer-chosen string. The one map keyed by `AreaID` (`Room.snapshot` in `relay/introspect.go`) is built per-snapshot from live membership and discarded, so its size is member count, not key space. |
 | **Loop-bound abuse** | No `for` loop anywhere is bounded by a peer value; the counts are edge-triggered comparisons. |
 | **Disk growth** | **The one thing that crossed the line, and it is now fixed in code (2026-08-28, unwatched).** TEVI's `anim.Play(state.Anim)` was unvalidated, and a peer alternating two bogus names defeated the `LastAnim` dedupe to produce a Unity warning **every frame** — disk and CPU on the recipient, driven entirely by remote input. `IsPlayableAnimName` now refuses any name the ghost's own controller does not have, and logs at most four rejections per peer. See gap 2 above. |
 | **Relay/core process integrity** | Bounded by the per-field caps in `protocol/limits.go` and covered by 13 fuzz targets. |
@@ -676,7 +676,7 @@ adapter to have network access, because the core will carry the payload for it.
 
 1. **The victim never parses attacker-controlled BYTES — and this one is genuinely structural.** The
    relay does not pass bytes through; `Room.forward` re-marshals from the parsed, validated struct
-   (`relay/relay.go:336`, `json.Marshal(msg)`). So a hostile peer cannot put malformed JSON, deep
+   (`Room.forward` in `relay/relay.go`, `json.Marshal(msg)`). So a hostile peer cannot put malformed JSON, deep
    nesting or a parser exploit in front of the victim's decoder: the victim only ever parses bytes
    the RELAY serialized. That eliminates the whole parser-exploit class between peers rather than
    auditing it away, and it is why the 13 fuzz targets are about robustness rather than the last
@@ -741,7 +741,7 @@ adapter would refuse ever reaches one, and it is still an order of magnitude abo
 has sent. Defence in depth in the literal sense — the core protects every adapter including a
 third-party one, and each adapter still protects itself.
 
-**The gap.** `State.Extras` is `map[string]any` (`protocol/protocol.go:47`) and `ValidateState`
+**The gap.** `State.Extras` is `map[string]any` (`protocol/protocol.go`) and `ValidateState`
 checks exactly one thing about it: total serialized size <= `MaxExtrasBytes` (1024). Nothing bounds
 its *structure*. Measured 2026-08-24 with a throwaway test against the real `ValidateState`:
 
@@ -753,14 +753,14 @@ depth  490: extras wire bytes= 986  ValidateState=true
 ```
 
 A 490-level-deep nested value passes every check in under 1KB. The relay forwards it
-(`relay/relay.go:1364`), the receiving core re-serializes it faithfully, and it arrives at every
+(`Room.forwardState` in `relay/states.go`), the receiving core re-serializes it faithfully, and it arrives at every
 other player's adapter — where each Lua adapter's hand-rolled recursive-descent decoder
 (`meshghost_crystal.lua:528`, *"not a general JSON library"*) tries to descend 490 levels. The
 `pcall` at the bottom of that decoder should turn a Lua stack overflow into a dropped message
 rather than a hang, **but that is an assumption and has not been run in BizHawk's own Lua.**
 
 **`orientation` has the identical bug — measured 2026-08-24, after this entry was first written
-against `extras` alone.** It is `json.RawMessage` (`protocol/protocol.go:42`) and `ValidateState`
+against `extras` alone.** It is `json.RawMessage` (`State.Orientation` in `protocol/protocol.go`) and `ValidateState`
 bounds only its wire length (`MaxOrientationBytes`, 256), never its structure:
 
 ```
@@ -939,7 +939,7 @@ reuse things for other games"* the same 2026-08-20 quote already permits.
 
 **It fits an existing tested pattern rather than inventing one.** Room-scoped feature stickiness
 already works exactly this way — the first joiner sets it, later joiners must match
-(`relay/relay.go:897`), the same shape as `Room.GameID`. A constraint set would ride the same
+(`Server.joinOrCreateRoom` in `relay/relay.go`), the same shape as `Room.GameID`. A constraint set would ride the same
 mechanism, which also closes the obvious hole: **a hostile late joiner cannot widen the bounds,
 because the room's set is already fixed.**
 
@@ -1053,13 +1053,13 @@ client can send is validated before the relay acts on it**, one-to-one:
 
 | Client sends | Validator |
 |---|---|
-| `state` | `ValidateState` (`relay/relay.go:1356`) |
+| `state` | `ValidateState` (`Room.forwardState` in `relay/states.go`) |
 | `event` | `ValidateEvent` |
 | `lease` | `ValidateLease` |
 | `escrow` | `ValidateEscrow` |
 | `world` | `ValidateWorld` |
 | `leave`, `ping` | no payload |
-| anything else | **ignored, never forwarded** (`relay.go:1514` default case) |
+| anything else | **ignored, never forwarded** (`Server.handleConn`'s default case in `relay/relay.go`) |
 
 **The load-bearing property is that the relay never passes bytes through.** It re-encodes each
 forwarded message from the parsed, validated struct (`envelope(protocol.TypeState, st)`), so a
@@ -1081,8 +1081,7 @@ enforce and clamp values that adapters/games send etc"*.
 **This is not a new idea so much as a concrete proposal for a gap already named:** layer 3 of the
 "safe to play with random people" umbrella above lists *"open-relay default"* alongside the bridge
 bind and the per-IP cap. Today `OnlyGame == ""` means *host any game* and the relay logs
-`hosting any game (no "only_game" set)` (`relay/relay.go:1201-1203`,
-`cmd/meshghost-relay/main.go:554`). Anyone who can reach the port and speak the protocol gets a
+`hosting any game (no "only_game" set)` (`cmd/meshghost-relay/main.go`'s `main`). Anyone who can reach the port and speak the protocol gets a
 room, whatever `game_id` they claim.
 
 ### The half that is straightforward, and the trap in implementing it

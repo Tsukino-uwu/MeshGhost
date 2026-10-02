@@ -52,7 +52,7 @@ func (b *remoteBuffer) add(s protocol.State) {
 	if n == 0 || s.Timestamp >= b.snapshots[n-1].Timestamp {
 		b.snapshots = append(b.snapshots, s)
 	} else if s.Timestamp < b.snapshots[0].Timestamp && n >= maxSnapshots {
-		return // older than the whole window, and the window is full
+		return
 	} else {
 		i := n
 		for i > 0 && b.snapshots[i-1].Timestamp > s.Timestamp {

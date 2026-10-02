@@ -1,6 +1,6 @@
 // Command meshghost-fakeadapter is the synthetic-peer load generator: it drives real Cores in-process, via
-// core.Adapter, against fake ghosts that walk a circle, with no game, no bridge socket and nothing under adapters/.
-// Two instances on one relay and room each print the other's circling position.
+// core.Adapter or, with -bridge, over a real bridge socket, against fake ghosts that walk a circle, with no game and
+// nothing under adapters/. Two instances on one relay and room each print the other's circling position.
 //
 // With -clients N it runs N independent Cores in one process, each its own relay connection. Against a relay alone
 // that measures the relay's N^2 fan-out; joined to a room a real game client is in, it puts N ghosts on that client's
@@ -30,8 +30,8 @@ import (
 )
 
 // circleAdapter satisfies core.Adapter with no game to read from: local state is a deterministic function of time,
-// a circle of radiusUnits once every periodSeconds. RunAdapter drives it at the full tick rate; console printing,
-// the stand-in for a real adapter's redraw, is throttled to logInterval per remote.
+// a circle of radiusUnits once every periodSeconds, read at the full tick rate (RunAdapter, or sendLoop under -bridge);
+// console printing, the stand-in for a real adapter's redraw, is throttled to logInterval per remote.
 type circleAdapter struct {
 	start       time.Time
 	radiusUnits float64
@@ -443,7 +443,7 @@ func main() {
 	}
 	var dimScaleVec []float64
 	if *dimScale != "" {
-		// The same shape as -center: a comma-separated vector of exactly -dims components.
+		// Parsed as -center is: at most -dims components, any missing one zero.
 		dimScaleVec, err = parseCenter(*dimScale, *dims)
 		if err != nil {
 			log.Fatalf("meshghost-fakeadapter: -dim-scale: %v", err)
@@ -603,10 +603,9 @@ func main() {
 			yawFollows:    *yawFollows,
 			facingFollows: *facingFollows,
 			extras:        cloneExtras(extras),
-			// Only client 0 narrates.
-			quiet:     i != 0,
-			lastPrint: make(map[string]time.Time),
-			live:      make(map[string]bool),
+			quiet:         i != 0,
+			lastPrint:     make(map[string]time.Time),
+			live:          make(map[string]bool),
 		}
 		adapters = append(adapters, a)
 		cores = append(cores, c)

@@ -19,8 +19,8 @@ const (
 	splitWindow = 60
 	// splitPublishMs bounds how often a nametag can change for a split.
 	splitPublishMs = 250
-	// splitNameMax keeps room for the suffix under the 24-char nametag cap
-	// (one space and up to seven characters, e.g. " +12.3s").
+	// splitNameMax keeps room for the suffix under the 24-char nametag cap (one space and up to seven characters, e.g.
+	// " +12.3s").
 	splitNameMax = 16
 	// splitMaxDistance: farther than this from every sample in the window, the player is not on the ghost's path here.
 	splitMaxDistance = 3.0
@@ -51,9 +51,8 @@ func distance(a, b []float64) float64 {
 	return math.Sqrt(sum)
 }
 
-// updateSplits is called with every local in-game sample (from the recorder
-// tap). For each running replay it finds the nearest recorded sample near the
-// last match, compares elapsed times, and re-publishes the nametag when the
+// updateSplits is called with every local in-game sample (from forwardLocalState). For each running replay it finds
+// the nearest recorded sample near the last match, compares elapsed times, and re-publishes the nametag when the
 // rounded delta changes.
 func (c *Core) updateSplits(local *protocol.State) {
 	if !c.splitTimes() || len(local.Position) == 0 {

@@ -62,7 +62,7 @@ const (
 	// doc). It is visible in every datagram, so it does nothing against an on-path attacker; that needs quic.
 	tokenLen = 8
 
-	// retryInterval and maxRetries bound a reliable send: only lifecycle messages ride it, so a plain timer loop is
+	// retryInterval and maxRetries bound a reliable send: the state plane never rides it, so a plain timer loop is
 	// cheap, and ~6s of effort is well inside relay.DefaultHelloTimeout.
 	retryInterval = 250 * time.Millisecond
 	maxRetries    = 24

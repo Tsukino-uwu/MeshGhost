@@ -122,7 +122,7 @@ func (r *inputRing) snapshot() []inputEdgeLine {
 }
 
 // inputMeta is the per-connection state a batch is checked against. Its mutex is never taken while holding c.mu or
-// c.rec.mu, the order the state recorder keeps.
+// c.rec.mu.
 type inputMeta struct {
 	mu     sync.Mutex
 	labels []string
@@ -176,8 +176,7 @@ func (r *inputRecorder) flushClock() coreClock {
 	return r.clk
 }
 
-// writeLocked appends one edge, opening the file (and writing the header) on
-// the first. Caller holds r.mu.
+// writeLocked appends one edge, opening the file (and writing the header) on the first. Caller holds r.mu.
 func (r *inputRecorder) writeLocked(e inputEdgeLine) error {
 	if r.f == nil {
 		if err := os.MkdirAll(r.dir, 0o755); err != nil {

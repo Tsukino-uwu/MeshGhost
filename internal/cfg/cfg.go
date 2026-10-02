@@ -23,10 +23,10 @@ import (
 // so without a cap an autostarted client's log would grow forever.
 const MaxLogBytes = 1 << 20
 
-// OpenLogFile opens name in the working directory, where config.json is read from, creating it and appending: an
-// autostarted client has no console, so this file is the only thing a remote tester can send back, and a respawned
-// process must not truncate away why the last one died. It returns nil, with a warning, if the file cannot be opened,
-// and leaves composing the writer to the caller, since the client and the relay combine it differently.
+// OpenLogFile opens name for appending, creating it: an autostarted client has no console, so this file is the only
+// thing a remote tester can send back, and a respawned process must not truncate away why the last one died. It
+// returns nil, with a warning, if the file cannot be opened, and leaves composing the writer to the caller, since the
+// client and the relay combine it differently.
 func OpenLogFile(name, prog string) io.Writer {
 	if fi, err := os.Stat(name); err == nil && fi.Size() >= MaxLogBytes {
 		// Best-effort: a failed rotate still leaves the append below.

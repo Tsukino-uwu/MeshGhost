@@ -72,7 +72,7 @@ func newControlPlane(index int) *controlPlane {
 	}
 }
 
-// attach wires this checker to a connected Core and captures its player_id, so it is called after the handshake.
+// attach registers this checker's callbacks on c and copies c.PlayerID() into selfID and the plane checkers.
 func (cp *controlPlane) attach(c *core.Core) {
 	cp.core = c
 	cp.selfID = c.PlayerID()

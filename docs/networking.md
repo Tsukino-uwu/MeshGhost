@@ -369,7 +369,7 @@ below), whose dedicated writer goroutine does the actual send. Two generations o
 led here: sending while holding `r.mu` meant one stalled member could freeze every room
 operation for `DefaultWriteTimeout` (10s, `transport.go`); and even the unlocked *serial* send
 loop still let one slow peer delay everyone after it in the loop, demonstrated 2026-08-28
-(`relay/outbox.go`'s header records it). The same snapshot-then-act shape appears in `Room.remove` (`relay.go`,
+(`relay/outbox.go`'s header gives the why). The same snapshot-then-act shape appears in `Room.remove` (`relay.go`,
 purging receive gates after unlocking) and `stateRecipients` (`relay.go`, consulting each
 recipient's gate after unlocking), which also keeps `r.mu` and `gateMu` from ever nesting.
 

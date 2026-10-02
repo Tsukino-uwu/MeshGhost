@@ -32,8 +32,7 @@ const (
 	// every line, so one that never finishes a line is not held open forever.
 	DefaultIdleTimeout = 60 * time.Second
 
-	// DefaultWriteTimeout bounds one Send, so a peer that stops reading cannot block the writer; relay.Room.Forward
-	// depends on it to keep one stalled member from freezing delivery to the rest of the room.
+	// DefaultWriteTimeout bounds one Send, so a peer that stops reading cannot block the writer forever.
 	DefaultWriteTimeout = 10 * time.Second
 
 	// DefaultDialTimeout bounds the TCP connect in Dial; net.Dial has no timeout of its own.

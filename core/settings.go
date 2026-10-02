@@ -51,8 +51,6 @@ type ConnectionSettings struct {
 	Offline      bool
 }
 
-// --- accessors: every read of a settingsMu-guarded field goes through one ---
-
 func (c *Core) replayDir() string {
 	c.settingsMu.RLock()
 	defer c.settingsMu.RUnlock()
@@ -107,7 +105,7 @@ func (c *Core) replayNameColor() (string, string) {
 	return c.ReplayName, c.ReplayColor
 }
 
-// connectionSettings is the snapshot a dial builds its Hello from.
+// connectionSettings is the whole connection section in one read.
 func (c *Core) connectionSettings() ConnectionSettings {
 	c.settingsMu.RLock()
 	defer c.settingsMu.RUnlock()
@@ -117,8 +115,6 @@ func (c *Core) connectionSettings() ConnectionSettings {
 		MaxReceiveHz: c.MaxReceiveHz, Offline: c.Offline,
 	}
 }
-
-// --- setters ------------------------------------------------------------------
 
 // SetSmoothing changes the render-side smoothing under c.mu, used from the next tick. An unknown curve or prediction
 // name is refused and nothing changes: a typo saved mid-session must not silently pick a default.

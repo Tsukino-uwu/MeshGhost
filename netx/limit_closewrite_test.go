@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// A limited connection must still half-close, or transport.CloseGracefully falls back to a hard Close and the relay's
-// reject is lost to a reset behind the unread data. The test asserts the delivery, not just the method's presence.
+// TestLimitListenerKeepsTheGracefulHalfClose: without it transport.CloseGracefully falls back to a hard Close and the
+// relay's reject is lost to a reset behind the unread data. It asserts the delivery, not just the method's presence.
 func TestLimitListenerKeepsTheGracefulHalfClose(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -55,8 +55,8 @@ func TestLimitListenerKeepsTheGracefulHalfClose(t *testing.T) {
 	}
 }
 
-// The limiter must not invent a transport label for a connection that has none, nor hide one that does: relay's
-// transportName defaults to "tcp" when the method is hidden.
+// TestLimitListenerReportsTheUnderlyingTransportName: the limiter must not invent a label for a connection that has
+// none, nor hide one that does: relay's transportName defaults to "tcp" when the method is hidden.
 func TestLimitListenerReportsTheUnderlyingTransportName(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

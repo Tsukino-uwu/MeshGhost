@@ -8,10 +8,6 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// ---------------------------------------------------------------------------
-// Leases
-// ---------------------------------------------------------------------------
-
 // lease is one held key. The timer makes it a lease rather than a grant: a holder that vanishes must not wedge a key
 // forever, and only a clock guarantees that without knowing what the key means.
 type lease struct {

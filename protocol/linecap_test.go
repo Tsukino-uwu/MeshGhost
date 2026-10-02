@@ -65,7 +65,7 @@ func TestValidateStateDoesNotImplyTheLineFits(t *testing.T) {
 		t.Fatalf("the fixture is not a legal state, so it proves nothing: %s", StateRejectReason(st))
 	}
 
-	// The envelope, not the bare state, is what the reader measures; the bare state alone is one byte under the cap.
+	// The envelope, not the bare state, is what the reader measures: the payload alone can fit while the line does not.
 	payload, err := json.Marshal(st)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

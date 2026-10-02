@@ -183,7 +183,8 @@ func TestLimitListenerKeepsTheUnreliableWrite(t *testing.T) {
 	}
 }
 
-// acceptedConn knows when it was accepted and has a datagram bound, as tlsx's servedConn and quicconn's Conn do.
+// acceptedConn knows when it was accepted, as tlsx's servedConn and quicconn's Conn do, and has a datagram bound, as
+// udpconn's Conn does.
 type acceptedConn struct {
 	net.Conn
 	at time.Time
