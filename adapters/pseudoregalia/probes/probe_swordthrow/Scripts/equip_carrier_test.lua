@@ -1,19 +1,6 @@
--- One-shot carrier test for the equip cross-wire (2026-09-01). Loaded IN PLACE of the passive
--- capture for one round, then removed.
---
--- Theory to prove or kill: the game's own `changeEquippedWeapon` Blueprint routes through
--- shared state (save/GameInstance), so calling it on ANY pawn reaches THE player. The adapter
--- calls it on the ghost on every peer throw/pickup -- if the theory holds, that is the whole
--- cross-wire ("fully removes the weapon from another player's hand").
---
--- What it does: finds the GHOST pawn (the BP_PlayerGoatMain_C with no Controller -- a ghost is
--- never possessed), waits 5 seconds (countdown printed), calls changeEquippedWeapon(false) on
--- it, waits 5 more, calls changeEquippedWeapon(true). NO throw happens anywhere. The user
--- watches their OWN character's hand:
---   - sword vanishes from the PLAYER's hand at the first call -> carrier PROVEN.
---   - only the ghost's hand changes -> theory dead, next suspect.
---
--- Dev-only, state-changing by design (a probe may cheat); the second call puts the flag back.
+-- Equip carrier test, and it changes state: does the game's changeEquippedWeapon, called on a ghost, reach the
+-- player's hand? After a 5 s countdown it calls changeEquippedWeapon(false) on the ghost, then (true) 6 s later, with
+-- the player's own flags read around each call. Load it in place of the passive capture for one round.
 
 local TAG = "[MeshGhostEquipCarrier]"
 
@@ -29,9 +16,7 @@ local function prop(obj, name)
     return v
 end
 
--- The ghost IS possessed (the adapter gives it a controller), so absence-of-controller was
--- wrong -- first run said "all pawns have controllers". The player's controller is a
--- PlayerController; the ghost's is not. Log both so a wrong pick is visible in the record.
+-- A ghost has a controller too: the player's is the PlayerController. Every pawn is logged, so a wrong pick shows.
 local function find_ghost()
     local pawns = FindAllOf("BP_PlayerGoatMain_C")
     if not pawns then return nil end
@@ -50,8 +35,7 @@ local function find_ghost()
     return ghost
 end
 
--- Self-measuring since the second round: read the PLAYER pawn's own flags before and after
--- the call on the GHOST, so the verdict comes from the record instead of a timed human glance.
+-- The player's own flags before and after each call put the verdict in the log, not in a glance at the screen.
 local function player_flags()
     local pawns = FindAllOf("BP_PlayerGoatMain_C")
     if not pawns then return "no pawns" end

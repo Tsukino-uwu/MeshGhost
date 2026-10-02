@@ -1,52 +1,14 @@
--- MeshGhost audio census probe. ONE question, the user's, reported 2026-09-03:
---
---   *"think ghosts are eating up the players sound, like sfx is not doing anything when the
---   player does things, but ghosts had them."*
---
--- Two shapes fit that report and they want different fixes (UNVERIFIED.md, the OPEN entry):
--- either a ghost is PLAYING sounds the silence clause never covered, or the ghost's sounds are
--- STEALING the player's voices through Unreal's sound concurrency. This probe separates them.
---
--- It logs every UAudioComponent that appears, starts and stops, attributed to the player or to a
--- ghost, with the sound asset each one carries -- and, the first time a given asset is seen, that
--- asset's own CONCURRENCY settings. That last part is the decisive read: if the cue a ghost plays
--- caps itself at a small count and resolves by stopping the oldest instance, the mechanism for
--- shape two is proven present without anybody having to trust an ear. If every cue overrides
--- nothing, shape two needs the game's global concurrency instead and this probe says so.
---
--- **What this instrument CANNOT see, stated up front so its silence is not read as coverage**
--- (`../../agent_docs/checklists/before-a-probe.md`: a filter applied before you look is a guess):
---
---   * A sound started by `PlaySoundAtLocation` / `PlaySound2D` creates NO audio component at all
---     -- it is fire-and-forget inside the audio device. An anim-notify "Play Sound" without
---     Follow is exactly that shape, and footsteps are usually anim notifies. So "no ghost
---     component started" does NOT mean "the ghost was silent"; it means the ghost was silent
---     THROUGH THE COMPONENT PATH. `SpawnSoundAttached` (what the game's own wallRideSFX uses) is
---     the path this does see.
---   * Concurrency resolution happens on the audio device's active-sound list, not on the
---     component. A component can read bIsActive=true while its voice was refused or stolen, so a
---     player component sitting at "active" is NOT evidence the player was audible.
---   * `FindAllOf` returns class-default objects too. Everything below is a NAMED property read
---     inside pcall, never a UFunction call on what FindAllOf handed us (`../CLAUDE.md`).
---
--- Property names are candidates until this build resolves them: every one is reported as it
--- resolved or as UNRESOLVED, so a missing property can never be read as a zero. Names from
--- Unreal Engine's own `Components/AudioComponent.h`, `Sound/SoundBase.h` and
--- `Sound/SoundConcurrency.h` (docs.unrealengine.com); UE4SS Lua surface FindAllOf /
--- ExecuteInGameThread / LoopAsync / IsValid / GetFullName (vendored RE-UE4SS/docs/lua-api).
---
--- Deploy: copy probe_audiocensus/ to <install>\...\Win64\ue4ss\Mods\MeshGhostAudioCensus\ and
--- create an enabled.txt to arm it; remove it once the question is answered. Reload via
--- probe_reloader ("MeshGhostAudioCensus <nonce>").
+-- Audio census, read-only: is a ghost playing sounds, or spending the player's voices? Logs AudioComponents by owner,
+-- each cue's concurrency settings once, and the listener's inputs. Blind to PlaySoundAtLocation and PlaySound2D, which
+-- create no component; property names from Unreal's AudioComponent.h, SoundBase.h and SoundConcurrency.h.
+-- Deploy as ue4ss\Mods\MeshGhostAudioCensus with an enabled.txt; reload via probe_reloader.
 
 local TAG = "[MeshGhostAudioCensus]"
 
-local INTERVAL_MS = 200 -- 2 classes x 5Hz, the probe_slashvfx budget; FindAllOf walks object space
+local INTERVAL_MS = 200 -- 2 classes at 5Hz: each FindAllOf walks object space
 
 local PAWN_CLASS = "BP_PlayerGoatMain_C"
 
--- Candidate property names, per object kind. Each is TRIED and its resolution reported; nothing
--- here is assumed to exist on this build.
 local COMP_PROPS = {"Sound", "bIsActive", "bAutoActivate", "VolumeMultiplier", "PitchMultiplier",
                     "bAllowSpatialization", "bIsUISound", "AttachParent"}
 local SOUND_PROPS = {"bOverrideConcurrency", "ConcurrencyOverrides", "ConcurrencySet", "Priority",
@@ -71,9 +33,7 @@ local function valid(obj)
     return ok and v == true
 end
 
--- Returns value, resolved. `resolved` is false only when the READ ITSELF failed -- the property
--- does not exist on this build -- which is a different fact from a property that exists and reads
--- nil or false. Conflating the two is how a missing property gets read as a zero.
+-- Returns value, resolved: resolved is false only when the read itself failed, so a missing property is never a zero.
 local function prop(obj, name)
     local v
     local ok = pcall(function() v = obj[name] end)
@@ -85,20 +45,16 @@ local function vec_text(v)
     if v == nil then return "?" end
     local x, y, z
     pcall(function() x, y, z = v.X, v.Y, v.Z end)
-    -- Type-checked, not merely nil-checked: a non-vector reaching here made string.format throw,
-    -- which killed the whole sample loop for four minutes and read in the log exactly like a game
-    -- that had gone quiet (2026-09-04). An instrument may return "?"; it may never raise.
+    -- Type-checked, not nil-checked: an instrument may return "?", never raise.
     if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then return "?" end
     return string.format("%.0f,%.0f,%.0f", x, y, z)
 end
 
 local function short(name)
-    -- "AudioComponent /Game/...:PersistentLevel.BP_PlayerGoatMain_C_2.Audio_0" -> the trailing part
     return (name and name:match("([^%.]+)$")) or name or "?"
 end
 
--- Attribution is by NAME CONTAINMENT, the one test that has never failed here (`../CLAUDE.md`):
--- a component's full name carries its owning chain, while outer walks missed 12 of 12 on a ghost.
+-- Attributed by name containment: a component's full name carries its owning chain, which an outer walk misses.
 local function owner_of(comp_name, pawns)
     for _, p in ipairs(pawns) do
         if comp_name:find(p.short, 1, true) then return p.tag, p.pos end
@@ -106,15 +62,8 @@ local function owner_of(comp_name, pawns)
     return "world", "?"
 end
 
--- **The first version of this asked each pawn for its Controller and called a pawn holding one the
--- player. Measured 2026-09-04, in the run it was written for: EVERY pawn reads possessed, ghosts
--- included, so every ghost component was labelled PLAYER.** The coverage line is the only reason
--- that was visible rather than believed -- it prints the evidence the tag was decided from, which
--- is what `../../agent_docs/checklists/before-trusting-a-reading.md` asks of a boolean.
---
--- So the direction is reversed: ask the CONTROLLER which pawn it drives, and everything else of
--- that class is a ghost (or a corpse the transition has not collected yet). One authority, no
--- per-pawn guess.
+-- A ghost reads as possessed too, so the controller names the pawn it drives and every other pawn of the class is a
+-- ghost (or a corpse not yet collected).
 local function player_pawn_name()
     local pcs = FindAllOf("PlayerController")
     if not pcs then return nil end
@@ -143,10 +92,7 @@ local function pawn_table()
             if n then
                 local s = short(n)
                 local ctrl = prop(pawn, "Controller")
-                -- The owner's WORLD POSITION travels with every event, because the run turned into
-                -- a spatial question: in a dead window a ghost's footstep cue spawns a component
-                -- and the player's identical cue does not, and only the two positions say where
-                -- the listener would have to be sitting for both of those to be true.
+                -- The owner's position travels with every event: where the listener sits is a spatial question.
                 local root = prop(pawn, "RootComponent")
                 local loc = root ~= nil and prop(root, "RelativeLocation") or nil
                 pawns[#pawns + 1] = {short = s, tag = (driven and s == driven) and "PLAYER" or "ghost",
@@ -157,20 +103,10 @@ local function pawn_table()
     return pawns, driven, via
 end
 
--- Where the game is LISTENING from. Unreal's audio listener follows the camera manager's view
--- target unless a controller overrides it, and this adapter's SetViewTargetWithBlend hook rewrites
--- that argument when a ghost's own camera rig is chosen -- so a view target left on a rig from the
--- zone you just left would put the listener there too, which is a shape that fits "my own SFX went
--- quiet after a zone change" better than anything on the component. Logged only when it CHANGES.
+-- The audio listener follows the camera manager's view target unless a controller overrides it; logged on change.
 local last_view_target = nil
 
--- Measured 2026-09-04: after a zone change with a ghost present, NOTHING spatialized spawns a
--- component any more -- not the player's cues, not the level's -- while music keeps playing, and it
--- all comes back the moment a ghost spawns (which our camera hook answers by re-applying the view
--- target). That is the signature of a LISTENER left behind, because SpawnSoundAttached refuses to
--- create a component for a sound out of audible range of the nearest listener. So the question is
--- no longer "who is playing what" but WHERE the game thinks it is listening from: the camera
--- manager's own cached point of view is what feeds the listener, so print it next to the player.
+-- The camera manager's cached point of view is what feeds the listener.
 local function pov_location(cam)
     local cache = prop(cam, "CameraCache")
     local pov = cache ~= nil and prop(cache, "POV") or nil
@@ -178,12 +114,8 @@ local function pov_location(cam)
     return loc
 end
 
--- **The report changed shape on 2026-09-04: the sound follows GHOST PRESENCE, not the zone change**
--- -- it came back when the chaser spawned and went away when it despawned. A ghost here is a real
--- player pawn and reads as POSSESSED, so the thing to count is how many controllers and local
--- players the game thinks it has: an audio listener belongs to a LOCAL PLAYER, and a second one
--- arriving with the ghost (or the surviving one being left behind when the ghost goes) would put
--- the listener somewhere other than the player without moving the camera at all. Logged on change.
+-- An audio listener belongs to a local player, so a second controller arriving with a ghost would move it without
+-- moving the camera: each controller and the pawn it drives, logged on change.
 local last_controller_census = nil
 local function controller_census()
     local pcs = FindAllOf("PlayerController")
@@ -209,17 +141,8 @@ local function controller_census()
     end
 end
 
--- **The listener-override fields were tried here first and DO NOT READ on this build**: every one
--- of `bOverrideAudioListener`, `AudioListenerComponent` and their neighbours handed back a fresh
--- UObject wrapper at a different address every sample -- a shape `prop()` reports as resolved,
--- because the read itself succeeds. Recorded rather than quietly dropped: a value that changes
--- every 200ms is the tell that a reflected read is returning a wrapper, not a value.
---
--- So the same question is asked from the other side. Sound that is PLAYED but INAUDIBLE, with
--- music unaffected and audibility following ghost presence, fits a SOUND CLASS whose volume is
--- being driven to zero as exactly as it fits a misplaced listener -- and a sound class's volume is
--- a plain named read. If a class drops to 0 on the despawn and returns on the next spawn, that is
--- the mechanism, and it says which class to look at. Logged only when a volume CHANGES.
+-- The controller's listener-override fields return a fresh wrapper every read on this build, so the question is
+-- asked from the other side: a sound class driven to 0 would also play sounds inaudibly. Logged on change.
 local last_class_volumes = nil
 local function sound_class_check()
     local classes = FindAllOf("SoundClass")
@@ -247,9 +170,7 @@ local function sound_class_check()
     end
 end
 
--- A `USoundMix` can carry its own `Duration`: applied, it fades out and expires by itself with no
--- second call. That is the one shape that would explain sound dying with nothing calling anything
--- -- so the mixes this build has, and their durations, are worth one line at startup.
+-- A SoundMix with a Duration expires by itself, the one way sound could die with no call, so each mix is dumped once.
 local dumped_mixes = false
 local function sound_mix_dump()
     if dumped_mixes then return end
@@ -287,9 +208,7 @@ local function view_target_check()
                                         TAG, tostring(last_view_target), name, tostring(ovr), os.clock()))
                     last_view_target = name
                 end
-                -- Every ~2s: where the game is listening from, and where the player is. A gap
-                -- between these two that opens at a zone change IS the fault; them tracking each
-                -- other through a dead window rules the listener out and sends this elsewhere.
+                -- Every ~2s: where the game listens from against where the player is.
                 if samples % 10 == 0 then
                     local pawn = prop(pc, "AcknowledgedPawn") or prop(pc, "Pawn")
                     local proot = (pawn ~= nil and valid(pawn)) and prop(pawn, "RootComponent") or nil
@@ -306,8 +225,7 @@ local function view_target_check()
     end
 end
 
--- One dump per distinct sound asset, the first time any component is seen carrying it. This is
--- the half that answers shape two on its own.
+-- One dump per distinct sound asset: a cue that caps its instances and stops the oldest is the concurrency shape.
 local function dump_sound(sound)
     local name = full_name(sound)
     if not name or seen_sound[name] then return end
@@ -325,8 +243,7 @@ local function dump_sound(sound)
             end
             fields[#fields + 1] = "ConcurrencyOverrides{" .. table.concat(inner, " ") .. "}"
         elseif p == "ConcurrencySet" then
-            -- A TSet of USoundConcurrency*; stringifying its members would dereference pointers
-            -- this probe does not own, so only its presence is reported.
+            -- Its members are pointers this probe does not own, so only its presence is reported.
             fields[#fields + 1] = "ConcurrencySet=present"
         else
             fields[#fields + 1] = p .. "=" .. tostring(v)
@@ -365,7 +282,6 @@ local function sample()
     sound_class_check()
     sound_mix_dump()
 
-    -- The ghost's arrival is the boundary between the two halves of the run, so it marks itself.
     local ghosts = 0
     for _, p in ipairs(pawns) do if p.tag == "ghost" then ghosts = ghosts + 1 end end
     if ghosts ~= last_ghosts then
@@ -384,8 +300,7 @@ local function sample()
                     local owner, owner_pos = owner_of(name, pawns)
                     if not seen_comp[name] then
                         seen_comp[name] = true
-                        -- The first sample sees the level's standing population; calling that
-                        -- APPEAR would let the level's own audio read as something a ghost did.
+                        -- The first sample is the level's standing population, not something a ghost did.
                         describe(comp, samples == 1 and "BASELINE" or "APPEAR", owner, owner_pos)
                     end
                     local active = prop(comp, "bIsActive")
@@ -402,8 +317,7 @@ local function sample()
         end
     end
 
-    -- Coverage every ~10s: what was looked at, which pawns were found and how the player/ghost
-    -- split was decided -- a boolean nobody can sanity-check is not a result.
+    -- Coverage every ~10s, with the evidence the player/ghost split was decided from.
     if samples % 50 == 1 then
         local who = {}
         for _, p in ipairs(pawns) do
@@ -425,27 +339,8 @@ local function sample()
     end
 end
 
--- **The audio-device side of the question, which no property read reaches.** A sound class's
--- `Properties.Volume` is the ASSET's default and is NOT written back when a SoundMix modifier
--- ducks that class at runtime, so the census above can read 1.00 through a completely silenced
--- SFX class. The calls that DO that are BlueprintCallable statics on GameplayStatics, and they are
--- native, which is the one kind of UFunction this host allows hooking (`../CLAUDE.md`: never hook
--- a Blueprint one). This game splits its classes exactly the way the symptom does --
--- `SoundClass_SFX`, `SoundClass_Music`, `SoundClass_UI` -- so a mix pushed or popped around a
--- ghost's life would explain "everything but the music" without any listener being involved.
---
--- Why this is the shape to suspect at all: a ghost is a CLONE OF THE PLAYER PAWN, so whatever the
--- game's own pawn does to audio on BeginPlay and EndPlay, the ghost does too -- to the one global
--- audio device the player is listening through.
---
--- **`SetAudioListenerOverride` is in this list for the reason the mix calls turned out NOT to be
--- the answer.** Measured 2026-09-04: a ghost spawn fires `SetBaseSoundMix(MySoundMix)` plus four
--- class overrides -- SFX at 1.0 -- from the GAME INSTANCE, and a despawn fires nothing at all,
--- while the sound classes' own volumes never change. Mix and class are therefore both innocent,
--- and what is left is a listener PINNED TO A COMPONENT ON THE GHOST: alive it sits by the player
--- and everything is audible, destroyed it leaves the listener on a dead component, and the next
--- ghost re-registers it. This hook either catches that call with a ghost-owned component in it or
--- takes the theory off the table.
+-- A class's Properties.Volume is the asset's default, never what a runtime SoundMix modifier ducks, so the native
+-- GameplayStatics mix calls and the controller's listener overrides are hooked instead (native, so hookable).
 local AUDIO_STATICS = {"PushSoundMixModifier", "PopSoundMixModifier", "SetBaseSoundMix",
                        "ClearSoundMixModifiers", "SetSoundMixClassOverride",
                        "ClearSoundMixClassOverride", "StopAllSounds"}
@@ -480,12 +375,7 @@ for _, fn in ipairs(AUDIO_STATICS) do
     local ok = pcall(function()
         local f = StaticFindObject("/Script/Engine.GameplayStatics:" .. fn)
         if f and f:IsValid() then
-            -- The ARGUMENTS are the point, not the fact of the call: measured 2026-09-04, a ghost
-            -- SPAWN fires SetBaseSoundMix plus four SetSoundMixClassOverride and a DESPAWN fires
-            -- nothing at all -- so the sound coming back is a mix being re-applied, and whatever
-            -- takes it away does not go through GameplayStatics. Which mix, which class and which
-            -- volume is what separates "the ghost restores the gameplay mix" from "the ghost
-            -- applies a mix that then expires on its own Duration".
+            -- The arguments are the point: which mix, which class, which volume.
             RegisterHook("/Script/Engine.GameplayStatics:" .. fn, function(ctx, a, b, c, d)
                 local bits = {}
                 for i, p in ipairs({a, b, c, d}) do
@@ -510,10 +400,7 @@ end
 print(string.format("%s AUDIOCALL hooks: watching [%s]; not on this build or unhookable [%s]\n",
                     TAG, table.concat(hooked, " "), table.concat(missing, " ")))
 
--- The sample runs under pcall, and the first failure says so ONCE and then keeps sampling. An
--- error thrown out of here stops the loop for the rest of the session while the log goes quiet,
--- which is indistinguishable from a game doing nothing -- measured 2026-09-04, four minutes lost
--- to a string.format on a value that was not a vector.
+-- An error out of the sample would stop the loop while the log reads like a quiet game: report once, keep sampling.
 local reported_error = false
 LoopAsync(INTERVAL_MS, function()
     ExecuteInGameThread(function()

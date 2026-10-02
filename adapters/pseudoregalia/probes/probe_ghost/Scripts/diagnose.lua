@@ -1,36 +1,11 @@
--- MeshGhost Phase 7.4 diagnostic: NOT a fix attempt. After three straight fix-and-retest
--- cycles that each failed to stop the player being dragged (see the "Three real bugs" / the
--- fourth-bug history in main.lua and agent_docs/phases/phase7.md), this script gathers
--- evidence instead of guessing a fourth time, per CLAUDE.md's "it ran without errors is not
--- evidence" standard.
---
--- Leading theory: BP_PlayerGoatMain_C may have "Auto Possess Player" set to Player 0 (a common
--- default on player pawn Blueprints). If so, the moment SpawnActor creates a second instance,
--- the existing PlayerController may silently possess IT instead, swapping
--- PlayerController.Pawn away from the original pawn. Every previous fix assumed the
--- *positioning math* was wrong; none of them could have helped if the object being "followed"
--- and the object being "moved" quietly became the same actor the whole time -- which would
--- also explain why no second ghost model was ever seen.
---
--- This script spawns the ghost (same guarded logic as main.lua: MIN_PLAUSIBLE_DISTANCE,
--- `spawning` flag) but performs ZERO repositioning -- no K2_SetActorLocationAndRotation call
--- anywhere. It only logs object addresses (UObject:GetAddress(), confirmed real:
--- RE-UE4SS/docs/lua-api/classes/uobject.md) every tick, comparing the *original* pawn's
--- address, the ghost's address, and the PlayerController's *current* Pawn address (re-fetched
--- fresh every tick, not cached) -- if the last two ever become equal, that's direct proof of
--- an auto-possession swap. Also tries reading ghost.AutoPossessPlayer (a plain, non-mutating
--- property read, same reflection mechanism already proven safe elsewhere) and logs its
--- type/value once.
---
--- Deploy: swap this in as main.lua in the deployed mod folder, same as Stage 2/3's pattern --
--- back up whatever's currently there first. Needs its own go-ahead: it still spawns a real
--- second gameplay Blueprint instance, but does nothing that should be able to move the real
--- player, since it never calls any position-setting function at all.
+-- Auto-possess diagnostic: spawns one ghost and never repositions anything, then logs every tick the original pawn's,
+-- the ghost's and the controller's current Pawn's addresses; controller.Pawn equal to the ghost is a possession swap.
+-- Also reads ghost.AutoPossessPlayer once. It still spawns a real gameplay Blueprint, so it needs its own go-ahead.
+-- Deploy by copying it over the deployed mod's main.lua, after backing that up.
 
 local UEHelpers = require("UEHelpers")
 
-local TICK_INTERVAL_MS = 250 -- slower than main.lua's 100ms; this is observation, not a
-                              -- responsive follow loop, and slower ticking means fewer log lines
+local TICK_INTERVAL_MS = 250 -- observation, not a follow loop: fewer log lines
 
 local ghost = nil
 local originalPawnAddr = nil
@@ -122,9 +97,7 @@ local function diagnosticTick()
         return false
     end
 
-    -- Once the ghost exists: every tick, log the CURRENT controller.Pawn address (fresh, not
-    -- cached) next to the ghost's address and the original pawn's address. Read-only --
-    -- no position is ever set here.
+    -- controller.Pawn is re-read every tick, never cached.
     local ok, logErr = pcall(function()
         local currentPawnAddr = "<no pawn>"
         if controller ~= nil and controller:IsValid() and controller.Pawn ~= nil and controller.Pawn:IsValid() then

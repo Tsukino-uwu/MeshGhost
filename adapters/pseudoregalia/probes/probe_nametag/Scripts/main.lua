@@ -1,128 +1,24 @@
--- MeshGhost nametag-colour probe. ONE question, from UNVERIFIED.md's 2026-08-28 entry: is there
--- a material on this build that samples BOTH a texture we can point at the font atlas AND a
--- colour we can drive? The shipped nametag's colour plumbing is correct end to end and the text
--- still renders black; the material was identified as the untested half.
---
--- What one run does, in order:
---   1. CENSUS: dumps every loaded MaterialInstanceConstant/Dynamic with its parent and its
---      Scalar/Vector/TextureParameterValues arrays -- the parameter NAMES the game's master
---      materials actually expose, which the 2026-08-28 C++ census (base Materials only) never
---      captured. Dump everything, filter afterwards (probes.md rule).
---   2. EXPERIMENT: spawns a row of TextRenderActors in front of the player, one per candidate
---      material. Each gets the same text (its own label, so the screen is self-identifying),
---      the same TextRenderColor, and -- for MID candidates -- a MaterialInstanceDynamic of that
---      master with the RobotoDistanceField font texture set on every plausible texture
---      parameter name and the target colour on every plausible colour parameter name.
---      Two KNOWN-ANSWER controls anchor the method (probes.md: validate on a case you know):
---      DEFAULT (component's own material -- known BLACK) and EMISSIVE
---      (EmissiveMeshMaterial -- known solid WHITE BOX, no glyphs, 2026-08-28).
---   3. READBACK: independently re-reads each component's text, colour bytes and material and
---      logs them -- never the value just written.
---
--- Hot-reloadable (dev-scripts\pseudo-hotreload.ps1): each load first destroys every
--- TextRenderActor in the world (the game itself has none -- census 2026-08-28 counted 0
--- TextRenderComponent instances), so reloads are idempotent and no orphan outlives an iteration.
---
--- Grounded APIs. Everything engine-side is either confirmed live in this repo's own probes
--- (SpawnActor, K2_GetActorLocation/Rotation, GetComponentByClass, direct UPROPERTY reads/writes:
--- probe_ghost/Scripts/main.lua) or confirmed on this build by the 2026-08-28 NAMETAGCENSUS
--- (CreateDynamicMaterialInstance=found, SetTextMaterial=found, SetTextRenderColor=found,
--- RobotoDistanceField Textures=1). The reflected property/function names come from Epic's public
--- API documentation, and every single one is pcall-guarded and REPORTED if absent, because
--- availability on this build is a runtime question (adapters/pseudoregalia/CLAUDE.md):
---   UMaterialInstance::{Scalar,Vector,Texture}ParameterValues  -- docs.unrealengine.com, UMaterialInstance
---   FMaterialParameterInfo::Name                               -- docs.unrealengine.com, FMaterialParameterInfo
---   UMaterialInstanceDynamic::SetTextureParameterValue/SetVectorParameterValue -- docs.unrealengine.com
---   UPrimitiveComponent::CreateDynamicMaterialInstance         -- docs.unrealengine.com
---   UFont::Textures                                            -- docs.unrealengine.com, UFont
---   ATextRenderActor / UTextRenderComponent (Text, WorldSize, TextRenderColor, SetTextMaterial)
---                                                              -- docs.unrealengine.com
--- UE4SS Lua surface (FText, FName, TArray:ForEach, StaticFindObject, FindAllOf,
--- ExecuteInGameThread, LoopAsync) -- vendored RE-UE4SS/docs/lua-api, checked not remembered.
---
--- Deploy: copy probe_nametag/ to <install>\...\Win64\ue4ss\Mods\MeshGhostNametagProbe\ (the
--- folder carries its own enabled.txt). Dev-only tooling; never ships.
+-- Which loaded material renders a nametag in a colour we drive: a census of every material instance's parameters,
+-- then one labelled TextRenderActor per candidate in front of the player, each read back. Hot-reloadable; deploy by
+-- copying probe_nametag/ to ue4ss\Mods\MeshGhostNametagProbe\ (it carries its own enabled.txt). Dev-only tooling.
 
 local UEHelpers = require("UEHelpers")
 
 local TAG = "[MeshGhostNametagProbe]"
 
--- OFF means: destroy every row this probe ever spawned, spawn nothing, and stay quiet. Set it
--- false whenever the question of the hour is not a nametag material -- a probe left spawning
--- rows during someone else's test is a suspect in every report that follows (2026-08-29: a row
--- was still appearing during the real two-instance nametag session).
---
--- Flipping this false and triggering a reload CLEANS A RUNNING GAME, both instances at once,
--- without closing anything -- which is the only way to un-spawn actors mid-session.
+-- False destroys every row this probe spawned and spawns nothing; with a reload it is the only way to clear a
+-- running game's rows without closing it.
 local PROBE_ENABLED = false
 
--- The target colour: the same cyan (#33CCFF) the 2026-08-28 session drove, so results compare.
+-- The cyan the C++ attempts drove, so results compare.
 local COLOR_BYTES = { R = 51, G = 204, B = 255, A = 255 }   -- FColor, for SetTextRenderColor
--- PARCHMENT since round 9: the user's picked default plate colour, so every candidate is
--- judged in the colour it would actually ship in.
+-- Parchment, the shipped default plate colour, so each candidate is judged in the colour it would ship in.
 local COLOR_LINEAR = { R = 0.66, G = 0.60, B = 0.46, A = 1.0 } -- FLinearColor, for vector params
 
--- Candidate materials, all from the 2026-08-28 census of what is LOADED on this build.
--- label doubles as the on-screen text, so a screenshot needs no legend.
--- ROUND 4 (2026-08-29). Screen results so far, judged by the user in ZONE_Dungeon:
---   Round 2: base-colour materials all render the atlas RED (distance field lives in the red
---   channel); vertex colour reaches nothing; M_Cracks passes colour through cleanly but
---   INVERTED (cyan background box, dark soft glyphs).
---   Round 3: SPIRIT overlays its own aura noise; TRANS renders fully transparent (probably an
---   opacity param defaulting to 0 -- schema dump below will say); DARKCIR is a cyan gradient,
---   no glyphs; LENSFLR/LIGHTBB distort the mesh; ANIMSPR = CRACKS-but-red; the widget pair are
---   red boxes (SlateUI texture RGB), black from behind. Only DEFAULT and ANIMSPR render
---   two-sided -- academic for the shipped tag, which billboards to face the camera every tick.
--- This round: the engine's own TRANSLUCENT text material (never loaded, so never tried -- the
--- proper distance-field shader, LoadAsset'd on demand), a MID of the default text material
--- (its SHADER may expose parameters that the C++ property walk of the material OBJECT could
--- never see), and the two colour-through game masters kept for the schema dump.
--- The user's direction (2026-08-29): the likely ship shape is crisp DEFAULT text over a
--- coloured background plate, "1 with the background of 7". A `plate` entry spawns a PAIR:
--- crisp default-material text in front, and 4 units behind it a second text component
--- rendering the same string through a colour-driven MID whose texture params are forced to
--- the game's own flat-white texture (T_White) -- solid peer-coloured blocks exactly the
--- word's width, i.e. a plate that sizes itself.
--- ROUND 6 (2026-08-29): the user picked the PLT-EMIS pair on screen -- crisp default-material
--- text over an EmissiveMeshMaterial plate, which stays evenly lit in a dark room. TEXTMID
--- proved black even with every parameter forced (the default text material has none), and
--- DefaultTextMaterialTranslucent is not cooked. Remaining question: WHICH single vector
--- parameter name actually coloured the emissive plate. Each tag below sets exactly one --
--- the label IS the name under test, so a cyan plate names its own parameter.
--- ROUND 7 (2026-08-29): "Color" was the winning parameter (its tag alone went cyan). Now the
--- DEFAULT plate colour for a peer who set none -- candidates the user judges by eye, each tag
--- both labeled with and painted in the colour it proposes. Criteria: black text must read on
--- it, it must not glare like white, and it should sit well against this game's muted castle
--- palette. Dimmer values also glow less (the plate is emissive).
+-- Each label is also the on-screen text, so a screenshot needs no legend. A `plate` entry spawns a pair: default text
+-- in front and the same string behind it through a colour-driven MID, a plate that sizes itself to the word. `vecName`
+-- sets that one vector parameter and nothing else, so the plate that turns parchment names its own parameter.
 local EMISSIVE_PATH = "/Engine/EngineMaterials/EmissiveMeshMaterial.EmissiveMeshMaterial"
--- ROUND 8 (2026-08-29): the user shortlisted PARCHMENT and DIMWHITE. Each now also runs a
--- variant with TranslucencySortPriority raised on the plate component -- the lever for the
--- confirmed "cut out in front of a door divider" defect (translucent draw order; the divider
--- planes win by default). Judge at a divider: whichever PRIO variant stays visible there names
--- the fix. Property is on the component, plain int32, read back after the write.
--- ROUND 9 (2026-08-29): parchment is the chosen default. The divider defect survives
--- prio=100 -- ALL translucent plates lose their background in front of a door divider while
--- the OPAQUE text keeps drawing. That asymmetry is the diagnosis: the divider out-draws
--- translucents but loses the depth test to opaques. So: one emissive at essentially maximum
--- priority (does ANY priority beat the divider?), two plates built from the game's own OPAQUE
--- masters (full-param mode: texture params forced to T_White, every colour name to parchment),
--- and the plain emissive as the control that is KNOWN to lose there.
--- ROUND 10 (2026-08-29): the opaque plates SURVIVE the divider (user-confirmed) but render as
--- a checkerboard, not flat colour. Diagnosis to test: M_PawnMaster carries the game's
--- near-camera DITHER FADE (its instances say UseFade=1, FadeLength=50), and a dither is
--- exactly a checkerboard. `scalars` on a candidate force named scalar parameters after the
--- full-param pass; PAWNMST stays plain as the known-checkered reference.
--- ROUND 11 (2026-08-29): killing the fade did not flatten the PawnMaster plates -- the banding
--- is the game's own stylized LIT shading, and chasing its knobs is a losing hunt. What a plate
--- wants is OPAQUE + UNLIT + a colour parameter, which is precisely what the engine's debug
--- materials are. EMISMAX rides again because the round-9 question was never answered and it
--- decides everything: if a max-priority EMISSIVE survives the divider, the shipped plate stays
--- emissive (flat, already proven pretty) and no opaque material is needed at all.
--- ROUND 12 (2026-08-29): user verdict on 11 -- EMISMAX is the only one that still vanishes at
--- a divider (no translucency priority beats it), INVALID looks wrong, GIZMO and DEBUGMSH look
--- best: flat, divider-proof. This round narrows WHICH vector parameter colours each finalist,
--- one name per tag as before -- the parchment tags name the winning (material, parameter) pair
--- for the shipped C++.
 local CANDIDATES = {
     { label = "GIZMO-GC",  plate = "/Engine/EngineMaterials/GizmoMaterial.GizmoMaterial", vecName = "GizmoColor" },
     { label = "GIZMO-COL", plate = "/Engine/EngineMaterials/GizmoMaterial.GizmoMaterial", vecName = "Color" },
@@ -130,31 +26,23 @@ local CANDIDATES = {
     { label = "DBG-GC",    plate = "/Engine/EngineDebugMaterials/DebugMeshMaterial.DebugMeshMaterial", vecName = "GizmoColor" },
 }
 
-local WHITE_TEX_PATH = "/Game/RetroGraphics/Textures/T_White.T_White" -- census 2026-08-29
+local WHITE_TEX_PATH = "/Game/RetroGraphics/Textures/T_White.T_White" -- the game's own flat white
 local PLATE_BEHIND_UNITS = 4.0
 
--- Masters whose FULL cooked parameter schema round 4 dumps. The census can only see parameters
--- an instance OVERRODE; the complete list lives in the master's CachedExpressionData
--- (docs.unrealengine.com, UMaterialInterface::CachedExpressionData), and M_trans/M_Cracks may
--- hold an opacity/invert switch no instance ever touched.
--- EMPTY, and staying so: measured 2026-08-29, `CachedExpressionData` reads as nil through this
--- build's reflection on every master tried -- the cooked parameter tables are not reachable
--- this way, so parameter names come from instance overrides (census) and guesses only.
+-- Empty: CachedExpressionData reads nil through this build's reflection, so names come from the census and guesses.
 local SCHEMA_TARGETS = {}
 
--- Parameter-name guesses tried on EVERY candidate MID; setting a name a master does not use is
--- inert, so over-asking costs nothing and under-asking silently fails. The census (step 1)
--- ADDS to these lists at runtime: any name an instance of the same master exposes.
+-- Setting a name a master does not use is inert, so over-asking costs nothing and under-asking silently fails.
+-- The census adds any name an instance of the same master exposes.
 local TEX_PARAM_GUESSES = { "SpriteTexture", "Texture", "BaseTexture", "MainTexture", "Tex",
                             "Albedo", "Diffuse", "BaseColorTexture", "T_Base", "Sprite",
                             "SlateUI" } -- the widget materials' texture slot
 
--- Scalars that gate visibility on the translucent candidates: full opacity, mid mask cutoff.
--- Only these two -- blind-setting scalars like "Sprite Size" would distort the mesh.
+-- Full opacity and a mid mask cutoff, only: blind-setting a scalar like "Sprite Size" distorts the mesh.
 local SCALAR_PARAMS = { { name = "Opacity", value = 1.0 }, { name = "Cutoff", value = 0.5 } }
 local VEC_PARAM_GUESSES = { "Color", "Colour", "Tint", "TintColor", "BaseColor", "SpriteColor",
                             "EmissiveColor", "Emissive", "MainColor", "GlowColor",
-                            -- Seen in the 2026-08-29 census of this game's own instances:
+                            -- Seen on this game's own instances:
                             "DieColor", "InnerColor",
                             -- The engine gizmo material's conventional parameter name:
                             "GizmoColor" }
@@ -243,11 +131,9 @@ local function censusOneClass(className)
 end
 
 ----------------------------------------------------------------------------
--- Schema dump: the FULL parameter tables cooked into a master material.
+-- Schema dump: the full parameter tables cooked into a master material.
 ----------------------------------------------------------------------------
 
--- Finds a named property anywhere on an object's class chain, via UStruct:ForEachProperty
--- (vendored RE-UE4SS docs, lua-api/classes/ustruct.md).
 local function findPropOnClass(obj, name)
     local found = nil
     local ok = pcall(function()
@@ -292,10 +178,7 @@ local function describeAny(value)
     return text
 end
 
--- Prints every member property of the struct held by `container.memberName`, then tries to dump
--- any member of THAT struct which turns out to be a TArray. Two levels is exactly deep enough to
--- reach CachedExpressionData -> Parameters -> the name/value arrays, without hardcoding a layout
--- this engine version may not have.
+-- Two levels reach CachedExpressionData -> Parameters -> the name/value arrays without hardcoding a layout.
 local function dumpStructMember(container, memberName, indent, depth)
     local prefix = TAG .. " SCHEMA:" .. indent
     local prop = findPropOnClass(container, memberName)
@@ -388,14 +271,8 @@ local function findFontTexture()
 end
 
 local function destroyPreviousRow()
-    -- Idempotent reloads: the game ships zero TextRenderComponents (census 2026-08-28), so every
-    -- TextRenderActor in the world is a leftover of a previous load of THIS probe. The shipped
-    -- adapter's nametags are components on ghost pawns, not TextRenderActors, and are untouched.
-    --
-    -- Returns the OLD row's anchor (first actor's location/rotation, and the row direction from
-    -- first to second) so the new row spawns in the same place. Re-anchoring to the player on
-    -- every reload made the row jump to wherever they happened to stand, which makes comparing
-    -- rounds needlessly hard (user, 2026-08-29: "hard to see if you move things around").
+    -- The game ships no TextRenderComponent and the adapter's nametags are components on ghost pawns, so every
+    -- TextRenderActor is this probe's. Returns the old row's anchor, so a reload respawns where rounds can be compared.
     local leftovers = FindAllOf("TextRenderActor") or {}
     local anchor = nil
     local locs = {}
@@ -409,10 +286,8 @@ local function destroyPreviousRow()
         end)
     end
     if #locs >= 1 then
-        -- Position and facing only. Deriving spacing/direction from the first two actors was a
-        -- bug: a plate pair is two actors 4 units apart, so a pair-bearing row re-anchored the
-        -- next round at 4-unit spacing -- 12 tags stacked into a z-fighting mess (2026-08-29).
-        -- The row always runs perpendicular to the tags' facing, at ROW_SPACING.
+        -- Position and facing only: a plate pair is two actors 4 units apart, so spacing taken from the first two
+        -- would stack the row. It runs perpendicular to the tags' facing, at ROW_SPACING.
         local yawRad = math.rad(locs[1].yaw)
         anchor = { x = locs[1].x, y = locs[1].y, z = locs[1].z, yaw = locs[1].yaw,
                    dirX = math.sin(yawRad), dirY = -math.cos(yawRad), spacing = ROW_SPACING }
@@ -464,18 +339,14 @@ local function setParamsFromLists(mid, masterFullName, fontTex)
     print(string.format("%s   params: %d/%d texture name(s) set, %d/%d vector name(s) set, %d scalar(s) set.\n",
         TAG, texSet, #texNames, vecSet, #vecNames, scalarSet))
 
-    -- Independent readback: what the MID actually STORED, never the locals above. The first run
-    -- rendered RED where cyan (0.2, 0.8, 1.0) was requested -- if the stored value is cyan the
-    -- material's own logic made it red; if the stored value is garbage the table-to-FLinearColor
-    -- marshaling is the bug. This line is what tells those two apart.
+    -- What the MID stored, never the locals: tells a material that ignores the colour from a marshalling bug.
     dumpParamArray(mid, "MID", nil, "VectorParameterValues", nil, describeVector)
     dumpParamArray(mid, "MID", nil, "TextureParameterValues", nil, describeTexture)
 end
 
 local function applyText(component, label)
-    -- SetText did not resolve on this build for the C++ mod (2026-08-28); the property write is
-    -- the proven path there. Try the function first anyway -- Lua resolution has differed from
-    -- C++ resolution before -- then fall back, and REPORT which one worked.
+    -- SetText did not resolve for the C++ mod, but Lua resolution has differed from C++ before: try it, then the
+    -- property write, and report which worked.
     local viaFn = pcall(function() component:SetText(FText(label)) end)
     if not viaFn then
         local viaProp, propErr = pcall(function() component.Text = FText(label) end)
@@ -489,8 +360,7 @@ local function applyText(component, label)
 end
 
 local function forceRefresh(component)
-    -- MarkRenderStateDirty is missing on this build; visibility off/on is the C++ mod's own
-    -- confirmed rebuild-by-another-route.
+    -- MarkRenderStateDirty is missing on this build; visibility off and on rebuilds the render state instead.
     pcall(function()
         component:SetVisibility(false, false)
         component:SetVisibility(true, false)
@@ -550,10 +420,8 @@ local function spawnOne(world, pawn, index, candidate, fontTex, anchor, whiteTex
     local materialReport = "component default"
     if candidate.path ~= nil then
         if candidate.load then
-            -- Not in the loaded set; ask the engine to load it. Game-thread only (vendored
-            -- docs, lua-api/global-functions/loadasset.md) -- runProbe already runs there.
-            -- Both path shapes tried; if it still is not found, the asset is not cooked into
-            -- this build and the candidate is dead.
+            -- LoadAsset is game-thread only, where runProbe runs. Both path shapes are tried; still not found means
+            -- the asset is not cooked into this build.
             pcall(function() LoadAsset(candidate.path) end)
             pcall(function() LoadAsset(candidate.path:match("^(.*)%.") or candidate.path) end)
         end
@@ -585,8 +453,7 @@ local function spawnOne(world, pawn, index, candidate, fontTex, anchor, whiteTex
     end
     forceRefresh(component)
 
-    -- The plate: a second text actor 4 units behind, same string, colour-driven MID with its
-    -- texture params forced FLAT WHITE so the colour passes through as solid glyph blocks.
+    -- Texture params forced flat white, so the colour passes through as solid glyph blocks.
     if candidate.plate ~= nil then
         local yawRad2 = math.rad(rot.Yaw)
         local plateLoc = { X = loc.X - math.cos(yawRad2) * PLATE_BEHIND_UNITS,
@@ -688,8 +555,7 @@ local function runProbe()
             print(TAG .. " PROBE_ENABLED=false -- previous row destroyed, spawning nothing.\n")
             return
         end
-        -- Set false for ONE deploy when the inherited spot has ended up inside geometry (it
-        -- happened 2026-08-29); flip back to true in the next deploy so rows stay put again.
+        -- False for one deploy when the inherited spot is inside geometry; true keeps rows in place across reloads.
         local ANCHOR_TO_PREVIOUS_ROW = false
         if not ANCHOR_TO_PREVIOUS_ROW then anchor = nil end
         censusOneClass("MaterialInstanceConstant")
@@ -721,18 +587,14 @@ local function runProbe()
     end
 end
 
--- Poll until the player pawn exists (fresh launch sits in menus for a while), then run once per
--- load. A hot reload resets this mod's Lua state, so each reload runs once more -- after
--- destroying the previous row.
+-- Once per load: a hot reload resets this mod's Lua state, so each reload runs again after clearing the old row.
 LoopAsync(1000, function()
     if ran then return true end
     local ready = false
     pcall(function()
         local pawn = UEHelpers.GetPlayer()
         if pawn == nil or not pawn:IsValid() then return end
-        -- The title screen map has a pawn too (measured 2026-08-29 -- two runs spawned their
-        -- rows into /Game/Maps/TitleScreen), so a pawn alone is not "in the game". Wait for a
-        -- real zone.
+        -- The title screen map has a pawn too, so wait for a real zone.
         local world = UEHelpers.GetWorld()
         if world == nil or not world:IsValid() then return end
         if world:GetFullName():find("TitleScreen") then return end

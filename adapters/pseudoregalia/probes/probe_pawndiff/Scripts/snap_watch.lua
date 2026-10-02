@@ -1,11 +1,5 @@
--- MeshGhost SNAP WATCH (2026-09-09): READ-ONLY, hot-loaded over the scratch slot. The driven
--- ghost on a clip with two wall clings snaps ~8 times per loop (the user: *"it was snapping a
--- lot"*; the rig: 8 corrections per 10 s, max drift 154 against a 150 snap). The rig only counts
--- corrections; this watches the DRIVEN pawn at 50 ms and logs every tick where it moved more than
--- SNAP_UNITS in one step -- a correction, or a fall -- with a window of the last 8 samples: location,
--- velocity, moveState, MovementMode, `wallRideButtonHeld?`, `jumpButtonHeld?`, `hasMovementInput?`.
--- Which way the ghost was drifting before each snap (up the wall, off the wall, behind on the
--- ground) is the question; the direction of the snap answers it. Named reads only.
+-- Watches the driven pawn at 50 ms and logs every tick it moved more than SNAP_UNITS in one step (a correction or
+-- a fall) with the last 8 samples: which way it drifted before each snap. Read-only, named reads; scratch slot.
 
 local TAG = "[MeshGhostSnapWatch]"
 local SNAP_UNITS = 100.0

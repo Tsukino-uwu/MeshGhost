@@ -1,29 +1,10 @@
--- MeshGhost SCRATCH PROBE -- a permanently registered, empty probe slot.
---
--- **WHY THIS EXISTS (user's idea, 2026-09-04).** UE4SS only knows the mods that were enabled when
--- the game STARTED. `RestartMod` -- which is what `probe_reloader` calls, and the whole reason the
--- Lua loop is hot -- answers *"Could not find mod to reinstall"* for a folder that appeared after
--- launch, measured live the same day. So "hot reload is the default loop" held only for a probe
--- that already existed, and every genuinely NEW question still cost a relaunch. The user, watching
--- it happen for what they said was not the first time: *"should we make a temp/reusable probe for
--- things like this?"*
---
--- **How to use it.** Write your probe over this file, then trigger the reloader:
+-- Scratch probe slot: a permanently registered, empty mod, so a new probe can be hot-loaded without a relaunch
+-- (RestartMod only restarts mods UE4SS knew at launch). Write a probe over this file, then trigger the reloader:
 --
 --     copy <your probe>.lua  <install>\ue4ss\Mods\MeshGhostScratch\Scripts\main.lua
 --     echo MeshGhostScratch <nonce>  >  <install>\ue4ss\Mods\MeshGhostProbeReloader\reload_request.txt
 --
--- The slot is registered at every launch, so the restart lands and a brand-new probe costs
--- seconds instead of a relaunch. Confirm it in `UE4SS.log`, never from the copy succeeding.
---
--- **Restore this stub when you are done.** A probe left in the slot is loaded at the next launch,
--- and `CLAUDE.md`'s standing rule is that a loaded probe is a suspect in every later report --
--- doubly so here, because the slot's NAME will not tell anyone what is in it. The pristine copy
--- lives at `adapters/pseudoregalia/probes/probe_scratch/Scripts/main.lua`.
---
--- **What this stub deliberately does NOT do:** no LoopAsync, no FindAllOf, no reads. An empty slot
--- must cost nothing measurable, or every session pays for a convenience it is not using.
---
--- Dev-only tooling; never ships.
+-- Confirm the restart in UE4SS.log. Restore this stub when done: a probe left here loads at the next launch under
+-- a name that says nothing. No LoopAsync, no FindAllOf, no reads, so an idle slot costs nothing.
 
 print("[MeshGhostScratch] empty slot loaded -- overwrite Scripts/main.lua with a probe and trigger the reloader.\n")

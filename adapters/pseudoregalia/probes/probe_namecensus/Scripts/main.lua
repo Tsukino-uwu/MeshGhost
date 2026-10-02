@@ -1,22 +1,7 @@
--- MeshGhost name-census probe. ONE question (2026-08-29): why does the C++ nametag subtraction's
--- name-containment test match 0 of 12 TextRenderComponents, when the nametag components are
--- created ON the ghost via AddComponentByClass and the user can see them on screen?
---
--- The test in Plugin.cpp is: component:GetFullName() contains ghost:GetName(). This probe prints
--- both sides of that comparison for EVERYTHING -- every TextRenderComponent's full name, every
--- BP_PlayerGoatMain_C pawn's short name and full name -- unfiltered, so the mismatch is visible
--- in the log instead of guessed at. Dump everything; filter afterwards (probes.md rule 3).
---
--- Read-only. Named reads and GetFullName()/GetName() only -- the identity calls are the same ones
--- GHOST_HOLD_OUTLINE_OFF makes on FindAllOf results every tick and have never crashed. No
--- UFunction is called on anything, no property enumeration, no object-valued stringify
--- (../CLAUDE.md, "Never call a UFunction on something FindAllOf handed you").
---
--- Cost: one FindAllOf over two small classes per census, one census 3s after each (re)load, then
--- nothing. Reload the probe (probe_reloader) to take another census.
---
--- Deploy: copy probe_namecensus/ to <install>\...\Win64\ue4ss\Mods\MeshGhostNameCensus\ with an
--- enabled.txt. Remove once the question is answered.
+-- A census of what exists, unfiltered: world inventories by class, MPC_PlayerRelated's parameters, each pawn's
+-- PlayerLight child actor and its meshes' materials, flags, CustomPrimitiveData and OverlayMaterial, and the
+-- level's light state. Read-only: named reads and GetFullName()/GetName(), values only off bool and number
+-- properties, never a UFunction on a FindAllOf result. One census 3s after each (re)load; reload for another.
 
 local TAG = "[MeshGhostNameCensus]"
 
@@ -45,12 +30,7 @@ local function census()
             end
         end
 
-        -- Widened 2026-08-29 after the three named suspects fell: if the dark-area glow is
-        -- MATERIAL-driven rather than light-driven, the mechanism is a MaterialParameterCollection
-        -- -- scene-wide, per-frame writable, and invisible to every light/pawn/level census run so
-        -- far. Names only here; what to read off one is the NEXT question, asked only if these
-        -- exist. Same for decals (the blob shadow subtraction matched 0 of 879 StaticMeshComponents,
-        -- so the shadow is probably a decal) and the game's own light components by full name.
+        -- Scene-wide channels a light census cannot see (parameter collections, decals) and the lights, by name.
         for _, klass in ipairs({"MaterialParameterCollection", "MaterialParameterCollectionInstance",
                                 "DecalComponent", "PointLightComponent", "SpotLightComponent",
                                 "RectLightComponent", "ChildActorComponent"}) do
@@ -63,10 +43,7 @@ local function census()
             end
         end
 
-        -- Stage 2 (2026-08-29): MPC_PlayerRelated exists -- the one scene-wide, per-frame-writable
-        -- channel every earlier census was blind to. Read its parameter NAMES and defaults off the
-        -- asset (named property reads on structs in arrays, no UFunction). The live instance's
-        -- values are a TMap and stay unread here; names tell us what question to ask next.
+        -- Parameter names and defaults off the asset; the live instance's values are a TMap, left unread.
         local mpc = StaticFindObject("/Game/MatTex/Materials/MPC_PlayerRelated.MPC_PlayerRelated")
         if mpc and mpc:IsValid() then
             for _, listName in ipairs({"ScalarParameters", "VectorParameters"}) do
@@ -97,8 +74,7 @@ local function census()
             print(string.format("%s MPC_PlayerRelated: NOT FOUND by StaticFindObject.\n", TAG))
         end
 
-        -- Stage 3: what lives inside each pawn's PlayerLight ChildActorComponent. Named property
-        -- reads only (PlayerLight -> ChildActor), no UFunction -- the safe side of the crash line.
+        -- What each pawn's PlayerLight ChildActorComponent holds.
         for i, pawn in ipairs(FindAllOf("BP_PlayerGoatMain_C") or {}) do
             if pawn and pawn:IsValid() then
                 pcall(function()
@@ -118,10 +94,7 @@ local function census()
             end
         end
 
-        -- Stage 4: every NiagaraComponent, with its Asset and attach parent. The ghost's weapon
-        -- glow (user, 2026-08-29, first visible once the darkness worked) reached the screen while
-        -- the recall-glow sweep cleared nothing and we spawned nothing -- so SOMETHING carries it,
-        -- and its full name plus attach chain says why every ghost-name attribution missed it.
+        -- Every NiagaraComponent with its Asset and attach parent: the chain says why a ghost-name match misses one.
         for i, nc in ipairs(FindAllOf("NiagaraComponent") or {}) do
             if nc and nc:IsValid() then
                 pcall(function()
@@ -141,19 +114,8 @@ local function census()
             end
         end
 
-        -- Stage 6 rides on stage 5's loop below: VisualMesh gets the same dump as WeaponMesh, and
-        -- any MaterialInstanceDynamic prints its scalar parameters (named struct-array reads, the
-        -- MPC pattern). The stage-5 finding: the player's WeaponMesh carries an MID override, the
-        -- ghost's carries none -- the body renders dark correctly, so the question is whether the
-        -- body has an MID on both and what the weapon MID drives.
-        -- Stage 5: the weapon glow (user, 2026-08-29) is not a Niagara (stage 4: none but
-        -- NE_Particles_System exists, and hiding that changed nothing). Next suspect is the
-        -- WeaponMesh's own material state. Named reads only: OverrideMaterials plus the visibility
-        -- and render flags on each pawn's WeaponMesh, printed for player and ghost alike so the
-        -- diff is in one log block.
-        -- Stage 7: an MID's Parent, and the mesh ASSET's default material list. The ghost's body
-        -- is dark with no overrides, so darkness is not the MID -- the question is which BASE
-        -- material each weapon resolves to.
+        -- Per pawn, WeaponMesh and VisualMesh: OverrideMaterials (an MID's Parent and scalar parameters), the asset's
+        -- default materials, and the visibility and render flags, player and ghost in one block.
         local function dump_mid_parent(m)
             pcall(function()
                 local p = m.Parent
@@ -238,10 +200,7 @@ local function census()
                                     print(string.format("%s   %s=%s\n", TAG, prop, tostring(wm[prop])))
                                 end)
                             end
-                            -- Stage 9: OverlayMaterial -- the UE5 channel for a shimmer drawn
-                            -- over a mesh, which is what the ghost's blade glow looks like
-                            -- (user screenshot, 2026-08-29). Read on every mesh so player vs
-                            -- ghost prints as a pair.
+                            -- OverlayMaterial: UE5's channel for a shimmer drawn over a mesh.
                             pcall(function()
                                 local om = wm.OverlayMaterial
                                 if om and om:IsValid() then
@@ -250,10 +209,7 @@ local function census()
                                     print(string.format("%s   OverlayMaterial=<none>\n", TAG))
                                 end
                             end)
-                            -- Stage 8: per-component CustomPrimitiveData -- the one per-mesh
-                            -- channel a vertex-light system could write brightness into, and the
-                            -- ghost's body darkens while its weapon does not with identical
-                            -- materials, so a per-component diff is all that is left.
+                            -- CustomPrimitiveData: the per-mesh channel a vertex-light system could write.
                             pcall(function()
                                 local cpd = wm.CustomPrimitiveData
                                 local vals = cpd.Data
@@ -274,11 +230,8 @@ local function census()
             end
         end
 
-        -- Stage 10: the LIVE value of MPC_PlayerRelated.PlayerLocation, beside every pawn's
-        -- actual position. One slot, two pawns writing -- whichever position the slot tracks is
-        -- the writer. KismetMaterialLibrary is reached by exact path (not FindAllOf) and
-        -- GetVectorParameterValue is a static pure read; pawn positions come from named property
-        -- reads only.
+        -- The live MPC_PlayerRelated.PlayerLocation beside every pawn's position: whichever it tracks is the writer.
+        -- KismetMaterialLibrary by exact path, not FindAllOf; GetVectorParameterValue is a static pure read.
         pcall(function()
             local kml = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
             local mpc2 = StaticFindObject("/Game/MatTex/Materials/MPC_PlayerRelated.MPC_PlayerRelated")
@@ -302,20 +255,13 @@ local function census()
             end
         end)
 
-        -- Stage 11: the LEVEL SCRIPT ACTOR's bool/number state. One instance of this game is
-        -- latched bright and the other is correctly dark in the same level right now -- any
-        -- level-BP variable that differs between the two printouts is the darkness flag. Property
-        -- NAMES are enumerated but values are read ONLY for bool/float/int/byte-classed
-        -- properties -- object-valued properties are never touched, which is the side of the
-        -- crash line probes stay on.
+        -- The level script actor's state: names enumerated, values read only off bool, float, int and byte properties.
         for _, klass in ipairs({"ZONE_Dungeon_C", "LevelScriptActor"}) do
             for i, lsa in ipairs(FindAllOf(klass) or {}) do
                 if lsa and lsa:IsValid() then
                     pcall(function()
                         print(string.format("%s levelscript %s %d full=%s\n", TAG, klass, i, lsa:GetFullName()))
-                        -- ForEachProperty lives on the CLASS; called on the instance it silently
-                        -- iterates nothing (measured: zero lines, no error). Coverage is counted
-                        -- and printed so an empty result and a broken walk can never be confused.
+                        -- ForEachProperty lives on the class; on an instance it iterates nothing, silently.
                         local seen, printed = 0, 0
                         local c = lsa:GetClass()
                         while c and c:IsValid() do
@@ -348,9 +294,7 @@ local function census()
             end
         end
 
-        -- Stage 13: BP_LightManager_C and BP_LightTransition_C state -- the scene-darkness
-        -- suspects the stage-12 inventory named. Values read only for bool/number-classed
-        -- properties, same crash-line discipline as stage 11.
+        -- The light manager and transition volumes, with the same bool-and-number discipline.
         for _, klass in ipairs({"BP_LightManager_C", "BP_LightTransition_C"}) do
             for i, mgr in ipairs(FindAllOf(klass) or {}) do
                 if mgr and mgr:IsValid() then
@@ -372,9 +316,6 @@ local function census()
                                         printed = printed + 1
                                         print(string.format("%s   %s (%s) = %s\n", TAG, pname, pclass, tostring(v)))
                                     else
-                                        -- Name and type only for everything else -- the class's
-                                        -- OWN variables are mostly struct/object typed and their
-                                        -- NAMES are what the next targeted read needs.
                                         print(string.format("%s   %s (%s) = <unread>\n", TAG,
                                                             prop:GetFName():ToString(), pclass))
                                     end
@@ -390,10 +331,7 @@ local function census()
             end
         end
 
-        -- Stage 12: unique ACTOR CLASS inventory. The darkness state is not in the level script
-        -- (5 properties, none printable), so it lives in some actor nobody has named yet. One
-        -- FindAllOf over Actor, names only, aggregated to unique class names -- the log gets one
-        -- line per class, not per instance.
+        -- Every actor class in the world, names only, one line per class.
         pcall(function()
             local classes = {}
             for _, a in ipairs(FindAllOf("Actor") or {}) do
@@ -420,7 +358,7 @@ local function census()
     end
 end
 
--- One census shortly after load, on the game thread. 3s keeps it clear of the reload itself.
+-- 3s keeps the census clear of the reload itself.
 LoopAsync(3000, function()
     ExecuteInGameThread(census)
     return true -- stop after one shot; reload the probe for another

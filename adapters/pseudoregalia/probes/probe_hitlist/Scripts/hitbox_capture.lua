@@ -1,26 +1,7 @@
--- MeshGhost HITBOX CAPTURE (written 2026-09-23): READ-ONLY. Part B of agent_docs/chaser-planning.md.
---
--- WHY THIS EXISTS. Four bare `BPI_*` calls moved no HP (2026-09-18). The class's own bytecode then
--- named the entry points (2026-09-23, the C++ `dump_hphitable.txt` one-shot, UBERGRAPH_ENTRY lines):
--- `BPI_TryDamage(Attacker, HitboxInfo, ForwardVector, QueryLocation)` is its own event (entry 603)
--- and the one path never tried, and `BP_HpHitable` keeps component properties of the same names
--- (`Attacker`, `incomingHitboxInfo`, `Forward Vector`, `Query Location`, `Hit Response`). So after a
--- REAL enemy hit those properties should hold what the game itself passed. This reads them back, so
--- a later call copies the game's own values instead of guessing a struct.
---
--- WHAT IT READS, on the player's own `BP_HpHitable`:
---   * at load: a baseline of every property below -- the resting state a hit is compared against;
---   * every SAMPLE_MS: `CurrentHp`. On a DROP, and again TAIL_READS times after it, every property
---     below with every struct field.
--- Objects are an address, plus the full name ONLY when `IsValid()` accepts it (an object it refuses
--- is address-only -- `checklists/before-a-probe.md`).
---
--- WHAT IT CANNOT SEE: which FUNCTION wrote these properties, or whether a hit that costs 0 HP wrote
--- them (it triggers on an HP drop only). A property that reads the same before and after a hit is
--- either unused by the hit or already held that value -- the baseline makes the difference visible.
---
--- HOW TO RUN: load through the scratch slot, let an ordinary enemy touch you two or three times.
--- Endurance, not timing. No calls, no writes, no save. Restore probe_scratch's stub afterwards.
+-- Reads the player's own BP_HpHitable around real enemy hits: a baseline at load, then on every CurrentHp drop and
+-- TAIL_READS after it, every hit property with every struct field, so a later call copies the game's own values.
+-- Blind to which function wrote them and to a hit that costs 0 HP. Read-only: load it through the scratch slot,
+-- let an ordinary enemy touch you two or three times, then restore the stub.
 
 local TAG = "[MeshGhostHitbox]"
 local SAMPLE_MS = 25
@@ -60,10 +41,7 @@ local function player_pawn()
     return nil
 end
 
--- **A WRITTEN LIST, never a walk** (preflight's "blind reflection walks" gate, and
--- `pseudoregalia/CLAUDE.md`: enumerate what you can name, never what an object holds). The first
--- run of this file (2026-09-23) walked the struct once to learn these names; they are now written
--- here, and a name that stops resolving reads `<unread>` instead of being skipped.
+-- A written list, never a walk: a name that stops resolving reads <unread> rather than being skipped.
 local HITBOX_FIELDS = {   -- ST_HitboxData, reflected names as this build spells them
     { "Damage_15_2068E77745C092F1FC7634A91107BEAB", "number" },
     { "HitStopDuration_16_E15EA3AC41362D7EA0AEB3A8064CF3A7", "number" },

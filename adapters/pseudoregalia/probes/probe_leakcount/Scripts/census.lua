@@ -1,47 +1,12 @@
--- MeshGhost OBJECT CENSUS + FRAME TIME -- what stays resident after a ghost leaves, and what it costs.
---
--- THE QUESTION (user, 2026-09-06): frame rate drops every time a ghost despawns -- a peer, a
--- replay or a chaser alike -- and stays down until "reset to last save", a zone change or the
--- main menu. The pause menu runs at full rate. So the residue is something the WORLD owns (a
--- level reload clears it) and something that costs a TICK (pausing stops it), and it accumulates
--- one despawn at a time.
---
--- WHAT IT FOUND ON ITS FIRST RUN (2026-09-06, two fake peers, one despawn cycle, 90s idle): every
--- object the two ghosts brought was collected -- pawn, AIController, movement, Niagara, lights,
--- nametag -- EXCEPT the two `BP_PlayerCam_C` actors, the camera rig each ghost pawn spawns for
--- itself: a SpringArmComponent and two CameraComponents, all bIsActive=true, OwningActor gone.
--- The adapter's sweep (GHOST_NEUTRALISE_CAMERA_RIGS) zeroes their post-process weight and
--- knowingly leaves them alive. A spring arm ticks and sweeps every frame; that is the tick that
--- accumulates, stops in the pause menu, and dies with the level.
---
--- THREE REQUEST FILES, all beside this mod's Scripts folder, each consumed once:
---   census_request.txt  <label>  -- FindAllOf counts of the WATCH classes below. Cheap, safe, the
---                                   instrument for every cycle after the first.
---   ft_request.txt      <label>  -- samples the world's last frame delta 20x/s for FT_SECONDS and
---                                   prints mean / median / p95 / worst, with the watch counts on the
---                                   same line so the number and the residue sit together.
---   walk_request.txt    <label>  -- the FULL walk: every UObject bucketed by class (ForEachUObject),
---                                   diffed against the first walk, new objects named with their
---                                   flags. This is how the camera rig was found. READ THE WARNING.
---
--- WARNING -- THE WALK CRASHED THE GAME ONCE (2026-09-06, "Abort signal received"). `ForEachUObject`
--- calls the Lua callback from inside a C++ lambda, and a Lua error raised in there -- it read
--- "attempt to call a nil value" at the call itself -- unwinds through C++ frames and aborts the
--- process; no pcall can catch it. It happened on the walk's SECOND load of the session, with the
--- frame-time sampler scheduling its own game-thread callbacks at 20 Hz alongside. The first walk,
--- alone on a fresh load, was clean. So: the callback below does nothing but append the object to
--- a list (every read happens after the walk returns, where an error is survivable), a walk is
--- refused while a frame-time sample is running, and the walk is a FRESH-LAUNCH instrument -- do
--- not hot-reload a changed copy of this probe and then walk. The user's rule the same day: you
--- cannot hot-swap new things into a running probe and trust the next result.
---
--- COST. Counts: seven FindAllOf calls per request. Frame time: one native static call 20x/s for
--- ten seconds. Walk: ~31k objects on ZONE_Dungeon, ~100 ms, once per request. Idle: one io.open
--- per 50 ms.
---
--- Read-only: no UFunction is called on anything the walk hands back (GetWorldDeltaSeconds is called
--- on GameplayStatics' own default object, which is the documented way to call it), no property is
--- written. Named property reads only, each in pcall. Dev-only tooling; never ships.
+-- Object census and frame time: what stays resident after a ghost leaves, and what it costs. Request files beside
+-- the mod's Scripts folder, each consumed once:
+--   census_request.txt  <label>    -- FindAllOf counts of the WATCH classes below; the instrument for every cycle.
+--   ft_request.txt      <label>    -- the world's last frame delta 20x/s for FT_SECONDS: mean, median, p95, worst.
+--   walk_request.txt    <label>    -- the full walk: every UObject bucketed by class (ForEachUObject), diffed
+--                                     against the first walk, new objects named with their flags.
+--   cmd_request.txt     <command>  -- one console command on the game thread, the one thing here that is not a read.
+-- A Lua error inside ForEachUObject's callback aborts the game past any pcall, so the callback only appends, and
+-- the walk is a fresh-launch instrument: never hot-reload a changed copy and then walk.
 
 local TAG = "[MeshGhostCensus]"
 local TICK_MS = 50
@@ -182,8 +147,7 @@ local walk_no = 0
 
 local function take_walk(label)
     walk_no = walk_no + 1
-    -- The callback does NOTHING but collect. See the WARNING at the top: an error in here aborts
-    -- the game, and a table append is the one thing that cannot raise.
+    -- Collect only: an error in here aborts the game, and a table append cannot raise.
     local everything = {}
     local t0 = os.clock()
     ForEachUObject(function(obj, chunk_index, object_index)
@@ -261,13 +225,8 @@ end
 
 ---------------------------------------------------------------------------- console command
 
--- `cmd_request.txt <console command>` runs one console command on the game thread through
--- KismetSystemLibrary.ExecuteConsoleCommand (ConsoleEnablerMod is on in this install). Added
--- 2026-09-06 with the user's go-ahead to lift the 144 fps cap for measuring (`t.MaxFPS 0`): at the
--- cap the frame delta is a flat line and a leaked tick is invisible until it overflows the
--- headroom. Session-only -- nothing is written to GameUserSettings.ini -- and the cap is put back
--- with `t.MaxFPS 144` when the measuring is done. This is the ONE thing this probe does that is
--- not a read; it never runs unless a request file names a command.
+-- For t.MaxFPS 0 while measuring: at the 144 cap the frame delta is a flat line and a leaked tick is invisible.
+-- Session-only, nothing reaches GameUserSettings.ini; t.MaxFPS 144 puts the cap back.
 local function run_console(cmd)
     local ok, err = pcall(function()
         local world = UEHelpers.GetWorld()
@@ -279,8 +238,7 @@ end
 
 ---------------------------------------------------------------------------- one loop, never two
 
--- ONE loop services every request, so nothing this probe does can overlap with anything else it
--- does. Requests are checked in this order and at most one is started per tick.
+-- One loop services every request, at most one started per tick, so nothing this probe does overlaps.
 LoopAsync(TICK_MS, function()
     if ft ~= nil then
         ExecuteInGameThread(ft_sample)

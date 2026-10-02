@@ -1,21 +1,6 @@
--- MeshGhost MESH-COMPONENT FUNCTION DUMP (2026-09-13). READ-ONLY.
---
--- What can this build actually be asked to do about a mesh component's materials? The fix for the
--- stranded-materials bug needs to clear `OverrideMaterials` after a mesh swap, and "the engine has
--- EmptyOverrideMaterials" is general UE knowledge, not a fact about THIS build -- which has
--- already shown many UFunctions silently missing from reflection while direct property writes work
--- (Plugin.cpp's own SetSkeletalMeshAsset comment: no SetSkeletalMesh, InitAnim,
--- MarkRenderStateDirty or RecreateRenderState exist here at all).
---
--- So: every function name on the VisualMesh component's class chain, written in full and sorted.
--- NOT filtered to material-shaped names first -- a candidate list built by a name filter running
--- dry is how this adapter missed `change Move State` (probes.md, 2026-09-09), and the shortlist
--- printed at the end is a convenience on top of the full dump, never instead of it.
---
--- Also prints the parameter names of a handful of material entry points if they exist, because a
--- call's parameters come from a dump rather than from engine knowledge.
---
--- Dev-only tooling; never ships.
+-- Writes every function name on the player's VisualMesh class chain, sorted, then a material-shaped shortlist:
+-- which material calls this build reflects. Read-only. Unfiltered first, because a name filter running dry
+-- misses the one candidate that matters.
 
 local TAG = "[MeshGhostMeshFns]"
 
@@ -42,7 +27,6 @@ local function fname_str(x)
     local s pcall(function() s = x:GetFName():ToString() end) return s or "?"
 end
 
--- The shortlist needles, applied AFTER the full dump is written.
 local NEEDLES = { "Material", "material", "Override", "override", "Empty", "empty",
                   "RenderState", "Dirty", "Dynamic" }
 
@@ -66,8 +50,7 @@ LoopAsync(1500, function()
             fout("-- class " .. depth .. ": " .. fname_str(cls))
             pcall(function()
                 cls:ForEachFunction(function(fn)
-                    -- Append only. A Lua error inside ForEachFunction aborts the game past any
-                    -- pcall (probes.md, 2026-09-06), so nothing is decided in here.
+                    -- Append only: a Lua error inside this callback aborts the game past any pcall.
                     local n = fname_str(fn)
                     if not seen[n] then seen[n] = true names[#names + 1] = n end
                 end)

@@ -1,20 +1,10 @@
--- MeshGhost GHOST STRIP -- switch the parts of a live GHOST on and off, one at a time, to price each.
---
--- WHY (user, 2026-09-06): the census (`probe_leakcount/Scripts/census.lua`) and the dump
--- (`probe_dump/`) listed everything a ghost carries, because it is a clone of the player pawn. The
--- user's ask, in two steps: first *"can we do a test with these disabled? ... no ghost vs 1 ghost
--- ... and afterwards no ghost vs 50?"* for the six parts a ghost has no use for; then *"can you do
--- individual checks for all parts a model has? like spawn ghosts with only that thing and nothing
--- else ... so we can separate and make a proper list of what everything does performance wise"*.
--- A pawn cannot be spawned with one component, but it can be switched to ALL OFF and have one part
--- switched back on -- which is the same measurement. The frame-time sampler reads the cost with the
--- cap lifted; the user judges what each part looks like on screen; nothing here ships.
+-- Writing probe: switches a live ghost's parts on and off, one at a time, so the frame-time sampler can price each
+-- with the cap lifted (off=all, then on=<one part>, stands in for a ghost spawned with only that part).
 --
 -- PARTS (the name is what a request uses). Each has an OFF and an ON through the engine's own
--- setters or a reflected property write, applied to GHOST pawns only -- never the local player's:
+-- setters or a reflected property write, applied to ghost pawns only, never the local player's:
 --   springarms   SpringArm, SpringArm1        SetComponentTickEnabled / Deactivate|Activate
---   dialoguecam  DialogueCam                  SetComponentTickEnabled ONLY (Activate on a camera
---                                             aborted the game -- see the part's own comment)
+--   dialoguecam  DialogueCam                  SetComponentTickEnabled only (see the part's own comment)
 --   charmove     CharMoveComp                 SetComponentTickEnabled
 --   niagara      the pawn's NiagaraComponents  Deactivate|Activate, SetHiddenInGame
 --   aicontroller the AIController             SetActorTickEnabled; PathFollowing/PawnActions tick
@@ -28,14 +18,11 @@
 --   pawntick     the pawn actor itself        SetActorTickEnabled (the Blueprint's own tick)
 --   uro          the three skeletal meshes    bEnableUpdateRateOptimizations = true (ON means the
 --                                             engine's far-mesh animation throttle is on; a cost
---                                             LEVER rather than a part, so it starts OFF like the rest)
+--                                             lever rather than a part, so it starts OFF like the rest)
 --
--- HOW A GHOST IS TOLD FROM THE PLAYER. A pawn is a ghost when its Controller's class name contains
--- "AIController" and not "PlayerController" (every ghost here has had one since the auto-possess
--- finding). A pawn being destroyed is skipped: no UFunction is called on a torn-down object (host
--- CLAUDE.md). Components are found by NAME CONTAINMENT (full name starts with the pawn's full name
--- + "."), the attribution test that has never failed here. Everything armed stays armed: a ghost
--- that spawns later gets the same state within a second.
+-- A ghost is a pawn whose Controller's class contains "AIController" and not "PlayerController"; one being
+-- destroyed is skipped. Components are found by name containment (full name starts with the pawn's full name
+-- + "."). Everything armed stays armed: a ghost that spawns later gets the same state within a second.
 --
 -- REQUESTS, beside this mod's Scripts folder, each consumed once:
 --   strip_request.txt   off=all | off=<a,b,c> | on=<a,b,c> | on=all | restore | none
@@ -45,8 +32,7 @@
 --   cmd_request.txt     <cmd>     one console command (`t.MaxFPS 0` for the measuring)
 --   census_request.txt  <label>   counts only
 --
--- This is a WRITING probe (PROBES.md names it as such). Dev-only tooling; never ships. Unload before
--- judging anything it did not touch.
+-- Unload it before judging anything it did not touch.
 
 local TAG = "[MeshGhostStrip]"
 local TICK_MS = 50
@@ -156,9 +142,8 @@ end
 
 ---------------------------------------------------------------------------- the parts
 
--- Each `apply(g, on)` switches the part to ON (its normal state) or OFF on ghost g = {pawn, ctrl,
--- name} and returns a short report string. "uro" is inverted on purpose: its ON state is the
--- engine throttle enabled, which is NOT the normal state -- so `off=all` leaves the throttle off.
+-- apply(g, on) switches the part ON (its normal state) or OFF on ghost g = {pawn, ctrl, name} and returns a report.
+-- "uro" is inverted: its ON is the engine throttle enabled, not the normal state, so off=all leaves it off.
 local function comp_tick_activate(c, on)
     local a = call(c.obj, "SetComponentTickEnabled", on)
     local b = on and call(c.obj, "Activate", false) or call(c.obj, "Deactivate")
@@ -178,11 +163,7 @@ local PARTS = {
         return table.concat(r, " ")
     end },
     { name = "dialoguecam", apply = function(g, on)
-        -- TICK ONLY. `Activate()` on a ghost's camera component aborted the game (2026-09-06
-        -- 14:12:32, "Abort signal received", the instant `on=dialoguecam` re-activated it on 50
-        -- ghosts after `off=all` had deactivated it; every other part's ON had passed). A camera
-        -- that becomes active is a view-target candidate, and this game's camera code and our
-        -- SetViewTarget guard both act on that -- so a camera is never activated from here.
+        -- Tick only: an activated camera is a view-target candidate, and Activate() on 50 of them aborted the game.
         local r = {}
         for _, c in ipairs(owned_components(g.name, "CameraComponent")) do
             if c.leaf == "DialogueCam" then

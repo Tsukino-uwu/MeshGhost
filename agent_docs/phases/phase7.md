@@ -3955,3 +3955,16 @@ function moved to their own. Found and not changed (code, offered as a separate 
 bare `find("all")`. Still open in the docs: `adr/0061` says the mod searches the mod and dlls folders, `FLAGS.md`'s
 "Dev traces" rows point at "the comment above `Plugin.cpp:NNNN`", and `CoreLauncher.cpp`'s missing-exe message still
 tells a player to try the mod folder (a string: code).
+
+## 2026-10-02 — A5: the probes' comments trimmed
+
+The 72 probe files under `probes/` went from 2,882 whole-line comments to 663; `luac -l -l` listings without line
+numbers are identical for all 71 Lua files and `wallrun_diff.py`'s AST is unchanged (its docstring is the usage text it
+prints, so it stays). History no record held is in `pitfalls/by-lesson.md`, "The stories behind the code" (39 bullets);
+game facts and probe costs went to `MEASURED.md`'s 2026-10-02 entry (14). Comments that contradicted the code were
+fixed: `enemy_hit_watch.lua` claimed its 25 ms sample separates writes a frame apart at 144 fps (it spans about 3.6
+frames), `wallrun_entry.lua` said it snapshots two entries (four), `equip_carrier_test.lua` said a ghost has no
+controller (its own `find_ghost` finds one), and `stage3_roundtrip.lua` still named `internal/core/core.go`. The docs
+that pointed into the probes' headers now point where the text went: `PROBES.md` (eight line counts and four "its
+header says" pointers), `pitfalls/INDEX.md`, `pitfalls/by-host.md`, `chaser-planning.md` and `UNVERIFIED.md`'s costume
+entry.

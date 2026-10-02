@@ -1,13 +1,6 @@
--- Capture round for the two remaining thrown-sword gaps (2026-09-01, user):
---   1. the flyer's in-air POSE/SPIN is wrong -- so log the REAL loose sword's actor rotation
---      AND its mesh's RelativeLocation/RelativeRotation through a flight: whatever offset the
---      real one carries between actor and mesh is what the flyer must compose in.
---   2. the wall-bounce VFX is unmirrored -- so log every Niagara appearance while a sword is in
---      flight, with position relative to the sword: the one that appears at the sword on a
---      velocity flip is the bounce burst, by name.
---
--- Passive, named-property reads only (the safe census shape). Throw at walls a few times on
--- THIS client; no timing to hit.
+-- Thrown-sword capture: the loose sword's actor rotation and its mesh's relative offset through a flight (the
+-- offset a ghost's flyer must compose in), and every Niagara appearance beside the sword's position (the one
+-- at the sword on a velocity flip is the wall-bounce burst). Named reads only; throw at walls on this client.
 
 local TAG = "[MeshGhostBounceCapture]"
 local INTERVAL_MS = 150
@@ -65,9 +58,7 @@ local function sample()
                     in_flight = true
                     local loc = prop(root, "RelativeLocation")
                     flight_pos = loc
-                    -- The pose question, all in one line: actor-root rotation vs the visual
-                    -- mesh's own relative offset. 'SkeletalMesh' is the prop's visual component
-                    -- (its own reflection dump named it).
+                    -- SkeletalMesh is the prop's visual component, as its own reflection dump named it.
                     local mesh = prop(actor, "SkeletalMesh")
                     print(string.format("%s FLIGHT %s loc=%s rootRot=%s meshRelLoc=%s meshRelRot=%s vel=%s\n",
                                         TAG, short(full_name(actor)), vec_text(loc),
@@ -80,8 +71,6 @@ local function sample()
         end
     end
 
-    -- Niagara appearances, attributed against the in-flight sword's position -- the bounce
-    -- burst is whichever system shows up at the sword mid-flight.
     local effects = FindAllOf("NiagaraComponent")
     if effects then
         for _, fx in pairs(effects) do

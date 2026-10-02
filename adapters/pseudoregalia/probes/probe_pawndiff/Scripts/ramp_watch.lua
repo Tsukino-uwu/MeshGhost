@@ -1,11 +1,6 @@
--- MeshGhost RAMP WATCH (2026-09-09): READ-ONLY, hot-loaded over the scratch slot. With the bound
--- stick answered and the pawn's own Blueprint moving the driven ghost, the ghost is slower from the
--- first frame of every loop: 69 against the recording's 255 at the crouch 0.6 s in, 446 against
--- 816 at the wall (DRIVE CLING, 13:33). So: for the first 3 s after each new driven pawn appears,
--- every 50 ms -- speed, moveState, actionState, `moveInputAmount`, `hasMovementInput?`,
--- `inputVectorWorld`, `horizontalSpeed`, and once per pawn the movement component's
--- `MaxWalkSpeed`/`MaxAcceleration`/`GroundFriction`/`BrakingFrictionFactor` and the pawn's
--- `runSpeed`. The recording's own ramp is read offline from the clip's positions. Named reads only.
+-- Ramp watch, read-only: why is the driven ghost slower than its recording from a loop's first frame? For 3 s after
+-- each new driven pawn appears, every 50 ms: speed, states and the input fields, plus once per pawn the movement
+-- component's speed, acceleration and friction settings. The recording's ramp is read offline from the clip.
 
 local TAG = "[MeshGhostRamp]"
 local WINDOW_S = 3.0

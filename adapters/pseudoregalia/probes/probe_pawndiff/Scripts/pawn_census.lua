@@ -1,18 +1,6 @@
--- MeshGhost PAWN CENSUS + FUNCTION DUMP (2026-09-09): READ-ONLY, hot-loaded over the scratch
--- slot. Two questions from the driven-ghost session, both answered without a filter:
---
---  1. WHAT IS THE SECOND GHOST. The user sees two ghosts with one clip in `active/`. Every 5 s,
---     every pawn of the player's class: name, controller class, `bActorIsBeingDestroyed`,
---     `bHidden`, moveState, MovementMode, `Interaction Target`, location -- the driven ghost, the
---     player, and whatever else is standing (or sitting) in the world. Named reads only.
---  2. WHAT ENDS A SIT. Six named candidates were called on the seated driven pawn and none
---     moved `moveState` off 8 (`standup_hunt.lua`, 11:45-11:52). The census that named them was
---     filtered by substring (interact/sit/stand/chair/rest/heal/seat) -- a guess about the answer.
---     Once, this lists EVERY function name on the pawn's class chain, own classes first, to a
---     file beside the mod (`pawnfns-<HHMMSS>.log`), names only -- the safe walk the interact census
---     used. Filter while reading, never before.
---
--- Nothing written, nothing called. Restore the stub afterwards.
+-- Pawn census and function dump, read-only: every 5 s, each pawn of the player's class (controller, being destroyed,
+-- hidden, states, Interaction Target, location), and once, every function name on the pawn's class chain, unfiltered,
+-- to pawnfns-<HHMMSS>.log beside the mod. Hot-loaded over the scratch slot; restore the stub afterwards.
 
 local TAG = "[MeshGhostPawnCensus]"
 
@@ -108,9 +96,7 @@ LoopAsync(5000, function()
     ticks = ticks + 1
     local me = player_pawn()
     if not me then return false end
-    -- Before the game is entered the controller holds an engine `DefaultPawn` (measured
-    -- 11:54:16: the first dump listed DefaultPawn/Pawn/Actor/Object, 172 names, none the
-    -- game's). Wait for the game's own pawn class.
+    -- Before the game is entered the controller holds an engine DefaultPawn: wait for the game's own pawn class.
     local early_class = "?"
     pcall(function() early_class = me:GetClass():GetFName():ToString() end)
     if not early_class:find("^BP_") then return false end

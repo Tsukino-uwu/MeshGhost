@@ -1,27 +1,6 @@
--- MeshGhost Phase 7 socket-capability probe, Stage 3: a real bind/connect/send/receive round
--- trip against the actual bridge protocol, the one thing Stage 2 deliberately left untested
--- (see agent_docs/verified.md and agent_docs/phases/phase7.md -- Stage 2 confirmed
--- socket.tcp() object creation is safe, but never called :connect()/:send()/:receive()).
---
--- NOT WIRED IN as this mod's entry point (same reason as Stage 2 -- UE4SS Lua mods always load
--- Scripts/main.lua). Deploy by swapping this file in as main.lua, same as Stage 2.
---
--- Requires, started BEFORE launching the game:
---   dev-scripts\run-relay-loopback.bat   (meshghost-relay.exe -loopback)
---   dev-scripts\run-core-pseudoregalia.bat (meshghost.exe -game=pseudoregalia -bridge=127.0.0.1:7778)
--- run-core-pseudoregalia.bat passes -game explicitly, so the core connects to the relay
--- immediately at startup, not on this script's hello -- meshghost.exe's own console output is
--- a second, independent source of truth alongside UE4SS.log.
---
--- What this sends is NOT a real local_state read (that's 7.1's job, not yet ported into a
--- socket-carrying script) -- it's hardcoded dummy frames, purely to exercise the wire path.
--- run-relay-loopback.bat echoes each client's own state back to itself as "<id>-ghost", but
--- the core only pushes that down as render_remote as a side effect of processing this
--- adapter's NEXT local_state frame (internal/core/core.go's onAdapterFrame -> tickRenders) --
--- it never pushes proactively -- so this resends a fresh dummy frame before each receive
--- attempt, the same way a real per-frame adapter naturally would. A successful round trip
--- means receiving a render_remote back for our own dummy state -- the clearest possible signal
--- that send AND receive both work, not just connect.
+-- Socket probe, stage 3: a real connect/send/receive round trip against the bridge protocol, with dummy frames.
+-- Deploy by copying it over Scripts/main.lua. Needs the loopback relay and a Pseudoregalia core on 127.0.0.1:7778
+-- running before the game starts; a render_remote back for our own dummy state proves send and receive both work.
 
 local function scriptDir()
     local src = debug.getinfo(1, "S").source
@@ -59,9 +38,7 @@ log("socket core loaded (repeat of Stage 2, expected to succeed).")
 
 local okRun, runErr = pcall(function()
     local sock = socketCore.tcp()
-    -- Blocking with a timeout, not the non-blocking-retry-per-frame pattern the real emerald
-    -- adapter uses (phase3_loopback.lua) -- this is a one-shot probe run once at mod load, not
-    -- a per-frame loop, and the core is expected to already be up and listening.
+    -- Blocking with a timeout: a one-shot run at load, with the core expected to be listening already.
     sock:settimeout(3)
 
     log("connecting to %s:%d ...", BRIDGE_HOST, BRIDGE_PORT)
@@ -93,13 +70,7 @@ local okRun, runErr = pcall(function()
     end
     log("local_state sent (%d bytes).", sentOk)
 
-    -- The core only pushes render_remote as a side effect of processing a NEW local_state
-    -- frame from this same adapter (onAdapterFrame -> tickRenders, internal/core/core.go) --
-    -- it never pushes proactively on its own. A single frame-then-wait, like the first version
-    -- of this script did, will never see anything come back even on a fully working socket:
-    -- the relay's loopback echo arrives at the core, but nothing asks the core to look at it
-    -- until another frame arrives. So: resend a fresh dummy frame before each receive attempt,
-    -- the same way a real per-frame adapter naturally would.
+    -- The core pushes render_remote only while handling a new local_state, so a fresh frame precedes each receive.
     for i = 1, 5 do
         local nextStateLine = string.format(
             '{"type":"local_state","payload":{"state":{"area_id":"stage3_probe","position":[%d,2],"orientation":"0","anim":"idle"}}}',

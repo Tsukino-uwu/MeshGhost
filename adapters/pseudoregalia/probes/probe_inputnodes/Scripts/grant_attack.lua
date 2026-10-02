@@ -1,9 +1,6 @@
--- MeshGhost DRIVE RIG helper (2026-09-08): a driven ghost is a fresh clone with the pawn's
--- CLASS DEFAULTS, and `obtainedAttack?` is false on it (the drive log, 23:06) -- the attack the
--- player unlocked on their save is not a thing the clone has, so its attack event nodes refuse.
--- This writes the flag true on the first AI-steered ghost, re-checked every 2 s (a loop seam
--- respawns the pawn). Ghost-only, by the same identity guard as the census; never the player.
--- Hot-loaded over the scratch slot; restore the stub afterwards. Dev-only; never ships.
+-- Writes obtainedAttack? true on the first AI-steered ghost, never the player: a driven ghost is a clone with
+-- the class defaults, so its attack nodes refuse. Re-checked every 2 s, as a loop seam respawns the pawn.
+-- Hot-loaded over the scratch slot; restore the stub afterwards.
 
 local TAG = "[MeshGhostGrantAttack]"
 local PAWN_CLASS = "BP_PlayerGoatMain_C"

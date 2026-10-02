@@ -1,48 +1,6 @@
--- MeshGhost FROZEN-PLAYER signal probe. 2026-09-05, for ADR 0053.
---
--- THE QUESTION. The game holds the player still for an item popup and for the pause menu, and
--- probe_pickup (2026-09-04) proved that NOTHING the adapter samples marks it: 110 seconds of
--- byte-identical loc / h=550 / v=-290 / MovementMode=3 across a popup. The chaser now runs on a
--- clock the adapter can stop with a `player_frozen` message -- so what is the game's OWN fact
--- that says "frozen, not gameplay"? Not "the position stopped changing": that fires on a wall-hug
--- and fires late.
---
--- WHAT IT READS, all by NAME, all property reads, no UFunction on anything FindAllOf returned (that
--- crashed live sessions twice) and no ForEachProperty (banned in an armed probe; a blind walk
--- crashed three live sessions on 2026-08-29). Three families of candidate, so the answer can come
--- from whichever the game actually uses:
---
---   ENGINE PAUSE   WorldSettings.PauserPlayerState (the engine's own "who paused") and TimeDilation
---                  -- if the pause menu calls the engine's pause, this is the whole answer.
---                  probe_menuwatch read a field spelled `Pauser`, which may never have resolved;
---                  BOTH spellings are read here and the COVERAGE line says which exists.
---   INPUT GATES    PlayerController.IgnoreMoveInput / IgnoreLookInput (counters), bCinematicMode,
---                  bCinemaDisableInputMove / Look, bShowMouseCursor, bBlockInput, and the pawn's
---                  bBlockInput / CustomTimeDilation -- the usual ways a UE game freezes a player
---                  WITHOUT pausing the world, which is what a popup over a still-animating scene
---                  looks like.
---   WIDGETS        every live UserWidget's class name and its Visibility -- a popup and a pause
---                  menu are UMG widgets, so the set of visible widgets changing IS the event, and
---                  the widget's own name is a candidate signal the adapter could read back.
---
--- Property names are from the Unreal Engine API reference for APlayerController, AController,
--- AActor, AWorldSettings and UWidget (dev.epicgames.com/documentation, the per-class pages); the
--- probe does not assume any of them exists on THIS build -- a name that does not resolve is
--- reported in COVERAGE, never silently skipped. The measured names (BP_PlayerGoatMain_C,
--- CharacterMovement, horizontalSpeed, verticalSpeed) are this repo's own documentation.md.
---
--- NO WINDOW TO HIT. Everything logs ON CHANGE plus a few seconds of per-sample lines either side
--- of any change. Do these, in any order, taking as long as you like between them:
---   1. stand still a few seconds (baseline)
---   2. pick an item up, read the popup a while, press continue
---   3. open the PAUSE MENU, wait a few seconds, close it
---   4. do a ZONE TRANSITION
--- The log then shows, per event, which candidate moved and which did not.
---
--- COST: one FindAllOf per class per sample at 10Hz (4 classes), plus one Visibility read per live
--- widget; names are looked up ONCE per widget address and cached. Say if the game stutters -- the
--- cost is what you feel, not what the log says. UNLOAD IT AFTERWARDS (restore probe_scratch's
--- stub): a loaded probe is a suspect in every later report.
+-- Which game fact marks the player frozen (an item popup, the pause menu): the engine's pause, the input gates and
+-- every live UserWidget's Visibility, on change at 10Hz. Named reads only; an unresolved name goes to COVERAGE.
+-- Stand still, take an item popup, open and close the pause menu, change zone; no window to hit. Unload after.
 
 local TAG = "[MeshGhostFrozen]"
 local INTERVAL_MS = 100
@@ -68,9 +26,7 @@ local function short(n)
 end
 
 local function class_short(n)
-    -- GetFullName is "<ClassName> <outer path>:<object name>": the CLASS is the first token. The
-    -- first version matched inside the path and named every widget after the GameEngine object
-    -- that outers them all (first live run, 2026-09-05), which said nothing.
+    -- GetFullName is "<ClassName> <outer path>:<object name>": the class is the first token.
     if not n then return "<nil>" end
     return n:match("^(%S+)") or short(n)
 end
@@ -120,10 +76,7 @@ local function num(v)
     return n
 end
 
--- A value UE4SS hands back as a WRAPPER (bitfield bools and some ints come back as a userdata, a
--- fresh one every read, whose tostring is its address) would otherwise "change" every sample. Try
--- the wrapper's own get(), else name the type once and stop: an unreadable field is a COVERAGE
--- fact, not an event. First live run 2026-09-05 spammed exactly this at 10Hz for five fields.
+-- Bitfield bools and some ints come back as a fresh userdata every read, whose address would "change" every sample.
 local function plain(value)
     local t = type(value)
     if t == "boolean" or t == "number" or t == "string" or t == "nil" then return tostring(value) end
@@ -132,9 +85,7 @@ local function plain(value)
         if pcall(function() got = value:get() end) and got ~= nil and type(got) ~= "userdata" then
             return tostring(got)
         end
-        -- The five controller gates came back as a UObject wrapper on this build (2026-09-05),
-        -- which is what UE4SS hands back for a name it could NOT resolve as a property: an INVALID
-        -- object. Say so, rather than printing an address that means nothing.
+        -- An invalid object is what UE4SS hands back for a name it could not resolve as a property.
         local okv, valid = pcall(function() return value:IsValid() end)
         if okv and valid == false then return "<unresolved>" end
         local ok, tn = pcall(function() return value:type() end)
@@ -158,11 +109,8 @@ local function on_change(key, value)
     end
 end
 
--- The widget census: the set of live, non-default UserWidgets with each one's Visibility. Keyed
--- by address so the name lookup happens once per widget; Visibility is read every sample because
--- a pre-built pause menu is TOGGLED, not created, and a count alone would never see it.
--- ESlateVisibility, per the UE reference: 0 Visible, 1 Collapsed, 2 Hidden, 3 HitTestInvisible,
--- 4 SelfHitTestInvisible. Logged raw.
+-- Visibility is read every sample: a pre-built pause menu is toggled, not created. Logged raw; the UE reference
+-- orders ESlateVisibility 0 Visible, 1 Collapsed, 2 Hidden, 3 HitTestInvisible, 4 SelfHitTestInvisible.
 local function widget_signature()
     local all = FindAllOf("UserWidget")
     if not all then return "<no UserWidget instances>", 0 end
@@ -209,7 +157,6 @@ local function sample()
         -- A transition is exactly when the pawn is absent, so the engine-side reads still run.
     end
 
-    -- ENGINE PAUSE
     if ws then
         local pps = read(ws, "PauserPlayerState", "WorldSettings.PauserPlayerState")
         on_change("ws.PauserPlayerState", pps and short(full_name(pps)) or "<none>")
@@ -218,7 +165,6 @@ local function sample()
         on_change("ws.TimeDilation", read(ws, "TimeDilation", "WorldSettings.TimeDilation"))
     end
 
-    -- INPUT GATES on the controller
     if pc then
         on_change("pc.IgnoreMoveInput", read(pc, "IgnoreMoveInput", "PlayerController.IgnoreMoveInput"))
         on_change("pc.IgnoreLookInput", read(pc, "IgnoreLookInput", "PlayerController.IgnoreLookInput"))
@@ -231,7 +177,7 @@ local function sample()
         on_change("pc.Pawn", ppawn and short(full_name(ppawn)) or "<none>")
     end
 
-    -- THE PAWN: the fields probe_pickup proved frozen, plus its own two gates.
+    -- The fields probe_pickup found frozen across a popup, plus the pawn's own two gates.
     local moved = "?"
     if pawn then
         on_change("pawn.bBlockInput", read(pawn, "bBlockInput", "Pawn.bBlockInput"))
@@ -255,8 +201,7 @@ local function sample()
         end
     end
 
-    -- WIDGETS: only the DIFF is printed. Three hundred live widgets make a full signature
-    -- unreadable and the log truncates it; what changed is the whole question.
+    -- Only the diff: three hundred live widgets make a full signature unreadable, and the log truncates it.
     local sig, count = widget_signature()
     if last["__widgets"] ~= sig then
         if last["__widgets"] ~= nil or census_done then
@@ -283,7 +228,6 @@ local function sample()
 
     if context_left > 0 then context_left = context_left - 1 end
 
-    -- BASELINE CENSUS, once a pawn exists: every candidate's resting value, and what did not resolve.
     if pawn and not census_done then
         census_done = true
         print(string.format("%s ===== BASELINE -- pawn exists; this is the UNFROZEN state =====\n", TAG))

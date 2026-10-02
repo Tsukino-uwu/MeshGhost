@@ -1,10 +1,5 @@
--- MeshGhost CONTROLSTATE WATCH (written 2026-09-23): READ-ONLY, the PLAYER's own pawn. Part C of
--- agent_docs/chaser-planning.md. A full-pawn diff (`probe_dump`, a book held open vs closed, the
--- same night) found one state field that moved: `controlState` 2 with the book open, 0 after. This
--- logs it (with `moveState` beside it as the known control: 8 is seated) on every change, stamped,
--- across an NPC conversation, a book, a chair and the pause menu, so what sets 2 is measured
--- rather than guessed from one reading. Two named reads, no call, no write. Hot-loaded over the
--- scratch slot; restore the stub afterwards. Dev-only; never ships.
+-- Logs the player pawn's controlState and moveState on every change: read-only, two named reads.
+-- Hot-loaded over the scratch slot; restore the stub afterwards.
 
 local TAG = "[MeshGhostControlState]"
 local function valid(obj)

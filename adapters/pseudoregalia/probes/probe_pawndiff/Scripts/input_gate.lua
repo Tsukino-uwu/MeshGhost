@@ -1,16 +1,7 @@
--- MeshGhost INPUT GATE (2026-09-09): READ-ONLY, on the PLAYER's own pawn, hot-loaded over the
--- scratch slot. The driven ghost feeds the recorded stick through the engine's `AddMovementInput`
--- every frame (its Blueprint's Move handler reads the BOUND stick, zero on a clone). During a wall
--- cling that input is not gated by anything: the wall blocks it, and the pawn slides along and UP
--- the wall at run speed (`snap_watch.lua`, 12:15: vel (0,984,89), +80 units/s of height, a 150-unit
--- correction every 0.4 s) while the recording slides down. The player's Blueprint decides per
--- state whether the stick reaches the movement component at all. This measures that decision:
--- every 50 ms, the player's `moveState`, `actionState`, `hasMovementInput?`, `moveInputAmount`, the
--- length of the engine's `GetLastMovementInputVector` (what actually reached the movement
--- component last frame) and the speed -- logged on every change of the (moveState, actionState,
--- stick held, input passed) tuple. The set of states where "stick held, nothing passed" is the
--- gate the ghost has to copy. Named reads and native getters only; nothing written, nothing called
--- that changes state.
+-- Input gate, read-only, on the player's own pawn: in which states does the player's Blueprint let the stick reach the
+-- movement component? Every 50 ms, logged on each change of (moveState, actionState, stick held, input passed), where
+-- "passed" is the length of GetLastMovementInputVector. The states with the stick held and nothing passed are the gate
+-- a driven ghost has to copy. Named reads and native getters only; hot-loaded over the scratch slot.
 
 local TAG = "[MeshGhostInputGate]"
 

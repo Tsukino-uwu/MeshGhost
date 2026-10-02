@@ -1,11 +1,6 @@
--- What does the game do to the PLAYER's blob shadow during a chair sit? (2026-09-01, user:
--- the ghost keeps its shadow while sitting; the real player's goes away.) Log every
--- StaticMeshComponent name-owned by each pawn (the shadow is one of them -- the subtraction
--- sweeps found it by exactly this class+containment test), with its visibility-shaped fields,
--- ON CHANGE. Sit on a chair, stand up, sit again; whichever field flips names the mechanism.
---
--- Named property reads only. The bVisible byte is a known liar (bitfield) -- that is WHY three
--- fields are read side by side; agreement is the evidence, not any one of them.
+-- Shadow sit capture, read-only: what does the game do to the player's blob shadow during a chair sit? Logs, on change,
+-- every StaticMeshComponent name-owned by each pawn with its visibility fields. Sit on a chair, stand up, sit again.
+-- The bVisible byte is a bitfield and can lie, so three fields are read side by side: agreement is the evidence.
 
 local TAG = "[MeshGhostShadowSit]"
 local INTERVAL_MS = 250

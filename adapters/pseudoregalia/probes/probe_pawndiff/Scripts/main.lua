@@ -1,14 +1,7 @@
--- MeshGhost PAWN DIFF (2026-09-09): READ-ONLY. Every 4 s for 120 s, every plain-valued property
--- (bool, int, float, double, byte, enum, name, string) of the PLAYER's pawn class is read on the
--- player's pawn and on every OTHER pawn of that class (the ghosts), and the ones that DIFFER are
--- written in full to `pawndiff-<HHMMSS>.log` beside this mod; the same for the game-instance
--- object each pawn holds as `As MV Game Instance Ref`. The question: with health 80 on the driven
--- ghost's own instance, what ELSE differs between the player and the ghost that a sit could read.
--- Nothing is filtered before the file; the UE4SS.log line per snapshot is a count plus the ghost's
--- moveState/actionState so the sit's snapshot can be found. Named reads only; nothing written,
--- nothing called, no object-valued property dereferenced except the game-instance ref (an object
--- this adapter itself constructed or the game's own singleton, both live). Hot-loaded over the
--- scratch slot; restore the stub afterwards. Dev-only; never ships.
+-- Every 4 s for 120 s, writes each plain-valued property (bool, int, float, double, byte, enum, name, string)
+-- of the player's pawn class that differs between the player and every other pawn of that class, and the same
+-- for each pawn's As MV Game Instance Ref, to pawndiff-<HHMMSS>.log. Read-only; the one dereference is that ref
+-- (the adapter's own object or the game's singleton, both live). Hot-loaded over the scratch slot.
 
 local TAG = "[MeshGhostPawnDiff]"
 local PERIOD_MS = 4000
@@ -54,7 +47,6 @@ local function plain(value)
     return "<" .. t .. ">"
 end
 
--- Every plain-valued property name of a class chain: { {key=Class.Prop, name=Prop}, ... }.
 local function plain_props(obj)
     local list, walked = {}, 0
     local cls = obj:GetClass()

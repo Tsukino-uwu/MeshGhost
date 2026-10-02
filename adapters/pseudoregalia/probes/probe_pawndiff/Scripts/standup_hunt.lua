@@ -1,35 +1,19 @@
--- MeshGhost STAND-UP HUNT (2026-09-09): a CALLING probe, dev-only, hot-loaded over the scratch
--- slot beside the C++ drive rig (`ghost_drive.txt` armed, `stand_fn` EMPTY so the rig calls
--- nothing itself). The driven ghost sits at the clip's chair sit and never stands: the game's own
--- stand-up is the rising edge of movement input while seated (`sit_watch.lua`), and the handler
--- reads the BOUND stick, zero on a clone. `EndInteract` on the pawn was called on that edge by
--- `standup_edge.lua` and did nothing (moveState stayed 8). This probe tries the OTHER candidates
--- the interact census listed, one at a time, chosen by a toggle file so one game session covers
--- them all without a relaunch:
+-- Calling probe beside the C++ drive rig (ghost_drive.txt armed, stand_fn empty): on the false->true edge of
+-- hasMovementInput? on the driven pawn while moveState == 8, calls the stand-up candidate the toggle file names,
+-- then reads back moveState, MovementMode, Interaction Target and the montage at +0/+100/+500 ms.
 --
 --     <scratch slot>\standup_hunt.txt        (beside Scripts\, re-read every second)
 --        fn=tryFinishHeal        the UFunction's name
 --        on=pawn                 pawn | chair   (the chair is the pawn's `Interaction Target`)
---        arg=none                none | counterpart   (counterpart = the chair for a pawn
---                                function, the pawn for a chair function; ONE object argument)
+--        arg=none                none | counterpart | <literal>   (counterpart = the chair for a pawn
+--                                function, the pawn for a chair function; one object argument)
+--        then_fn= / then_arg=    a second call on the pawn right after the first
 --
--- Trigger: the false->true edge of `hasMovementInput?` on the DRIVEN pawn (AIController, the
--- player's class, not being destroyed) while `moveState == 8`. Edge-triggered ONLY: a level
--- trigger was exactly wrong for the table glitch (seated walk = no edge). Read-backs at +100 ms
--- and +500 ms: moveState, MovementMode, `Interaction Target`, `hasMovementInput?`.
---
--- Once per session it logs each candidate's signature the SAFE way -- a parameter's property
--- class by name (`GetClass():GetFName()`), never `GetPropertyClass()`/`GetStruct()`, which took
--- the game down on the fifth function of `fnparams_CRASHED.lua`. An `arg=counterpart` call is
--- refused unless the signature shows exactly one ObjectProperty parameter; an `arg=none` call is
--- refused when the signature shows any ObjectProperty parameter (a zero-filled actor parameter is
--- a null dereference inside the Blueprint VM). Identity by address, never `~=`. RESTORE THE STUB
--- before judging anything else -- this drives a pawn.
+-- Edge-triggered only: a seated walk (the table glitch) has no edge. Signatures are read by property class
+-- name, never GetPropertyClass()/GetStruct(), which crash; a call whose object parameters do not fit arg is
+-- refused (a zero-filled actor parameter is a null dereference in the Blueprint VM). Restore the stub after.
 
 local TAG = "[MeshGhostStandHunt]"
--- The first ten came from the substring census; the rest from the unfiltered function-name
--- dump (`pawn_census.lua`, 11:55: 257 names on BP_PlayerGoatMain_C) -- the state machine's own
--- verbs, which no interact/sit/heal filter could have named.
 local PAWN_FNS = { "EndInteract", "BPI_EndInteract", "BPI_TryInteract", "BPI_InteractConfirm", "exitTransition",
                    "enterTransition", "trySitHeal", "tryFinishHeal", "healPlayer", "healDing",
                    "change Move State", "onMoveStateChange", "change Action State", "onActionStateChange",
@@ -65,7 +49,6 @@ local function prop(obj, name)
 end
 local function log(line) print(TAG .. " " .. line .. "\n") end
 
--- The safe signature walk: name and property class per parameter, nothing dereferenced.
 local function find_fn(obj, name)
     local found = nil
     local cls = obj:GetClass()
@@ -79,10 +62,7 @@ local function find_fn(obj, name)
     end
     return found
 end
--- A Blueprint-compiled UFunction's property list carries its LOCALS beside its parameters
--- (`CallFunc_*`, `K2Node_*`, `Temp_*` -- measured 2026-09-09 11:43: `tryFinishHeal` lists 20,
--- all locals). Only the rest are inputs a caller has to supply; the locals are the VM's own and
--- a zero-filled buffer is what a real call starts them at.
+-- A Blueprint UFunction's property list carries its locals beside its parameters; only the rest are inputs.
 local function is_local(name)
     return name:find("^CallFunc_") or name:find("^K2Node_") or name:find("^Temp_")
 end
@@ -116,7 +96,6 @@ local function player_pawn()
     return nil
 end
 
--- The toggle file.
 local cfg = { fn = "", on = "pawn", arg = "none", text = nil }
 local function read_toggle()
     local f = io.open(TOGGLE_PATH, "r")
@@ -145,10 +124,7 @@ local ticks = 0
 local pending = {}
 local signatures_done = false
 
--- The montage side (2026-09-09 12:0x, the user: the ghost LEAVES the chair after
--- `change Move State(0)` but stays in the sitting pose): the mesh's anim instance, asked through
--- the engine's own getters -- `IsAnyMontagePlaying`, `GetCurrentActiveMontage` -- and the
--- pawn's `actionState`/`animJumpType`. Named reads and native getters on a live instance only.
+-- The engine's own native getters on a live anim instance: a state can leave 8 with the sit montage still on.
 local function montage_text(pawn)
     local mesh = prop(pawn, "Mesh")
     if mesh == nil or not valid(mesh) then return "mesh=?" end
@@ -246,8 +222,7 @@ local function fire(pawn)
     end
     log(string.format("rising edge while seated (moveState=8) -> %s.%s(%s) %s", on_name, cfg.fn, cfg.arg,
         ok and "called" or ("FAILED " .. tostring(err))))
-    -- `then_fn=<name>` / `then_arg=none|<number>|true|false`: a second call on the PAWN right
-    -- after the first (the pose that outlives the state change). Same refusals.
+    -- then_arg=none|<number>|true|false; same refusals as the first call.
     if cfg.then_fn and cfg.then_fn ~= "" then
         local fn2 = find_fn(pawn, cfg.then_fn)
         if not fn2 then
@@ -304,17 +279,14 @@ LoopAsync(50, function()
             end
         end
     end
-    -- THE PLAYER'S OWN SIT AND STAND, for comparison (read-only): on every change of the
-    -- player's moveState, the same read-back at +0/+100/+500 ms -- what the game itself does to
-    -- the montage and the action state when a real stand-up happens.
+    -- The player's own sit and stand, read-only, for comparison: what the game itself does to the montage.
     local me_now = player_pawn()
     if me_now then
         local pms = prop(me_now, "moveState")
         if player_last_ms ~= nil and pms ~= player_last_ms then
             log(string.format("PLAYER moveState %s -> %s", tostring(player_last_ms), tostring(pms)))
             readback(me_now, "  PLAYER +0ms")
-            -- Every 50 ms for 600 ms: the montage blend-out's length is the number the ghost's
-            -- stop has to match (11:59: still "playing" at +100 ms, gone at +500 ms).
+            -- Every 50 ms for 600 ms: the ghost's montage stop has to match the blend-out's length.
             for step = 1, 12 do
                 pending[#pending + 1] = { at_tick = ticks + step, pawn = me_now, label = string.format("  PLAYER +%dms", step * 50) }
             end

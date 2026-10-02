@@ -1,8 +1,5 @@
--- MeshGhost FUNCTION PARAMS (2026-09-09): READ-ONLY, once. For the interact/sit/heal functions the
--- census listed on the pawn and on the chair (`BP_RestChair_C`, any live instance), logs each
--- UFunction's parameter list (name:type, with the return value marked) and its parms size --
--- so a call with zero-filled params is known to be a real call and not an early return on a
--- null actor. Nothing written, nothing called.
+-- Function-parameter listing, once: each interact/sit/heal UFunction's parameters and parms size on the pawn and the
+-- chair (BP_RestChair_C). It crashed the game at its fifth function, so never run it; C++ reads the signatures now.
 
 local TAG = "[MeshGhostFnParams]"
 local PAWN_FNS = { "EndInteract", "BPI_EndInteract", "BPI_TryInteract", "BPI_InteractConfirm", "exitTransition", "enterTransition",
@@ -48,6 +45,7 @@ local function describe(fn)
         local n, t = fname_str(p), "?"
         pcall(function() t = p:GetClass():GetFName():ToString() end)
         local extra = ""
+        -- The crash: GetPropertyClass() on a non-object parameter is an access violation no pcall catches.
         pcall(function()
             local pc = p:GetPropertyClass()
             if pc then extra = "<" .. fname_str(pc) .. ">" end

@@ -131,7 +131,8 @@ called correctly — resolved, `ProcessEvent` succeeded, no crash from the call 
 1. `BPI_PerformDamageResponse(0, zero-vector)` — the shipped hurt mirror already calls this on ghosts;
    confirmed reaction-only (blink at type 0, knockback+blink at type 1) with a live tripwire proving no
    HP moves. **DamageType ≥ 2 crashes the game instantly** (types 2 and 3 both did, identically —
-   `damage_sweep.lua`'s own header has the full account; do not try 4+).
+   the full account, from `damage_sweep.lua`'s old header, is in `pitfalls/by-lesson.md`, "The stories behind the
+   code"; do not try 4+).
 2. `BPI_ContactDamageResponse()` — zero params, called on the player's own `BP_HpHitable`. No effect.
 3. `BPI_CombatDeath(dissolveDelay=0.0)` — no effect (first test was contaminated by an edge-latch bug
    that fired it dozens of times a second; the bug is fixed — see Part E — but a CLEAN retest of this

@@ -1,27 +1,5 @@
--- MeshGhost Phase 7.1 read-only discovery probe. Not the real adapter — a throwaway UE4SS
--- Lua mod whose only job is to confirm, live on screen, where Pseudoregalia's local player
--- pawn, position, rotation, and level name actually live, before any of it gets ported into
--- the real C++ adapter (adapters/pseudoregalia/MeshGhostPseudo/, not yet started).
--- Never writes memory, never touches the network.
---
--- Deploy: copy this Scripts/main.lua (and this probe/ folder's structure) into
---   <Pseudoregalia install>\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostProbe\Scripts\main.lua
--- then add "MeshGhostProbe : 1" to that ue4ss\Mods\mods.txt (see agent_docs/phases/phase7.md
--- for the confirmed install path and UE4SS version, v3.0.1 Beta / SHA 733e5969).
---
--- API source: UEHelpers (docs.ue4ss.com; also read directly and confirmed present as
--- ue4ss\Mods\shared\UEHelpers\UEHelpers.lua on this install, part of RE-UE4SS itself, MIT --
--- see agent_docs/licensing.md). GetPlayerController()/.Pawn/K2_GetActorLocation() usage
--- pattern confirmed against this same install's own bundled example mod,
--- ue4ss\Mods\LineTraceMod\Scripts\main.lua, which already uses UEHelpers.GetPlayerController()
--- and PlayerController.Pawn successfully in this exact game/UE4SS build -- not assumed from
--- generic UE4SS docs alone. No pseudoregalia-archipelago source was read to write this file
--- (see agent_docs/licensing.md's no-license entry for that repo -- facts only, and this
--- script's facts come from UE4SS's own bundled code, not that repo).
---
--- Everything below is UNCONFIRMED until watched on screen -- this file exists to produce that
--- confirmation, not to assume it. Record results in agent_docs/verified.md only after the
--- user has watched values change correctly walking, jumping, and changing rooms.
+-- Read-only discovery probe: prints the local player pawn, its position and rotation, and the level name on change.
+-- Deploy as ue4ss\Mods\MeshGhostProbe\Scripts\main.lua and add "MeshGhostProbe : 1" to ue4ss\Mods\mods.txt.
 
 local UEHelpers = require("UEHelpers")
 
@@ -49,9 +27,6 @@ local function safeGetLevelName()
     if level == nil or not level:IsValid() then
         return "<no persistent level>"
     end
-    -- GetFullName()/GetName() are standard UObject methods available on any valid UE4SS
-    -- RemoteObject; the exact level-name shape (e.g. whether it includes a package path
-    -- prefix) is one of the things this probe exists to confirm on screen, not assumed here.
     local ok2, name = pcall(function() return level:GetFullName() end)
     if ok2 and name ~= nil then
         return name
@@ -68,9 +43,6 @@ local function tick()
         local loc = pawn:K2_GetActorLocation()
         local rot = pawn:K2_GetActorRotation()
         local levelName = safeGetLevelName()
-        -- UE is Z-up, centimetres. Position/rotation shape here is exactly what would become
-        -- the adapter's position/orientation fields (contract.md: position is variable-length,
-        -- orientation is opaque JSON of any shape) -- not decided yet, just observed.
         line = string.format(
             "pawn=%s  pos=(%.2f, %.2f, %.2f)  rot=(pitch=%.2f, yaw=%.2f, roll=%.2f)  level=%s",
             pawn:GetFullName(),

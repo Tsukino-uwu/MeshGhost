@@ -1,24 +1,7 @@
--- MeshGhost OUTFIT ECHO HOOK (2026-09-13). READ-ONLY: a native-function pre-hook that only logs.
---
--- The echo: after a peer's costume swap, the watcher's own character takes that costume at a later
--- ghost spawn (echo_watch.lua, measured). echo_source.lua then set a ghost's mesh locally and saw no
--- copy -- but in that run the player's costume setup never re-ran at all, so it was inconclusive,
--- not a negative.
---
--- This catches the WRITE itself. `SetSkeletalMeshAsset` is a native engine UFunction, the allowed
--- kind of hook on this host (host CLAUDE.md: never a Blueprint one). Every call is printed straight
--- to UE4SS.log, so its millisecond timestamp sits in the same file as the adapter's own
--- `outfit mesh applied for ghost pN` and `spawned ghost for remote` lines: a call on the PLAYER's
--- VisualMesh at the same instant as an adapter apply is our code; one at a spawn with no apply
--- beside it is the game's own setup. The player's mesh and dynamicEyesMat are polled as a backstop,
--- in case the player's mesh changes by a path that never calls the function.
---
--- Two game processes can share this install and this log, so every line names the player pawn it
--- was seen from.
---
--- The hook body only formats and prints -- no lookups, no calls -- because it runs inside the
--- engine's call. Remove by restoring the scratch stub; RestartMod drops the hook with the mod.
--- Dev-only tooling; never ships.
+-- Outfit echo hook, read-only: a pre-hook on the native SetSkeletalMeshAsset that prints every call into UE4SS.log,
+-- beside the adapter's own lines, so a write on the player's VisualMesh with no adapter apply beside it is the game's.
+-- The player's mesh and dynamicEyesMat are polled too, for a change that never calls the function. Two game
+-- processes can share one log, so every line names the player it was seen from. Restore the scratch stub to remove.
 
 local TAG = "[EchoHook]"
 
@@ -28,7 +11,7 @@ local function addr(o) local ok, a = pcall(function() return o:GetAddress() end)
 local function full(o) if o == nil or not valid(o) then return "none" end local s pcall(function() s = o:GetFullName() end) return s or "?" end
 local function short(o) local f = full(o) return f:match("([^/]+)%.[^%.]*$") or f end
 
--- Cached per poll, read in the hook (the hook must not search the world).
+-- Cached per poll: the hook runs inside the engine's call, so it only formats and prints.
 local player_addr, player_vm_addr = "nil", "nil"
 
 local function on_set(Context, NewMesh)
@@ -37,7 +20,7 @@ local function on_set(Context, NewMesh)
     pcall(function() mesh = NewMesh:get() end)
     local ca = addr(comp)
     local who = (ca == player_vm_addr) and "PLAYER VisualMesh" or "other"
-    -- The component's full name carries its owning pawn (name containment, host CLAUDE.md).
+    -- The component's full name carries its owning pawn.
     local cname = full(comp):match("(BP_PlayerGoatMain_C_%d+%.[%w_]+)") or full(comp)
     print(string.format("%s SetSkeletalMeshAsset %s on %s -> %s   (seen from player %s)\n",
         TAG, who, cname, short(mesh), player_addr))

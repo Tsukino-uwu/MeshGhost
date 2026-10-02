@@ -1,42 +1,6 @@
--- MeshGhost INPUT-NODE CENSUS -- which of the pawn's Enhanced Input event nodes is the PRESS and
--- which the RELEASE for each action, measured by calling them on a GHOST pawn (ours: ADR 0057,
--- the user's call 2026-09-08 -- a pawn the adapter spawned may be driven; the local player's
--- never is) and reading the pawn's own fields back. D0 of the driven-ghost plan
--- (`agent_docs/ideas.md`, the INPUT plane entry).
---
--- WHY CALLS AND NOT HOOKS. The obvious census -- hook all 24 `InpActEvt_IA_*` nodes and press
--- the keys -- is ruled out twice over: a Blueprint UFunction is never hooked (this adapter's
--- CLAUDE.md), and a Lua `RegisterHook` even on a native function is a freeze suspect
--- (`checklists/before-a-probe.md`, 2026-09-06). Calling a node is what the shipped adapter
--- already does for crouch (`GHOST_CROUCH_INPUT_CALL`: `_16` down, `_15` up), so this asks the
--- same question the drive will: "what does this node DO to the pawn?"
---
--- THE NODES (the 2026-09-08 census, `input_census-stage1-120649.log`): every one takes
--- (ActionValue:InputActionValue, ElapsedTime:float, TriggeredTime:float, SourceAction:InputAction).
--- FInputActionValue has no reflected fields, so from Lua the value is always ZERO -- fine for a
--- button (Started/Completed read the event, not the value), useless for Move, whose one node
--- (_19) needs a real vector and is therefore the C++ half's to measure. Recorded, not assumed.
---
--- SKIPPED ON PURPOSE: Pause, MenuAdvance, QuickMap, PerspectiveToggle (UI and the camera --
--- the driven ghost will never fire them) and Interact (reaches the world). Look is called with
--- a zero delta, which should be a no-op on the ghost's rig; if it is not, that is a finding.
---
--- PROTOCOL: none for the person at the game beyond having a ghost present -- the active clip
--- loops so one always is. Stand somewhere the ghost is on screen if you want to SEE each call
--- land (a jump, a swing, a crouch); the log is the record either way. Endurance, not timing.
--- Two rounds: every action's nodes in ascending index, then descending, 3 s per node.
---
--- WHAT IS READ, per frame for 600 ms after each call and once at 2.5 s: every BoolProperty on
--- the pawn's class chain by name (`jumpButtonHeld?`, `wallRideButtonHeld?`, `bIsCrouched`,
--- `weaponEquipped?`, `saveAttack?` ...), the census's named scalars and vectors, the actor's
--- location Z (a jump shows here when nothing else moves). Named reads only; no walk of values.
---
--- COST: ~60 named reads per frame on ONE pawn during the 600 ms windows, nothing between.
--- UNLOAD AFTERWARDS (restore probe_scratch's stub): a probe that calls input events on a pawn
--- is a suspect in every later report.
---
--- Output: `input_nodes-<HHMMSS>.log` at the mod folder root, buffered, flushed once a second;
--- the same lines go to UE4SS.log under the TAG. Dev-only tooling; never ships.
+-- Which of the pawn's Enhanced Input event nodes is the press and which the release: calls each on a replay ghost
+-- (a Blueprint UFunction is never hooked) and reads the pawn's fields back for 600 ms and at 2.5 s. From Lua the
+-- ActionValue is always zero, so Move is not called. Over the scratch slot; unload it afterwards.
 
 local TAG = "[MeshGhostInputNodes]"
 local PAWN_CLASS = "BP_PlayerGoatMain_C"
@@ -134,16 +98,8 @@ local function player_controller_and_pawn()
     return nil
 end
 
--- A GHOST: a valid player-class pawn that is NOT the player's, not a class default, and whose
--- Controller is an AIController (a MeshGhost ghost auto-possesses one at BeginPlay; the
--- player's pawn is held by the PlayerController). The first one found is used for the whole
--- run and named in the log, so the reading can be attributed.
---
--- **BY NAME, NEVER BY `~=` (2026-09-08, the first run).** Two UE4SS Lua wrappers for the SAME
--- object are not equal under `==`, so `p ~= player_pawn` was true for the player's own pawn
--- and `ctl ~= pc` was true for the player's own controller -- the probe chose the player and
--- fired three input events on them before it was pulled. Identity is the FName (unique per
--- live object) or GetAddress(); a wrapper compare is never identity.
+-- A ghost: a player-class pawn that is not the player's, not a class default, and steered by an AIController.
+-- Identity by address or FName: two UE4SS Lua wrappers of one object are never equal under ==.
 local function same_object(a, b)
     if a == nil or b == nil then return false end
     local aa, ab
@@ -169,7 +125,7 @@ local function find_ghost(pc, player_pawn)
     return nil
 end
 
--- Every BoolProperty NAME on the pawn's class chain (class metadata only), once.
+-- Every BoolProperty name on the pawn's class chain (class metadata only), once.
 local function bool_names(pawn)
     local names, seen = {}, {}
     local cls
@@ -240,10 +196,8 @@ local function node_name(action, idx)
     return string.format("InpActEvt_IA_%s_K2Node_EnhancedInputActionEvent_%d", action, idx)
 end
 
--- The call. A zero ActionValue (an empty table fills the struct with zeros), zero times, and the
--- action asset when one loaded under the expected name (nil otherwise -- the crouch precedent
--- passes nothing at all and works). Any Lua-level error is recorded as the node's result; a
--- native fault is the one thing no pcall sees, which is why the game is nobody's save.
+-- A zero ActionValue (an empty table zero-fills the struct), zero times, and the action asset if one loaded (the
+-- shipped crouch call passes none and works). A native fault is the one thing this pcall cannot see.
 local function call_node(pawn, action, idx)
     local fname = node_name(action, idx)
     local fn = prop(pawn, fname)
@@ -319,8 +273,7 @@ local function tick()
         end
         out(string.format("GHOST: %s steered by %s (player pawn %s)", fname_str(ghost), tostring(ctl_class), fname_str(player_pawn)))
     end
-    -- THE GUARD, every tick, before any call: the chosen pawn is never the player's. If it ever
-    -- is, the probe says so and stops for good rather than fire one event.
+    -- Every tick, before any call: if the chosen pawn is ever the player's, stop for good.
     if same_object(ghost, player_pawn) or fname_str(ghost) == fname_str(player_pawn) then
         out("ABORT: the chosen pawn IS the player's pawn -- no call is made; fix find_ghost")
         state = "done"

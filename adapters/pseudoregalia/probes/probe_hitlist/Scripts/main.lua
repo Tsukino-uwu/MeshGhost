@@ -1,39 +1,8 @@
--- MeshGhost HIT LIST WATCH (written 2026-09-15, NOT YET RUN): READ-ONLY. The instrument for the
--- three ghost-attack leaks the user still sees with GHOST_PREHIT_PLAYER on -- Sunsetter hurts,
--- Strikebreak hurts, ghost attacks move levers -- and for the first question of the chaser contact
--- plan (agent_docs/chaser-planning.md, Part A step 1 and Part B step 1): WHICH actor's already-hit
--- list records a victim, and WHERE the health that moves actually lives.
---
--- WHAT IT READS, every PERIOD_MS for TOTAL_S, on the player's pawn and on every OTHER pawn of the
--- player's class (the ghosts):
---   * `hitActorsArray` in full -- each element's address and object name (the elements are actors
---     the game itself holds live while they are in its list; the name read is guarded);
---   * `LastHitBy` as an address only (never dereferenced: it was `<none>` through every hurt the
---     C++ measured, and a stale pointee is exactly what crashes a probe);
---   * the pawn's `BP_HpHitable` ref (address) and, when the ref is the pawn's OWN component, its
---     `CurrentHp` / `maxHP`;
---   * the game instance's `CurrentHp` through `As MV Game Instance Ref` (a singleton the game owns).
--- One line per pawn per sample goes to `hitlist-<HHMMSS>.log` beside this mod, unfiltered. The
--- UE4SS.log gets a line ONLY when something CHANGED -- an array grew or shrank on any pawn, a
--- health value moved anywhere -- with the pawn, the before and the after, so the window around
--- a hit is readable without the file. Nothing is filtered before the file (probes.md, "Dump
--- everything"), and the change lines are the reading aid, not the record.
---
--- WHAT IT CANNOT SEE, said up front: an attack that queries from a SPAWNED actor (a projectile,
--- a hitbox actor) and records its victims THERE would show as "no pawn's array changed, and the
--- health moved anyway". That outcome is itself the answer to Part A's hypothesis -- and the next
--- instrument is then a class census at the moment of the hit (probe_leakcount's census), not a
--- deeper read of the pawns. A lever's own state is not read here either; the user's eyes are the
--- instrument for "the lever moved".
---
--- HOW TO RUN: a loopback ghost 2 tiles to the side (never on the player). Load over the scratch
--- slot (PROBES.md, probe_scratch), then have the ghost's player use Sunsetter next to the local
--- player, then Strikebreak, then swing at a lever, holding each for a slow count of five before
--- the next -- endurance, not timing. Restore the stub afterwards.
---
--- COST: FindAllOf("PlayerController") plus one FindAllOf of the pawn class per sample, a few
--- dozen named reads per pawn, no calls, no writes, no dereference of anything but the pawn's own
--- component and the game's singleton. Dev-only; never ships.
+-- Hit-list watch, read-only: on the player's pawn and every other pawn of its class, hitActorsArray in full, LastHitBy
+-- as an address, the BP_HpHitable ref with its CurrentHp/maxHP when it is the pawn's own, and the game instance's
+-- CurrentHp. Every line goes to hitlist-<HHMMSS>.log; UE4SS.log gets a line only on a change. A hit recorded on a
+-- spawned actor shows as no array changing while the health moves anyway, and a lever's state is not read.
+-- Run over the scratch slot with a loopback ghost to the side: Sunsetter, Strikebreak, then a swing at a lever.
 
 local TAG = "[MeshGhostHitList]"
 local PERIOD_MS = 250
@@ -99,9 +68,7 @@ local function player_pawn()
     return nil
 end
 
--- The already-hit list, as "addr:name" per element, joined. The elements are actors the game
--- keeps in its own list; the name read is pcall-guarded and an element the walk cannot read is
--- written as its address alone.
+-- The elements are actors the game holds live while listed; the name read is still guarded.
 local function hit_list(pawn)
     local list
     local ok = pcall(function() list = pawn.hitActorsArray end)
@@ -121,8 +88,7 @@ local function hit_list(pawn)
     return "[" .. table.concat(items, " ") .. "]", n
 end
 
--- The pawn's health component: the ref's address, whether it is the pawn's OWN (outer == pawn),
--- and its numbers only when it is.
+-- The component's numbers are read only when it is the pawn's own (outer == pawn).
 local function hitable(pawn)
     local ref
     pcall(function() ref = pawn.BP_HpHitable end)
@@ -176,7 +142,7 @@ LoopAsync(PERIOD_MS, function()
             local list, n = hit_list(pawn)
             local href, own, hp, maxhp = hitable(pawn)
             local gihp, giaddr = instance_hp(pawn)
-            local lhb
+            local lhb -- an address only: a stale pointee is what crashes a probe
             pcall(function() lhb = pawn.LastHitBy end)
             local line = string.format("%s %s %s hits=%d %s lastHitBy=%s hitable=%s(%s) hp=%s/%s giHp=%s gi=%s",
                 stamp, who, addr, n, list, addr_str(lhb), href, own, tostring(hp), tostring(maxhp), tostring(gihp), giaddr)

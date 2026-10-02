@@ -1,14 +1,7 @@
--- MeshGhost HITABLE RESTORE (2026-09-09): a WRITING probe, dev-only. The player's health object is
--- the pawn's OWN component `BP_HpHitable` (class `BP_HpHitable_C`, outer the pawn; `CurrentHp`,
--- `maxHP` -- the 2026-09-06 player dump, `documentation.md`). The spawn decouple nulls a ghost's
--- REFERENCE to it, and the driven ghost's chair sit stayed the hurt variant with health 80 on its
--- private game instance and the save's upgrades copied -- so the sit most likely reads the null
--- ref. Every second, on every DRIVEN pawn (AIController + a private game-instance ref + not being
--- destroyed), this finds the pawn's own `BP_HpHitable_C` object (outer == the pawn), logs its
--- CurrentHp/maxHP and the player's, copies CurrentHp/maxHP from the player's onto the ghost's OWN
--- object if they differ, then writes the pawn's `BP_HpHitable` ref to it and reads it back. The
--- player's object is only read. Once per pawn. Hot-loaded over the scratch slot; RESTORE THE STUB
--- before judging anything else.
+-- Writing probe: on every driven pawn (AIController, a private game-instance ref, not being destroyed) finds the
+-- pawn's own BP_HpHitable_C (outer == the pawn), copies CurrentHp/maxHP from the player's onto it if they differ,
+-- then points the pawn's BP_HpHitable ref at it and reads it back. The player's object is only read; once per pawn.
+-- Hot-loaded over the scratch slot; restore the stub before judging anything else.
 
 local TAG = "[MeshGhostHitable]"
 local HITABLE_CLASS = "BP_HpHitable_C"

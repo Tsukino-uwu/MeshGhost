@@ -1,36 +1,7 @@
--- MeshGhost GLITCHED-GHOST INSPECTOR (2026-09-13). READ-ONLY: named reads and native getters
--- only, nothing written, nothing driven, no reflection walk.
---
--- Run this WHILE a ghost is visibly glitched and standing still. The glitch persists until a save
--- reset (user, 2026-09-13), which is what makes a calm read possible at all -- there is no window
--- to hit and nothing to time.
---
--- It dumps, for the local player pawn and for EVERY other pawn of that class in the level (the
--- ghosts), the three states that can each produce a broken model after an outfit swap that the
--- adapter's own log called `applied`:
---
---   1. THE ANIM BINDING. `VisualMesh.AnimScriptInstance` versus the pawn's `animBPref`. The
---      adapter drives montages through `animBPref`, a Blueprint variable the engine does not
---      update -- so if the mesh setter replaced the instance, every later montage write lands on a
---      dead object and the ghost stops animating correctly, permanently.
---   2. THE MATERIALS. `OverrideMaterials` is the COMPONENT's array, not the mesh's. Setting a new
---      SkeletalMesh does not clear it, so a costume whose material slots differ from the previous
---      one renders with the old overrides in the new slots -- which looks like a mangled model
---      rather than a T-pose, and is the shape that best fits "glitched". Both the component's
---      override count and the mesh's own slot count are read, because the MISMATCH is the finding.
---   3. THE MESH ITSELF. `SkeletalMesh` and `SkinnedAsset` read separately: the adapter writes both,
---      and a ghost holding two different assets in those two slots is its own bug.
---
--- Compare a glitched ghost against the local player wearing the same costume -- the player is the
--- control, and the difference between them is the answer. That is the ghost-vs-player diff this
--- adapter has used before (verified.md).
---
--- WHAT THIS CANNOT SEE: whether the model looks right. It reads state, never the render output --
--- the same blind spot that lets the adapter log `applied` for a model that is visibly broken. If
--- every field here matches the player and the ghost still looks wrong on screen, the mechanism is
--- somewhere this probe is not looking, and the subsystem widens rather than this deepening.
---
--- Dev-only tooling; never ships.
+-- Run while a ghost is visibly glitched and standing still: for the player and every other pawn of its class,
+-- dumps the anim binding (VisualMesh.AnimScriptInstance against animBPref), the component's OverrideMaterials
+-- against the mesh asset's own slots, and SkeletalMesh against SkinnedAsset. The player in the same costume is
+-- the control. Read-only, named reads and native getters; it reads state, never the render output.
 
 local TAG = "[MeshGhostInspect]"
 local SNAPSHOTS = 3
@@ -72,15 +43,12 @@ local function class_str(x)
     local s pcall(function() s = c:GetFName():ToString() end) return s or "?"
 end
 
--- Native getters on the component; each pcall'd separately so one missing on this build costs a
--- single "?" rather than the whole line.
+-- Each native getter is pcall'd alone, so one missing on this build costs a single "?", not the line.
 local function material_text(vm, mesh)
     local comp_n, mesh_n = "?", "?"
     pcall(function() comp_n = tostring(vm:GetNumMaterials()) end)
 
-    -- OverrideMaterials is the component's own array -- length only, plus each entry's address and
-    -- class. Nothing is followed past that (probe_dump's rule; the deep walk crashed this adapter
-    -- four times).
+    -- The component's own array: length, and each entry's address and class; nothing is followed past that.
     local ov = prop(vm, "OverrideMaterials")
     local ov_n, ov_list = "?", {}
     if ov ~= nil then
@@ -93,7 +61,7 @@ local function material_text(vm, mesh)
         end)
     end
 
-    -- The MESH's own slot count, for the mismatch. `Materials` is the asset's array.
+    -- The mesh asset's own slot count, for the mismatch.
     if mesh ~= nil and valid(mesh) then
         local mm = prop(mesh, "Materials")
         if mm ~= nil then pcall(function() mesh_n = tostring(#mm) end) end

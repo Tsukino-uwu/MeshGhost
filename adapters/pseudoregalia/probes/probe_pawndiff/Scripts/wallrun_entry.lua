@@ -1,11 +1,7 @@
--- MeshGhost WALL-RUN ENTRY (2026-09-09): READ-ONLY, hot-loaded over the scratch slot. The driven
--- ghost's wall run starts ~15% slower than the recording's (DRIVE CLING trace 12:32: the clip's
--- entry h=1000 v=+186, the ghost's h=847 v=+7; the jump launches before the wall are equal) and
--- the difference is not in any plain pawn field the 00:29 diff saw. So: on EVERY transition into
--- `moveState` 4 -- the player's and the driven ghost's -- snapshot every plain-valued property of
--- the pawn AND of its CharacterMovement component, plus velocity, at the sample BEFORE the entry
--- (kept from the last tick), at entry, and 250 ms later, to `wallrun-<HHMMSS>.log` beside the mod.
--- Filter while reading: the file holds everything. Named reads only.
+-- Wall-run entry, read-only: on each entry into the wall (moveState 4), the plunge (actionState 6), the slide
+-- (actionState 18, exit too) and the crouch (moveState 2), for the player and each driven ghost, every plain-valued
+-- property of the pawn and its CharacterMovement at entry, +250 and +500 ms, after a light read of the tick before,
+-- to wallrun-<HHMMSS>.log beside the mod; filter while reading. Hot-loaded over the scratch slot.
 
 local TAG = "[MeshGhostWallRun]"
 local PLAIN = { BoolProperty = true, IntProperty = true, FloatProperty = true, DoubleProperty = true,
@@ -128,7 +124,6 @@ local function write_snapshot(header, vals)
     for _, k in ipairs(keys) do fout("  " .. k .. " = " .. fmt(vals[k])) end
 end
 
--- Per watched pawn: last moveState, last snapshot (the "before"), pending after-reads.
 local watch = {}   -- addr -> { pawn=, who=, last_ms=, before= }
 local pending = {}
 local ticks = 0
@@ -144,7 +139,6 @@ LoopAsync(50, function()
     local my_class = "?"
     pcall(function() my_class = me:GetClass():GetFName():ToString() end)
     if not my_class:find("^BP_") then return false end
-    -- (Re)build the watch list once a second: the player and every AI-steered live pawn.
     if ticks % 20 == 1 then
         local seen = {}
         for _, p in pairs(FindAllOf(my_class) or {}) do
@@ -168,7 +162,6 @@ LoopAsync(50, function()
         end
         for a in pairs(watch) do if not seen[a] then watch[a] = nil end end
     end
-    -- Deferred after-reads.
     local keep = {}
     for _, d in ipairs(pending) do
         if ticks >= d.at_tick then
@@ -182,13 +175,9 @@ LoopAsync(50, function()
         if valid(w.pawn) then
             local ms = prop(w.pawn, "moveState")
             local t = os.clock() - t_start
-            -- Coverage line: what this probe reads off each watched pawn, every 2 s -- a ghost whose
-            -- entries never log has to show here as a type or a read that is not what the player's is.
+            -- A coverage line every 2 s: a ghost whose entries never log shows here as a read unlike the player's.
             if ticks % 40 == 0 then
-                -- `respawnTransform` (a Transform on the pawn, the player dump 2026-09-06): the
-                -- safe spot a pit death returns the character to. The driven ghost returned to the
-                -- world origin (12:39), so this reads both pawns' every 2 s -- does the clone's
-                -- ever move off zero while it walks the route?
+                -- respawnTransform is where a pit fall returns a character: does the clone's ever move off zero?
                 local rt = "?"
                 pcall(function()
                     local tr = w.pawn.respawnTransform
@@ -199,17 +188,13 @@ LoopAsync(50, function()
                 pcall(function() here = vec_text(w.pawn:K2_GetActorLocation()) end)
                 log(string.format("%s %s moveState=%s respawnTransform=%s at %s", w.who, fname_str(w.pawn), tostring(ms), rt, here))
             end
-            -- Two entries are snapshotted: moveState 4 (the wall) and actionState 6 (the plunge,
-            -- Sunsetter: the recording drops at 2000 units/s, the driven ghost at ~200, 12:39).
             local as = prop(w.pawn, "actionState")
             local entered = nil
             if w.last_ms ~= nil and ms == 4 and w.last_ms ~= 4 then entered = "moveState 4 (wall)" end
             if w.last_as ~= nil and as == 6 and w.last_as ~= 6 then entered = "actionState 6 (plunge)" end
-            -- The crouch slide (13:3x): the recording holds actionState 18 for ~0.2 s and jumps out
-            -- of it at 1100; the driven ghost's 18 lasts one tick. Both entries AND the exit.
             if w.last_as ~= nil and as == 18 and w.last_as ~= 18 then entered = "actionState 18 (slide)" end
             if w.last_as == 18 and as ~= 18 then entered = "LEFT actionState 18 (slide) -> " .. tostring(as) end
-            -- The crouch itself (moveState 2), for the side that crouches without sliding.
+            -- The crouch too, for the side that crouches without sliding.
             if w.last_ms ~= nil and ms == 2 and w.last_ms ~= 2 then entered = "moveState 2 (crouch)" end
             if entered then
                 local tag = string.format("%s %s t=%.2f", w.who, fname_str(w.pawn), t)
@@ -221,8 +206,7 @@ LoopAsync(50, function()
                 log(string.format("%s entered %s: velocity before=%s at entry=%s", tag, entered, tostring(w.before and w.before["PAWN GetVelocity"]), tostring(now["PAWN GetVelocity"])))
             end
             w.last_as = as
-            -- The "before" is LIGHT (a full snapshot is ~800 reads; at 20 Hz per pawn that is the
-            -- probe changing what it measures): velocity, location, the input fields, the states.
+            -- The before is light: a full snapshot is ~800 reads, and at 20 Hz per pawn that changes what it measures.
             do
                 local b = {}
                 pcall(function() b["PAWN GetVelocity"] = vec_text(w.pawn:GetVelocity()) end)

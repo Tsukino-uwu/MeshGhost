@@ -1,51 +1,6 @@
--- MeshGhost audio-listener fix probe -- **THIS ONE WRITES**, unlike every other probe in
--- `../PROBES.md`. It exists to test one fix before it is built into the shipping C++ mod, per the
--- user's call 2026-09-04: *"try with lua first, so we actually test the fix before making it"*.
---
--- THE FAULT (cause found 2026-09-04, `../UNVERIFIED.md`): `BP_PlayerGoatMain_C` pins the player
--- controller's audio ATTENUATION listener to its own collision capsule when it begins play --
--- caught twice out of two ghost spawns, ~0.1s before each one:
---
---   SetAudioListenerAttenuationOverride(CapsuleComponent ...BP_PlayerGoatMain_C_<ghost>.CollisionCylinder)
---
--- A ghost is a clone of that pawn, so every ghost steals the listener. While it lives it stands
--- near the player and everything sounds normal; when it despawns the override still names a
--- destroyed component and every SPATIALIZED sound attenuates to nothing, while music -- 2D, which
--- never consults attenuation -- keeps playing. The next ghost re-points it and the sound returns.
---
--- THE FIX UNDER TEST: on the tick a new ghost appears, put the attenuation listener back on the
--- LOCAL player's own capsule.
---
--- **CONFIRMED 2026-09-04 and SHIPPED** -- the user, after testing both cases: *"yee both the
--- spawn/despawn & zone transition sfx things are fixed now"*. This folder is kept as the record of
--- how it was proven, not as the fix: `Plugin.cpp`'s `register_audio_listener_guard` carries it in
--- production. **The shipping shape is deliberately different and better**: it REWRITES the
--- argument of `SetAudioListenerAttenuationOverride` in a pre-hook, so the engine's own call uses
--- the corrected component and there is no second call at all.
---
--- **The ordering lesson this file paid for, because a second call has to answer WHEN:** correcting
--- in a PRE hook applies the fix and then lets the engine overwrite it, so only the 5Hz poll below
--- ever healed anything -- a despawn recovered *most* times (*"works sometimes"*) and a zone
--- crossing never did, because on a crossing the poll had already spent its one shot on that
--- ghost's arrival before the steal. Moving the correction to the POST hook fixed both. A rewrite
--- sidesteps the question entirely, which is why the shipped one does that instead.
---
--- **What makes this safe enough to write from Lua:** the only call is on the ONE live
--- `PlayerController` that names a valid `AcknowledgedPawn` -- not on whatever `FindAllOf` handed
--- back first, and never on a ghost. It changes one listener attachment and nothing else; it writes
--- no save, no game state, no ROM.
---
--- **It is a DEV TOOL and must not be left armed.** It is not the shipping fix; it re-points on an
--- edge this probe polls for at 5Hz, where the real one belongs on the spawn itself. Delete the
--- folder (or its enabled.txt) once the answer is in.
---
--- Grounded APIs: APlayerController::SetAudioListenerAttenuationOverride(USceneComponent*, FVector)
--- (docs.unrealengine.com, PlayerController.h) -- and it is NATIVE, which is the one kind of
--- UFunction this host allows touching (`../CLAUDE.md`). UE4SS Lua FindAllOf / ExecuteInGameThread /
--- LoopAsync / IsValid / GetFullName (vendored RE-UE4SS/docs/lua-api).
---
--- Deploy: copy probe_audiofix/ to <install>\...\Win64\ue4ss\Mods\MeshGhostAudioFix\ with an
--- enabled.txt; reload via probe_reloader ("MeshGhostAudioFix <nonce>").
+-- Audio-listener fix probe, and it writes: when a new ghost appears, points the PlayerController's attenuation
+-- listener back at the local player's capsule, which the ghost's BeginPlay took. Never leave it armed: the DLL now
+-- applies the same fix. Deploy as ue4ss\Mods\MeshGhostAudioFix with an enabled.txt; reload via probe_reloader.
 
 local TAG = "[MeshGhostAudioFix]"
 
@@ -74,9 +29,7 @@ local function prop(obj, name)
     return v, true
 end
 
--- The controller is the authority on which pawn is the player -- asking each pawn whether it is
--- possessed does NOT work here, because a ghost reads as possessed too (measured 2026-09-04,
--- `../../agent_docs/pitfalls/method.md`). Returns the controller and its pawn, or nothing.
+-- The controller names the player's pawn: a ghost reads as possessed too.
 local function player_controller_and_pawn()
     local pcs = FindAllOf("PlayerController")
     if not pcs then return nil end
@@ -91,10 +44,7 @@ local function player_controller_and_pawn()
     return nil
 end
 
--- The capsule is the pawn's RootComponent on a Character, and the log confirms the shape the game
--- itself passes: an object named CollisionCylinder. The name is CHECKED rather than assumed, and a
--- mismatch is logged instead of written -- re-pointing the listener at the wrong component would
--- be a second bug wearing this fix's name.
+-- The game itself passes the CollisionCylinder, so the root's name is checked and a mismatch logged, never written.
 local function player_capsule(pawn)
     local root = prop(pawn, "RootComponent")
     if root == nil or not valid(root) then return nil, "no RootComponent" end
@@ -143,7 +93,7 @@ local function sample()
                 seen_now[n] = true
                 if not known_ghosts[n] then
                     known_ghosts[n] = true
-                    -- A NEW ghost is exactly the moment its BeginPlay has taken the listener.
+                    -- A new ghost's BeginPlay has just taken the listener.
                     repoint("ghost appeared: " .. n:match("([^%.]+)$"))
                 end
             end
@@ -160,8 +110,7 @@ local function sample()
     end
 end
 
--- The sample runs under pcall and reports its first failure once: a probe that throws goes silent,
--- and silence reads exactly like a game doing nothing (2026-09-04, the census probe).
+-- A probe that throws goes silent, which reads like a game doing nothing: report the first failure once.
 local reported_error = false
 LoopAsync(INTERVAL_MS, function()
     ExecuteInGameThread(function()
@@ -174,8 +123,7 @@ LoopAsync(INTERVAL_MS, function()
     return false
 end)
 
--- Once at load as well, so a session that already lost its listener to a ghost recovers without
--- waiting for the next spawn -- and so the very first line says whether the call works at all.
+-- Once at load too: a session that already lost its listener recovers, and the first line says whether the call works.
 ExecuteInGameThread(function() repoint("probe loaded") end)
 
 print(string.format("%s loaded -- WRITES: puts the audio attenuation listener back on the player's capsule whenever a ghost appears.\n", TAG))

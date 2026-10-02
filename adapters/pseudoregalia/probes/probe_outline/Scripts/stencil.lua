@@ -1,31 +1,7 @@
--- MeshGhost OUTLINE probe, stage 3 -- do ghosts on a DIFFERENT custom-depth stencil stop occluding
--- the player's outline WITHOUT drawing their own silhouette through walls? **THIS ONE WRITES** to
--- ghost meshes (never the player's) for as long as it runs, and puts them back when it ends.
---
--- THE OTHER HALF OF THE 2026-09-05 REPORT: with ghosts stripped of custom depth (shipped), a ghost
--- standing between camera and player is opaque scene depth that writes no custom depth, so the
--- outline pass sees the player as "behind something" and draws the blue silhouette on them.
--- Measured the same day with `keep_custom_depth.txt`: ghosts WRITING custom depth (stencil 0, the
--- player's value) removes that -- and gives every ghost the player's through-walls silhouette.
---
--- THE QUESTION: does the game's outline post-process key on the STENCIL value? If it draws only
--- stencil 0, ghost meshes on stencil 1 would still win the custom-depth pass where they overlap the
--- player (no outline on the player behind a ghost) while never being drawn as a silhouette
--- themselves (no ghost through walls). If it ignores stencil, both come back together and the
--- trade-off is the user's to choose. Only the screen can answer; this sets the state up.
---
--- WHAT IT DOES, every 500 ms for 180 s from the moment the player pawn exists:
---   for every GHOST pawn (a BP_PlayerGoatMain_C that is not the controller's pawn), on
---   VisualMesh and WeaponMesh: SetCustomDepthStencilValue(STENCIL) and SetRenderCustomDepth(true),
---   re-asserted each sample because the shipping mod holds custom depth OFF on ghosts every tick
---   (arm `keep_custom_depth.txt` beside the DLL first, or the two fight and the screen flickers).
---   Readback printed on change per mesh. The PLAYER's meshes are written ONCE at start -- custom depth
---   back ON, the fresh-pawn state, because the shipping sweep may have stripped the body -- then only read. At the end: stencil back to 0 on every mesh it touched, custom depth left to the
---   shipping hold. Countdown at 120/60/30/10 s.
---
--- Grounded APIs: UPrimitiveComponent::SetCustomDepthStencilValue(int32) and SetRenderCustomDepth
--- (bool) (docs.unrealengine.com); UE4SS Lua FindAllOf/IsValid/GetFullName/LoopAsync (vendored
--- RE-UE4SS/docs/lua-api). Dev-only tooling; never ships. Unload before judging anything else.
+-- Outline stage 3: does the outline pass key on the custom-depth stencil? Writes ghost meshes, never the player's:
+-- every 500 ms for 180 s, each ghost's VisualMesh and WeaponMesh get SetCustomDepthStencilValue(STENCIL) and
+-- SetRenderCustomDepth(true). Arm keep_custom_depth.txt beside the DLL first, or the shipping mod's hold fights
+-- it and the screen flickers. Every touched stencil goes back to 0 at the end; unload it before judging anything.
 
 local TAG = "[MeshGhostOutlineProbe3]"
 local PAWN_CLASS = "BP_PlayerGoatMain_C"
@@ -72,10 +48,7 @@ local function sample()
     local pn = full_name(player)
     if clock_samples == 1 then
         print(string.format("%s START: player=%s; ghost meshes -> stencil %d, custom depth ON, re-asserted every sample.\n", TAG, short(pn), STENCIL))
-        -- ONE write to the player, once: put the body and sword back to the fresh-pawn state (both
-        -- custom depth ON, stage 1), because the shipping mod's afterimage sweep may have stripped
-        -- the body since the last slide or attack (stage 2) -- a stripped body cannot be outlined
-        -- behind a ghost, and this run has to be able to tell stencil from that.
+        -- One write to the player: the afterimage sweep may have stripped the body, which then cannot be outlined.
         for _, m in ipairs(MESHES) do
             local c = prop(player, m)
             if c ~= nil and type(c) ~= "boolean" and type(c) ~= "number" and valid(c) then

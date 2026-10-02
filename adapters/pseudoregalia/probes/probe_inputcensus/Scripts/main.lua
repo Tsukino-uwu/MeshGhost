@@ -1,90 +1,11 @@
--- MeshGhost INPUT API CENSUS -- which way of reading what the player PRESSED actually works on
--- this build. The adapter half of ADR 0056 (the input track): the Go side records an
--- `input_sample` from any adapter, and no adapter sends one yet because `Plugin.cpp` has no input
--- read anywhere in it. This probe decides where the read comes from before a line of C++ is
--- written. Two stages, run as two reloads of the scratch slot; the second is the one that CALLS.
---
--- THE CANDIDATES, ranked by the plan (`ADR 0056`, "The open half"):
---   C  the pawn's own input-derived Blueprint properties. `jumpButtonHeld?`, `wallRideButtonHeld?`,
---      `hasMovementInput?`, `inputVectorWorld`, `moveInputAmount` all exist (the 2026-09-06 player
---      dump, `probe_dump/`), plus the engine's `Pawn.ControlInputVector` / `LastControlInputVector`
---      and `Character.bPressedJump`. Named reads, no call. Weakness: nothing named for attack,
---      crouch or throw was in that dump -- so C alone is probably PARTIAL, and that is the first
---      thing this census measures.
---   E  Enhanced Input's merged action state. This game IS Enhanced Input (its pawn has
---      `InpActEvt_IA_Crouch_K2Node_EnhancedInputActionEvent_15/_16`, `..._IA_Throw_...`;
---      `documentation.md`, `VERIFIED.md:1864`), so the game's own already-merged, rebind-proof
---      per-action value is `UEnhancedInputLibrary::GetBoundActionValue(Actor, Action)` -- a
---      BlueprintPure static (dev.epicgames.com, UEnhancedInputLibrary), i.e. a reflected UFunction
---      on the library's default object, taking two OBJECT pointers and no struct by value. The
---      action assets are `IA_*` (`FindAllOf("InputAction")`); the key->action table is each loaded
---      `InputMappingContext`'s `Mappings`. Stage 2 calls it.
---   A  `APlayerController::IsInputKeyDown(FKey)` / `WasInputKeyJustPressed` /
---      `GetInputAnalogKeyState` (dev.epicgames.com, APlayerController). Needs an FKey built by
---      hand; UE4SS fills a StructProperty parameter from a Lua table by field name
---      (`RE-UE4SS/UE4SS/src/LuaType/LuaUObject.cpp`, push_structproperty -> lua_table_to_memory),
---      and FKey's one reflected field is `KeyName`. Stage 2 calls it, AFTER E.
---   B  `UPlayerInput`'s key-state map: not a UPROPERTY, ruled out on paper; stage 1 dumps the
---      PlayerInput's property names anyway so the ruling is measured, not assumed.
---   D  raw OS keys: rejected by the ADR (records outside the game, ignores rebinding). Not tried.
---
--- STAGE 1 (this file as shipped, STAGE = 1) -- READ-ONLY, NO UFUNCTION IS CALLED ON ANYTHING.
---   1. A census to a file: the PlayerController's class chain with EVERY function name (flags:
---      native / BP / pure / static) and every parameter's name and type; the same for the pawn
---      (`BP_PlayerGoatMain_C` -- its `InpActEvt_*` functions ARE the action vocabulary) and for the
---      controller's `PlayerInput` object (option B's ruling); every property name + type on the
---      three chains; every loaded `InputAction` asset; every loaded `InputMappingContext` with its
---      `Mappings` (action name + `Key.KeyName`); and the legacy `InputSettings` default object's
---      `ActionMappings`/`AxisMappings`, for completeness. NO FILTER: everything is written, the
---      grep happens afterwards (`checklists/before-a-probe.md`).
---   2. A LIVE on-change log at 20 Hz on the game thread: every BoolProperty on the pawn's chain
---      (named at census time -- a named read of a scalar, never an object-valued property), a
---      short named list of ints / floats / vectors that the dump says are input-shaped, and the
---      engine's control input vectors. A one-frame press can slip between 50 ms samples; the
---      protocol below HOLDS every input, so what this stage measures is WHICH field moves for
---      WHICH action, not edge timing. Edge timing is the C++ half's job at frame rate.
---
--- STAGE 2 (STAGE = 2, a second reload once stage 1's file is on disk) -- THE CALLS.
---   Per sample, additionally: E for every loaded `IA_*` action (on the local player pawn only --
---   the one the controller names); A for every key the mapping census found bound (bounded), plus
---   the analog state of any axis-shaped key. Each path is pcall'd and DISARMS ITSELF on its first
---   Lua error, logging the error once; a path that never resolved is reported in COVERAGE. This
---   is the stage that can crash the game (a struct marshalled wrong is a native fault no pcall
---   sees), which is why it is separate and why stage 1's answers are already saved when it runs.
---
--- PROTOCOL FOR THE PERSON AT THE GAME -- endurance, not timing (`probes.md`, the standing rule).
--- Load in gameplay (not the title screen). When the log says READY, in this order, taking as long
--- as you like between steps -- hold each ~3 seconds, release, wait ~2 seconds:
---    1 stand still      2 JUMP (hold)     3 ATTACK (hold)     4 CROUCH / slide (hold)
---    5 move LEFT        6 move RIGHT      7 move UP (forward) 8 move DOWN (back)
---    9 camera LEFT     10 camera RIGHT   11 CLING (the wall-ride button, against a wall)
---   12 THROW the weapon (if you have it)  13 open the PAUSE MENU, wait, close it
--- Any order is fine; say the order afterwards if it differed. Then say whether that was keyboard
--- or gamepad -- both, one after the other, is the ideal run.
---
--- COST. Census: one walk of three class chains, once, on load. Live: ~130 named property reads
--- per sample at 20 Hz (~2,600 reads/s); the probe prints its OWN cost every 100 samples (ms per
--- sample, game thread) so the reading and its price sit on one line. Stage 2 adds one UFunction
--- call per action and per bound key per sample. UNLOAD AFTERWARDS (restore probe_scratch's stub):
--- a loaded probe is a suspect in every later report.
---
--- Output: `input_census-stage<N>-<HHMMSS>.log` beside this mod's Scripts folder, buffered and
--- flushed once a second (never a write per line); the same lines go to UE4SS.log under the TAG.
--- Read-only in stage 1; stage 2 calls BlueprintPure / const getters only. Nothing is written to
--- the game, a save or memory. Dev-only tooling; never ships.
-
--- RESULTS, 2026-09-08 (one session, keyboard then gamepad; the verdict lives in ../../UNVERIFIED.md):
---   A  WORKS end to end -- 118,000 IsInputKeyDown/GetInputAnalogKeyState calls with {KeyName=FName(k)},
---      every mapped key seen down and up in step with the pawn. GetInputVectorKeyState exists (untried).
---   E  CALLABLE and SAFE (55,000 calls, no fault) but the FInputActionValue comes back as an EMPTY
---      table: no reflected fields, so its value is a C++ question. ActionInstanceData IS reflected here.
---   C  PARTIAL: jump, cling, move, crouch, throw have pawn fields; look, interact, guard, lock-on,
---      power, pause do not. B confirmed unreflected. Cost 3-4.8 ms/sample at 20 Hz in stage 2.
---   The first run's census walked ONE entry per class -- see the RETURN NOTHING comment below.
+-- Which reflected API reads what the player pressed: C is the pawn's own fields, E Enhanced Input's
+-- GetBoundActionValue, A the controller's IsInputKeyDown. Stage 1 writes a census and logs C on change; STAGE = 2 also
+-- calls E and A. Run each stage as a reload of the scratch slot, holding each input ~3 s. Dev-only tooling.
 
 local STAGE = 1
 
 local TAG = "[MeshGhostInputCensus]"
+-- A one-frame press can slip between samples, so each input is held: this measures which field moves, not edge timing.
 local INTERVAL_MS = 50
 local FLUSH_MS = 1000
 local PAWN_CLASS = "BP_PlayerGoatMain_C"
@@ -95,8 +16,7 @@ local AXIS_QUANT = 1 / 64
 local FUNC_Native, FUNC_Static, FUNC_BlueprintCallable, FUNC_BlueprintEvent, FUNC_BlueprintPure =
     0x400, 0x2000, 0x4000000, 0x8000000, 0x10000000
 
--- Option C's named non-bool reads. Names from the 2026-09-06 player dump; a name that does not
--- resolve is a COVERAGE fact, never an error.
+-- Option C's named non-bool reads, from a player dump; a name that does not resolve is a coverage fact, not an error.
 local NAMED_SCALARS = { "moveInputAmount", "jumpType", "animJumpType", "attackComboPosition", "moveState", "actionState" }
 local NAMED_VECTORS = { "inputVectorWorld", "ControlInputVector", "LastControlInputVector" }
 
@@ -146,7 +66,7 @@ local function prop(obj, name)
 end
 
 -- A UE4SS read can come back as a wrapper (bitfield bools, some ints), a fresh userdata per read
--- whose tostring is its address; unwrap through get() or name the type once (probe_frozen, 2026-09-05).
+-- whose tostring is its address; unwrap through get() or name the type once.
 local function plain(value)
     local t = type(value)
     if t == "boolean" or t == "number" or t == "string" or t == "nil" then return value end
@@ -170,8 +90,7 @@ local function vec_text(v)
     return q(x) .. "," .. q(y) .. "," .. q(z or 0)
 end
 
--- The controller is the authority on which pawn is the player (a ghost reads as possessed too;
--- `pitfalls/method.md`, 2026-09-04).
+-- The controller is the authority on which pawn is the player: a ghost reads as possessed too.
 local function player_controller_and_pawn()
     local pcs = FindAllOf("PlayerController")
     if not pcs then return nil end
@@ -211,11 +130,8 @@ local function flag_text(flags)
     return table.concat(t, ",")
 end
 
--- Every function on one class, with its parameters' names and property types. Enumerating a
--- CLASS's functions reads class metadata only; no instance is dereferenced.
--- THE CALLBACKS RETURN NOTHING: UE4SS stops the walk on ANY returned value, `false` included --
--- the first live run (2026-09-08) got exactly one function and one property per class from
--- `return false`, and the docs' "return true to stop" reads as if false were safe. It is not.
+-- A class's functions are class metadata only; no instance is dereferenced. The callbacks return nothing: UE4SS
+-- stops the walk on any returned value, false included, though its docs read as if only true stops it.
 local function census_functions(cls, label)
     local n = 0
     pcall(function()
@@ -243,8 +159,7 @@ local function census_functions(cls, label)
     return n
 end
 
--- Every property on one class: name and type only. Returns the BoolProperty names for the live
--- phase (the one kind of walk that is safe: names, never values).
+-- Names and types only, never values; returns the BoolProperty names for the live phase.
 local function census_properties(cls, label, bools)
     local n = 0
     pcall(function()
@@ -280,9 +195,7 @@ local function census_object(obj, what, bools)
     out(string.format("CHAIN %s: %d classes, %d functions, %d properties", what, #chain, fn_total, prop_total))
 end
 
--- Enhanced Input: the loaded action assets and the mapping contexts' key->action table. The
--- `Action` of a mapping is an asset reference held by a loaded data asset -- followed only after
--- IsValid, only for its name.
+-- A mapping's Action is an asset reference: followed only after IsValid, and only for its name.
 local function census_enhanced_input()
     local actions = FindAllOf("InputAction")
     local count = 0
@@ -396,8 +309,7 @@ local function disarm(p, name, err)
     out(string.format("PATH %s DISARMED after %d call(s): %s", name, p.calls, p.err))
 end
 
--- Reads one FInputActionValue however UE4SS hands it back: a struct wrapper with Value/ValueType,
--- or a table. Returns a text form and a diagnosis of what it was.
+-- An FInputActionValue comes back as a struct wrapper or a table; returns its text and which shape it was.
 local function action_value_text(v)
     local t = type(v)
     if t == "table" then
@@ -462,10 +374,8 @@ end
 
 ---------------------------------------------------------------------------- the loop
 
--- Population count of the classes a ghost brings (probe_leakcount's WATCH list), so a reload of
--- this probe after a pack despawns answers "did anything stay behind?" on the same file. The
--- local player owns one pawn and one BP_PlayerCam_C; every live ghost adds one of each plus an
--- AIController; anything above that after a despawn is a leftover.
+-- The classes a ghost brings, counted so a reload after a despawn shows what stayed. The player owns one pawn and one
+-- BP_PlayerCam_C, each ghost adds one of each and an AIController; a destroyed actor still counts until the purge.
 local COUNT_CLASSES = { "BP_PlayerGoatMain_C", "BP_PlayerCam_C", "SpringArmComponent", "CameraComponent",
     "AIController", "NiagaraComponent", "TextRenderComponent" }
 local function count_classes(when)

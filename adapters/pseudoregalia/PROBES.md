@@ -42,18 +42,18 @@ things on the bridge at once.
 
 ## `probes/probe/` — where the player actually lives (Phase 7.1; the first probe, named before there was a second)
 
-- **`Scripts/main.lua`** (92) — the first read-only discovery probe, before any C++ existed.
+- **`Scripts/main.lua`** (64) — the first read-only discovery probe, before any C++ existed.
   Confirmed on screen where Pseudoregalia's local player pawn, position, rotation and level name
   are, so the real adapter could be written against measured facts instead of reflection guesses.
 
 ## `probe_ghost/` — the ghost, and why it kept stealing the player
 
-- **`Scripts/diagnose.lua`** (151) — **the entry worth reading.** Written after three straight
+- **`Scripts/diagnose.lua`** (124) — **the entry worth reading.** Written after three straight
   fix-and-retest cycles each failed to stop the player being dragged around by the ghost. Instead
   of guessing a fourth time it gathers evidence, and it found the cause: `BP_PlayerGoatMain_C`
   has Auto Possess Player set, so spawning a second instance hands the controller to it. This is
   the worked example behind `../CLAUDE.md`'s "two guessed fixes failing the same way is a signal".
-- **`Scripts/main.lua`** (849) — Phase 7.5's **complete Lua adapter**: real local state every
+- **`Scripts/main.lua`** (682) — Phase 7.5's **complete Lua adapter**: real local state every
   tick, a real bridge connection, the re-possess fix and the `SetViewTargetWithBlend` hook that
   fights the game's camera rig back to the player. Superseded by the C++ mod, kept because it is
   the last version where the whole adapter is readable in one file.
@@ -71,11 +71,11 @@ Three deliberately staged scripts, each only run after the previous one came bac
 always loads `Scripts/main.lua`, so **Stages 2 and 3 are run by copying them over `main.lua`**,
 not by being wired in.
 
-- **`Scripts/main.lua`** (26) — Stage 1, SAFE: does `package.loadlib` even exist and is it
+- **`Scripts/main.lua`** (18) — Stage 1, SAFE: does `package.loadlib` even exist and is it
   callable? Loads no DLL.
-- **`Scripts/stage2_loadlib.lua`** (94) — Stage 2, riskier: actually load vendored LuaSocket into
+- **`Scripts/stage2_loadlib.lua`** (72) — Stage 2, riskier: actually load vendored LuaSocket into
   UE4SS's embedded Lua and *create* a TCP socket. Never connects.
-- **`Scripts/stage3_roundtrip.lua`** (129) — Stage 3: a real bind/connect/send/receive round trip
+- **`Scripts/stage3_roundtrip.lua`** (100) — Stage 3: a real bind/connect/send/receive round trip
   against the bridge protocol — the one thing Stage 2 deliberately left untested.
 
 **The staging is the method, not caution theatre.** Each stage answers exactly one question and
@@ -83,17 +83,17 @@ stops, so a crash names its own cause. `agent_docs/verified.md` and `phase7.md` 
 
 ## `probe_nametag/` — which material renders coloured text (2026-08-29)
 
-- **`Scripts/main.lua`** (747) — the first probe written to the Lua-and-hot-reload rule, and the
+- **`Scripts/main.lua`** (609) — the first probe written to the Lua-and-hot-reload rule, and the
   reason that rule exists: twelve rounds of material candidates in one game session, where the
   same investigation had cost a relaunch per experiment in C++ the day before. Each round's
-  screen verdict is kept in the file's own header, so the losing candidates are readable next to
-  the winner. Ships nothing; the answer it found is in `VERIFIED.md`.
+  screen verdict, once in the file's header, is in `agent_docs/pitfalls/by-lesson.md`, "The stories behind the
+  code". Ships nothing; the answer it found is in `VERIFIED.md`.
 - **Leave it at `PROBE_ENABLED = false`.** It spawns a row of text actors, and one was still
   appearing during somebody else's test on 2026-08-29.
 
 ## `probe_reloader/` — the hot-reload loop itself
 
-- **`Scripts/main.lua`** (73) — a resident watcher that calls `RestartMod` when a trigger file
+- **`Scripts/main.lua`** (49) — a resident watcher that calls `RestartMod` when a trigger file
   changes, so a probe restarts inside the running game with no keystroke and no window focus.
   Deliberately dumb and never edited during an iteration: a syntax error in the probe being
   iterated cannot take the reload loop down with it. `../CLAUDE.md` has the protocol.
@@ -224,7 +224,7 @@ player's cue because a ghost already holds the instances — and they want diffe
   cue, that sound asset's own concurrency settings (`bOverrideConcurrency`, `MaxCount`,
   `ResolutionRule`, `bLimitToOwner`). **The concurrency dump is the decisive half:** it says
   whether the mechanism for the second shape exists at all, and no ear is needed to read it.
-- **It states its own blind spots in its header, and they matter here.** A sound started by
+- **Its blind spots matter here.** A sound started by
   `PlaySoundAtLocation`/`PlaySound2D` creates no component and is invisible to this — which is
   the usual shape of an anim-notify footstep — and concurrency is resolved on the audio device's
   active-sound list, so a component reading active is not evidence the player was audible. A
@@ -239,7 +239,7 @@ player's cue because a ghost already holds the instances — and they want diffe
   volumes, and hooks the six `GameplayStatics` sound-mix statics this build has. Each was added
   because the previous reading eliminated a hypothesis: components, then the listener, then the
   local player, then the audio device.
-- **Its two failures are in its own header and are the transferable part.** The first pawn
+- **Its two failures are the transferable part.** The first pawn
   discriminator called a possessed pawn the player -- **a ghost here reads as possessed**, so
   every ghost was labelled PLAYER, and the coverage line printing its evidence is the only
   reason that was caught rather than believed. And a `string.format` on a non-vector threw out
@@ -561,7 +561,7 @@ for look, interact, guard, lock-on or power; `EnhancedPlayerInput.ActionInstance
 this UE 5.1 build though the current engine docs omit it. Vocabulary, key table and the verdict:
 `UNVERIFIED.md`, the 2026-09-08 census entry. Cost 3-4.8 ms a sample at 20 Hz -- a census, not a ship.
 
-**Two things it cost, kept in the file's own header.** Its first run returned ONE function and ONE
+**Two things it cost** (the comments above `census_functions` and `COUNT_CLASSES` keep the why). Its first run returned ONE function and ONE
 property per class: the `ForEachFunction` / `ForEachProperty` callbacks ended in `return false`, and
 UE4SS stops a walk on ANY returned value -- the docs' "return true to stop" reads as if `false` were
 safe. And a class count is not a leftover count: 34 pawns where 4 were live, the other 30 flagged

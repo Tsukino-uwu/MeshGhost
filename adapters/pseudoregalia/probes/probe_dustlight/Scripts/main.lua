@@ -1,77 +1,16 @@
--- MeshGhost dust/light probe. TWO questions, both from UNVERIFIED.md's 2026-08-28 entry "Two
--- ghost cosmetics the user saw wrong on screen" -- the only entries in that file the user has
--- already looked at and called wrong. Neither has ever been measured, so this probe measures
--- rather than fixes, and nothing below writes game state.
---
---   1. LANDING DUST, and the user sharpened it on 2026-08-29: the dust fires *"whenever you
---      land after jumping"*, the ghost *"doesn't handle it on its own"*, so it *"just happens
---      whenever the player does it, and gets replicated onto the ghost at wrong times"* --
---      first seen on a TWO-INSTANCE session. So this is not a missing effect, it is an effect
---      fired by the wrong character's landing. That makes WHEN the measurement, not WHAT: the
---      run has to put the landings and the effects on one clock and show them disagreeing.
---      The shipped mirror carries a `dl` row (`NS_DustLand`, world-spawned, attributed to the
---      SENDER by proximity) -- reading whether that row's timing can ever match the ghost's
---      own landing is the point of the timeline below.
---   2. ASCENDANT LIGHT. The user: it *"emits from the player itself, or maybe from the
---      ascendant light upgrade"*, and *"makes the game look a bit too bright when nearby other
---      ghosts/players"* -- i.e. every ghost carries its own copy of the player's emitter and
---      they add up. Earlier the same week: these *"should always be off for a ghost similar to
---      the blue outline things"*. Before it can be forced off, the thing that is on has to be
---      named -- a light component, a child actor, a pawn property, or some combination.
---
--- What one run does, in fixed phases with a countdown (never a window to hit):
---   PHASE 1, ~10s: LIGHT CENSUS. Every light component and ChildActorComponent in the world,
---      attributed to its owning actor via GetOuter(), with the PLAYER and each GHOST called out
---      by name. Then every property on the pawn class whose name mentions light, dumped for the
---      player and each ghost SIDE BY SIDE -- a value that differs is a value being copied.
---   PHASE 2, until the end: VFX WATCH. Polls the world for NiagaraComponent and
---      ParticleSystemComponent instances and prints each one the moment it FIRST appears, with
---      its asset, owner, attach parent, world position, and its distance to the player and to
---      every ghost. Cascade is polled as well as Niagara deliberately: `VERIFIED.md` records a
---      pass that silently assumed Niagara purely because the sword's ring happened to be Niagara.
---   PHASE 3, ~10s: the light census again, so anything the play session turned on is visible as
---      a change rather than as an absolute.
---
--- Dump everything and filter afterwards (`_template/probes.md`): the run prints every new
--- component, not the ones whose names look like dust. `NS_DustLand` fires on ordinary landings
--- too, so a jump that produces it is not evidence of a jump effect -- the segmentation is the
--- player-state line printed alongside, which carries moveState/actionState/animJumpType.
---
--- COST: this is a polling census over two whole-world FindAllOf calls. `../../CLAUDE.md` --
--- a diagnostic can break the thing it measures. Nothing here is a spawn, a hook or a write, but
--- the poll is not free, so judge nothing about SMOOTHNESS while it runs, and re-run with
--- PROBE_ENABLED false before believing any timing result.
---
--- Grounded APIs, none from memory. UE4SS Lua surface (FindAllOf, StaticFindObject, IsValid,
--- GetFullName, GetOuter, GetClass, GetSuperStruct, UStruct:ForEachProperty, ExecuteInGameThread,
--- LoopAsync, UEHelpers.GetPlayer/GetWorld) -- vendored RE-UE4SS/docs/lua-api, and every one of
--- them is already exercised by probe_nametag/Scripts/main.lua on this build. Reflected engine
--- names come from Epic's public API documentation and are ALL pcall-guarded and reported when
--- absent, because availability on this build is a runtime question (`../CLAUDE.md`):
---   UNiagaraComponent::Asset                  -- docs.unrealengine.com, UNiagaraComponent
---   UParticleSystemComponent::Template        -- docs.unrealengine.com, UParticleSystemComponent
---   USceneComponent::{AttachParent, bVisible} -- docs.unrealengine.com, USceneComponent
---   UActorComponent::bIsActive                -- docs.unrealengine.com, UActorComponent
---   ULightComponentBase::{Intensity, LightColor, bAffectsWorld} -- docs.unrealengine.com
---   UChildActorComponent::{ChildActorClass, ChildActor}         -- docs.unrealengine.com
---   AActor::K2_GetActorLocation               -- docs.unrealengine.com, AActor
---
--- Deploy: copy probe_dustlight/ to <install>\...\Win64\ue4ss\Mods\MeshGhostDustLightProbe\ (the
--- folder carries its own enabled.txt), then reload it through probe_reloader/ rather than the
--- Ctrl+R keybind. READ-ONLY: no spawns, no writes, no saves. Dev-only tooling; never ships.
+-- Which lights the player and each ghost carry, and whether landing dust fires on the wrong character's landing:
+-- a light census, then every new Niagara or Cascade component on one clock with each character's landings.
+-- Read-only, but it polls whole-world FindAllOf: judge nothing about smoothness while it runs.
+-- Ships without an enabled.txt: it crashed the game twice, in its ChildActorComponent pass.
 
 local UEHelpers = require("UEHelpers")
 
 local TAG = "[MeshGhostDustLightProbe]"
 
--- OFF means: print one line and do nothing else. Set it false the moment the question of the
--- hour is not dust or light -- a polling census left running is a suspect in every report that
--- follows, and this adapter has already had that happen once (probe_nametag, 2026-08-29).
+-- Off prints one line and does nothing else: a polling census left running is a suspect in every later report.
 local PROBE_ENABLED = true
 
--- The player's own Blueprint class. Both the local player and every ghost are instances of it
--- (the ghost is spawned from the player's pawn class -- Plugin.cpp's SpawnActor), so "every
--- instance that is not UEHelpers.GetPlayer()" is exactly the set of ghosts.
+-- Ghosts spawn from the player's pawn class, so every instance that is not UEHelpers.GetPlayer() is a ghost.
 local PLAYER_CLASS = "BP_PlayerGoatMain_C"
 
 local PHASE1_SECONDS = 10       -- light census, before any play
@@ -80,25 +19,11 @@ local POLL_MS = 33              -- ~2 game frames; a Niagara burst outlives this
 local COUNTDOWN_EVERY = 15      -- seconds between "keep going, N left" lines
 
 ----------------------------------------------------------------------------
--- Small guarded readers. Everything reflected goes through one of these, so an absent
--- property is REPORTED as absent rather than taking the run down.
+-- Guarded readers: an absent property is reported as absent rather than taking the run down.
 ----------------------------------------------------------------------------
 
--- Is this object safe to CALL A FUNCTION ON? Added 2026-08-29 after the first attempt to run this
--- probe coincided with a crash at LoadMap -- EXCEPTION_ACCESS_VIOLATION reading 0x20, with a
--- callstack ~15 frames deep inside UE4SS's own Lua/reflection machinery and no game or adapter
--- frame in it. Not proven to be this probe (the run's log was truncated by a second instance
--- launching), but this is the shape that would do it.
---
--- `FindAllOf` returns every object of a class in memory, which includes CLASS DEFAULT OBJECTS and
--- objects the engine is midway through tearing down. Reading a property off one of those is
--- usually survivable; calling a UFunction like K2_GetComponentLocation on one dereferences a
--- transform that is not there. **A Lua pcall does not catch an access violation in native code**,
--- so the guard has to be a refusal to call, not a wrapper around the call.
---
--- CDOs are named `Default__<Class>` by engine convention, which is the cheap half. `IsValid` is
--- the other half and is the one that moves during a transition -- this adapter's own CLAUDE.md:
--- a transition invalidates every cached reference, and the crash was at LoadMap.
+-- Safe to call a function on? FindAllOf returns class default objects and half-torn-down objects too, and a pcall
+-- does not catch an access violation in native code, so the guard refuses the call rather than wrapping it.
 local function usable(obj)
     if obj == nil then return false end
     local ok, result = pcall(function()
@@ -151,8 +76,7 @@ local function actorLocation(actor)
     return { X = x, Y = y, Z = z }
 end
 
--- A component's world position, preferring the component's own transform and falling back to
--- its owning actor -- a world-spawned effect and an attached one need different answers.
+-- The component's own transform, else its owning actor's: a world-spawned and an attached effect differ.
 local function componentLocation(comp)
     local ok, loc = pcall(function() return comp:K2_GetComponentLocation() end)
     if ok and loc ~= nil then
@@ -174,7 +98,7 @@ local function distance(a, b)
 end
 
 ----------------------------------------------------------------------------
--- Who is who. The label is what makes every line below readable at a glance.
+-- Who is who.
 ----------------------------------------------------------------------------
 
 -- Returns { {obj=, label=, loc=}, ... } -- the local player first, then each ghost.
@@ -205,15 +129,8 @@ local function characters()
     return out
 end
 
--- Which character an object belongs to. Returns a label or nil. Proximity is reported
--- separately and never conflated with this.
---
--- TWO chains are walked, not one, and the second is the reason this function is not three
--- lines. A component's Outer reaches its owning actor -- but a ChildActorComponent spawns a
--- separate ACTOR whose own Outer is the LEVEL, so a light living inside a child actor (which
--- is exactly the shape UNVERIFIED.md names for `PlayerLight`/`PointLight`) is invisible to an
--- Outer walk and would have been silently reported as belonging to nobody. AttachParent is
--- what still connects it to the pawn, so both are followed at every step.
+-- Which character an object belongs to, or nil; proximity is reported separately. Both chains are walked: a
+-- ChildActorComponent's actor has the level as its Outer, and only AttachParent still connects it to the pawn.
 local function ownerLabel(obj, chars)
     local addrs = {}
     for _, c in ipairs(chars) do
@@ -244,10 +161,7 @@ local function ownerLabel(obj, chars)
     return nil
 end
 
--- "PLAYER 41.2 | GHOST1 903.7" -- the proximity line, printed for every new effect. This is
--- how a world-spawned effect gets attributed, and it is deliberately a raw number rather than
--- a verdict: the shipped mirror's own radius is 600, and reading whether a real jump falls
--- inside that is the point.
+-- "PLAYER 41.2 | GHOST1 903.7": raw distances, not a verdict, to read against the shipped mirror's radius.
 local function proximityLine(loc, chars)
     if loc == nil then return "<no location>" end
     local parts = {}
@@ -273,11 +187,7 @@ local LIGHT_FIELDS = {
     "bVisible", "bHiddenInGame", "bIsActive", "ChildActorClass", "ChildActor",
 }
 
--- How close an UNATTRIBUTED light has to be to a character to be worth printing. The user's
--- report is that the scene goes too bright *near* other ghosts, and a light that turns out to
--- be parented to nothing would never appear in an ownership walk -- so a light nobody owns but
--- which is sitting on top of a character is precisely the case that must not be filtered out.
--- 600 matches the shipped mirror's own MIRROR_WORLD_VFX_RADIUS so the two agree on "at".
+-- An unowned light this close to a character is printed too; 600 is MIRROR_WORLD_VFX_RADIUS, so both agree on "at".
 local LIGHT_NEAR_RADIUS = 600.0
 
 local function censusLights(chars, phaseLabel)
@@ -288,8 +198,7 @@ local function censusLights(chars, phaseLabel)
         for _, comp in ipairs(instances) do
           if usable(comp) then
             local owner = ownerLabel(comp, chars)
-            -- Proximity fallback, reported AS a fallback: an unowned light close enough to a
-            -- character to be the thing the user is seeing.
+            -- The proximity fallback, reported as one.
             if owner == nil then
                 local loc = componentLocation(comp)
                 for _, c in ipairs(chars) do
@@ -323,9 +232,7 @@ local function censusLights(chars, phaseLabel)
     end
 end
 
--- Every property on the pawn class whose name mentions light, for each character. A value that
--- differs between PLAYER and GHOST is a value somebody is copying; one that matches on a run
--- where the player HAS the upgrade and the ghost should not is the bug named.
+-- Every pawn property whose name mentions light, per character: a value that differs is a value being copied.
 local function censusLightProperties(chars, phaseLabel)
     if #chars == 0 then return end
     local names = {}
@@ -378,9 +285,7 @@ local VFX_CLASSES = { "NiagaraComponent", "ParticleSystemComponent" }
 local seen = {}          -- address -> true, so each component prints exactly once
 local newCount = 0
 
--- The player-state line that segments the log into jumps. These three fields are the ones
--- `effect-investigation.md` settled the slide with, so they are the ones that make a burst
--- readable as "this happened during a jump" afterwards.
+-- The player-state line that segments the log into jumps.
 local function playerStateLine(chars)
     if #chars == 0 then return "<no player>" end
     local p = chars[1].obj
@@ -389,17 +294,8 @@ local function playerStateLine(chars)
         describe(prop(p, "animJumpType")))
 end
 
--- The LANDING TIMELINE, and the half of this probe that the user's own report asks for: the
--- dust is said to fire on the ghost when the LOCAL PLAYER lands rather than when the GHOST
--- does. That is a claim about WHEN, so a list of effects can never settle it -- the log needs
--- the landings themselves next to the effects, on the same clock.
---
--- MovementMode is what marks a landing (UCharacterMovementComponent::MovementMode --
--- docs.unrealengine.com; the engine's EMovementMode has 1=Walking, 3=Falling). It is read
--- rather than assumed: the value is printed raw and the transition is what is reported, so a
--- build whose enum differs still produces a readable timeline. Z is printed alongside because
--- a driven ghost may never run the movement component at all -- in which case its mode never
--- changes and the Z trace is the only landing signal there is, which is itself the answer.
+-- The landing timeline: each character's MovementMode transitions, printed raw, on the effects' clock. Z rides
+-- along because a driven ghost may never run its movement component, and then Z is the only landing signal.
 local lastMode = {}      -- character address -> last MovementMode seen
 local lastZ = {}
 
@@ -454,7 +350,7 @@ local function pollWorld(elapsedS)
 end
 
 ----------------------------------------------------------------------------
--- The run. Fixed phases, a countdown, and no moment the user has to hit.
+-- The run: fixed phases and a countdown.
 ----------------------------------------------------------------------------
 
 local started = false
@@ -463,8 +359,7 @@ local lastCountdown = 0
 
 local function beginRun()
     print(string.format("%s ===== RUN START =====\n", TAG))
-    -- Two instances, and the halves deliberately do not overlap: whoever holds still is the
-    -- one whose log proves the dust fired without their own landing. Nothing has to be timed.
+    -- Whoever holds still is the one whose log proves the dust fired without their own landing.
     print(string.format("%s WHAT TO DO: for the next %ds -- ON ONE INSTANCE jump and land over and over, near the other character and away from it. ON THE OTHER INSTANCE stand completely still and do not jump at all, then swap for the second half. A dust burst logged on the still instance is the defect, caught with the landing that did not happen.\n", TAG, PHASE1_SECONDS + WATCH_SECONDS))
     ExecuteInGameThread(function()
         local ok, err = pcall(function() runLightCensus("phase1-before") end)
@@ -502,8 +397,7 @@ end
 if not PROBE_ENABLED then
     print(TAG .. " loaded but DISABLED (PROBE_ENABLED = false). Nothing polled, nothing printed.\n")
 else
-    -- Wait for a real zone. The title screen map has a pawn too (measured 2026-08-29), so a
-    -- pawn alone is not "in the game".
+    -- The title screen map has a pawn too, so wait for a real zone.
     LoopAsync(1000, function()
         if started then return true end
         local ready = false

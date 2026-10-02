@@ -1,53 +1,9 @@
--- MeshGhost OUTLINE probe, stage 2 -- who CALLS the custom-depth setters, and does a re-sync fix it.
--- **THIS ONE CAN WRITE, on an explicit trigger only** -- see the RESYNC block; without the trigger
--- file it is read-only. Stage 1 (main.lua) is the flags-only instrument; run that first.
---
--- WHAT STAGE 1 FOUND (2026-09-05, one run, user attacking once among ghosts): the player's
--- VisualMesh and WeaponMesh read bRenderCustomDepth=true, CustomDepthStencilValue=0 before AND after
--- the melee attack, unchanged -- while the screen showed the sword's silhouette through the player's
--- own body from the attack onward. Healthy flags, wrong picture: `documentation.md`'s "the flag is
--- render-thread state" is the first suspect, and the property reads cannot see it. Also: the
--- cross-owner walk found nothing real (its filter was wrong: a missing property reads back as a
--- placeholder object, not nil -- fixed here by requiring a boolean), and 113 BP_AfterImage_C were
--- alive after 90 s, most with copyActor=nil and custom depth off.
---
--- WHAT THIS RUN DOES, from the moment the player pawn exists, for 180 s:
---   1. HOOKS (read-only): every call of PrimitiveComponent:SetRenderCustomDepth and
---      SetCustomDepthStencilValue, PRE and POST, with the component, its OWNER KIND (PLAYER pawn /
---      GHOST pawn / AFTERIMAGE / other) and the value. Pre and post both printed, because the
---      shipping mod's own pre-hook rewrites the parameter for afterimages: a pre=true/post=false
---      pair is that rewrite, seen from outside. Afterimage calls are counted and summarised once a
---      second (a dash spawns many); player and ghost calls print in full, every one.
---   2. CENSUS (read-only): EVERY skeletal, static and poseable mesh component whose outer is the
---      player pawn -- not just the three named ones -- with custom depth, stencil, main-pass and
---      visibility, on change. If the game swaps the body to another component during an attack,
---      this is where it shows.
---   2b. TEMPLATES (read-only): the class default objects of the pawn and afterimage classes and
---      every `*_GEN_VARIABLE` / `Default__` mesh template of theirs, with the same flags, on change.
---      A template reading custom depth OFF means every future spawn inherits it -- the player's
---      own pawn after a same-level reload included, which is exactly when stage 1's healthy
---      pawn was replaced by one whose body reads OFF (16:01:06, LoadMap PRE, this session).
---   3. RESTORE (WRITES, one shot, only when asked): create `outline_resync.txt` in this mod's folder
---      (beside Scripts\). On the next sample the probe calls SetRenderCustomDepth(true) on the
---      player's VisualMesh and WeaponMesh -- the vanilla state of a fresh pawn -- logs the readback
---      and deletes the trigger. If the sword's silhouette through the body vanishes on screen, the
---      body's custom depth being OFF is the mechanism and re-enabling it is the shape of a fix; who
---      turned it off is what the HOOK lines around the attack or slide say.
---   Countdown at 120/60/30/10 s; hooks are unregistered at the end. Nothing is left running.
---
--- What it CANNOT see: a change made without either setter (a raw property write plus a render-state
--- rebuild, or a mesh swap through a path that never calls these). The census is there for the swap;
--- the raw-write case would show as flags changing with no hook line beside them.
---
--- Grounded APIs, none from memory: UE4SS Lua RegisterHook/UnregisterHook (pre AND post callbacks for
--- a /Script/ function; RemoteUnrealParam:get()), FindAllOf, IsValid, GetFullName, GetOuter, GetClass,
--- LoopAsync (vendored RE-UE4SS/docs/lua-api). Engine: UPrimitiveComponent::SetRenderCustomDepth(bool),
--- SetCustomDepthStencilValue(int32), bRenderCustomDepth, CustomDepthStencilValue, bRenderInMainPass;
--- USceneComponent::bVisible (docs.unrealengine.com). The C++ mod hooks the first of these already
--- (Plugin.cpp, register_afterimage_outline_guard) -- proof it is reachable on this build.
---
--- Deploy over the scratch slot and trigger the reloader (see main.lua). Restore the stub after.
--- Dev-only tooling; never ships. Unload before judging anything else -- it can write.
+-- Outline probe, stage 2: who calls the custom-depth setters, and does restoring custom depth clear the silhouette?
+-- For 180 s from the player pawn's arrival: pre and post hooks on SetRenderCustomDepth and SetCustomDepthStencilValue,
+-- a census on change of every mesh component the player owns and of the class templates, and one dump of a live
+-- afterimage's object properties with each value's owner. It writes only when outline_resync.txt appears beside
+-- Scripts: SetRenderCustomDepth(true) on the player's body and sword, once. Blind to a change made without either
+-- setter. Run over the scratch slot; restore the stub after.
 
 local TAG = "[MeshGhostOutlineProbe2]"
 local PAWN_CLASS = "BP_PlayerGoatMain_C"
@@ -93,7 +49,6 @@ end
 
 local player_name_cache = nil
 
--- Walks the outer chain of a component and names what owns it.
 local function owner_kind(comp)
     local o = nil
     pcall(function() o = comp:GetOuter() end)
@@ -131,7 +86,7 @@ local function flags_line(comp)
     return table.concat(parts, " ")
 end
 
--- 1. HOOKS ---------------------------------------------------------------------------------------
+-- Pre and post both: the shipping mod's own pre-hook rewrites the parameter for afterimages.
 local function hook_report(fn_label, phase, ctx_param, value_param)
     local comp = nil
     pcall(function() comp = ctx_param:get() end)
@@ -173,7 +128,7 @@ local function remove_hooks()
     hook_ids = {}
 end
 
--- 2. CENSUS of every mesh component owned by the player ------------------------------------------
+-- Every mesh component the player owns, not just the named ones: a swap to another component would show here.
 local function player_meshes(player)
     local out = {}
     local pn = full_name(player)
@@ -199,12 +154,8 @@ local function sample_census(player)
     emit("census/count", string.format("player owns %d mesh component(s) across %s", #meshes, table.concat(MESH_CLASSES, "/")))
 end
 
--- 2b. TEMPLATES: class default objects and component templates -------------------------------------
--- FindAllOf returns class-default objects too (PROBES.md). A pawn spawned by the game is built
--- from BP_PlayerGoatMain_C's default object and its component templates (`*_GEN_VARIABLE`); an
--- afterimage from BP_AfterImage_C's. If one of those reads custom depth OFF, the question "who
--- strips the PLAYER" has its answer: nobody, per instance -- the template was stripped once, and
--- every later spawn (the player's own after a same-level reload included) inherits it.
+-- A class template (default object, *_GEN_VARIABLE component) reading custom depth off would be inherited by every
+-- later spawn, the player's own after a reload included.
 local function sample_templates()
     local n = 0
     for _, cls in ipairs({ PAWN_CLASS, IMAGE_CLASS }) do
@@ -236,10 +187,8 @@ local function sample_templates()
     emit("tmpl/count", string.format("templates seen: %d", n))
 end
 
--- 2c. AFTERIMAGE PROPERTIES, once: every object-typed property on a live afterimage's class chain,
--- with the value and the kind of actor that OWNS the value. The mod's sweep strips any such value
--- that has a custom-depth flag; a value owned by the PLAYER is the player's own mesh being stripped
--- through an afterimage's reference to it.
+-- The mod's sweep strips any afterimage object value with a custom-depth flag, so a value the player owns is the
+-- player's own mesh stripped through the afterimage.
 local image_props_dumped = false
 local function dump_image_props()
     if image_props_dumped then return end
@@ -278,7 +227,6 @@ local function dump_image_props()
     end
 end
 
--- 3. RESYNC, one shot on a trigger file -----------------------------------------------------------
 local function trigger_present()
     local f = io.open(RESYNC_PATH, "r")
     if f then f:close(); return true end
@@ -287,8 +235,7 @@ end
 
 local function resync_step(player)
     if not trigger_present() then return end
-    -- Vanilla state for a live pawn: VisualMesh and WeaponMesh both write custom depth (stage 1 read
-    -- both ON on a fresh pawn). Put both back through the engine's own setter and read back.
+    -- A fresh pawn's body and sword both write custom depth; restored through the engine's own setter.
     print(string.format("%s RESTORE requested: SetRenderCustomDepth(true) on the player's VisualMesh and WeaponMesh. Watch the screen now.\n", TAG))
     for _, m in ipairs({ "VisualMesh", "WeaponMesh" }) do
         local c = prop(player, m)
@@ -305,7 +252,6 @@ local function resync_step(player)
     print(string.format("%s RESTORE done; trigger %s.\n", TAG, trigger_present() and "STILL PRESENT -- delete it by hand" or "removed"))
 end
 
--- MAIN LOOP ---------------------------------------------------------------------------------------
 local function sample()
     samples = samples + 1
     local player = player_pawn()

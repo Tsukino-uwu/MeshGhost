@@ -1,40 +1,12 @@
--- MeshGhost INPUT DISPLAY prototype -- the player's inputs as a scrolling HISTORY on screen, judged
--- live before it is built into the C++ mod. 2026-09-08, the user's design: a fighting-game-style
--- list (each row is the input state and how many frames it lasted), the player's own on the LEFT,
--- a ghost's fed by its recording's input track on the RIGHT (that half needs the core and comes
--- after), each with an on/off in the client config, and the player's showable with no recording
--- running. This prototype is the player half's LOOK; the C++ reads the same edges it already
--- sends the core (ADR 0056) and needs no second read.
---
--- WHAT IT READS, every poll (the input census's proven path, 2026-09-08): `IsInputKeyDown` per key
--- that `IMC_Default` (the live bindings; `IMC_Reference` is the factory copy) maps to each action,
--- OR'd into the action; the move direction from W/A/S/D and the left stick's vector state. A row
--- starts when the held set changes and grows by one poll while it does not; ~60 polls a second,
--- so "frames" here are polls -- the C++ counts real engine frames from its own edge queue.
---
--- WHAT IT DRAWS: one UserWidget, a Border root (dark, translucent) holding one TextBlock whose
--- text is the rows joined by newlines, newest at the TOP. Row: frames, direction arrows, then the
--- held buttons as short tokens: J jump, A attack, C crouch, W cling (wall ride), T throw, G guard,
--- I interact, L lock-on, P power, M map, V view (perspective). Placed from the top-left with
--- positive offsets (the indicator's lesson: anchored placement goes off-screen on this build).
---
--- LIVE TUNING: `input_display.txt` beside this mod's Scripts folder, re-read every 500 ms:
---     x=200 y=300     top-left of the panel, pixels at 1920x1080
---     text=22         font size
---     rows=10         rows shown
---     pad=6           panel padding
---     bg=#000000      panel colour, alpha=0.55 its opacity (0..1), bg_on=1 (0 = no panel)
---     ink=#FFFFFF     text colour
---     show=1
--- Missing keys keep the defaults.
---
--- COST: ~25 IsInputKeyDown calls plus one vector read per poll (33 ms), one SetText per row change.
--- A SESSION WITH THIS LOADED CRASHED ONCE (2026-09-08 14:41, "Abort signal received", 63 s after a
--- reload; the tune callback below was unguarded then). Unattributed; see UNVERIFIED.md.
--- Read-only in the game; constructs UI objects and removes its own on reload. Dev-only; never ships.
+-- Input display prototype: the player's inputs as a fighting-game-style history, each row a held state and how many
+-- polls it lasted, newest on top, in one UserWidget (a Border holding a TextBlock) placed by top-left offsets.
+-- Tokens: J jump, A attack, C crouch, W cling, T throw, G guard, I interact, L lock-on, P power, M map, V view.
+-- Tuned live by input_display.txt beside Scripts, re-read every 500 ms: x, y (top-left, pixels at 1920x1080), text,
+-- rows, pad, bg, alpha, bg_on (0 = no panel), ink, show. Read-only in the game; removes its own widgets on reload.
+-- A session with it loaded once ended in "Abort signal received", unattributed; its callbacks are all guarded now.
 
 local TAG = "[MeshGhostInputDisplay]"
-local POLL_MS = 33 -- was 16; halved after the 14:41 abort, and the controller is cached below
+local POLL_MS = 33
 local TUNE_MS = 500
 local NAME_PANEL = "MeshGhostInputPanel"
 
@@ -103,6 +75,7 @@ local keys = {}      -- { name = "SpaceBar", bits = {J=true,...} }
 local move_keys = {} -- keys mapped to IA_Move (W/A/S/D and the stick)
 local table_built = false
 
+-- IMC_Default holds the live bindings; IMC_Reference is the factory copy, never applied.
 local function build_key_table()
     local ctxs = FindAllOf("InputMappingContext")
     if not ctxs then return false end
@@ -167,7 +140,7 @@ local function remove_leftovers()
     local all = FindAllOf("UserWidget")
     if not all then return end
     for _, w in pairs(all) do
-        -- ours, and the indicator prototype's leftovers (its control text outlived it)
+        -- Ours, and the indicator prototype's leftovers.
         local n = full_name(w)
         if valid(w) and (n:find(NAME_PANEL, 1, true) or n:find("MeshGhostHud", 1, true)) then
             try("RemoveFromParent(leftover)", function() w:RemoveFromParent() end)
@@ -195,8 +168,7 @@ local function apply()
     if not panel or not valid(panel) then return end
     local t = tuning
     local border = panel.WidgetTree.RootWidget
-    -- bg_on=0 draws no panel at all (alpha 0), the user's toggle; in the client config it is
-    -- input_display.background, on by default
+    -- bg_on=0 draws no panel (alpha 0).
     try("Border:SetBrushColor", function() border:SetBrushColor(color_of(t.bg, (t.bg_on ~= 0) and t.alpha or 0.0)) end)
     try("Border:SetPadding", function() border:SetPadding({ Left = t.pad, Top = t.pad, Right = t.pad, Bottom = t.pad }) end)
     try("TextBlock:SetColorAndOpacity", function() panel_text:SetColorAndOpacity({ SpecifiedColor = color_of(t.ink, 1.0), ColorUseRule = 0 }) end)
@@ -267,7 +239,6 @@ local function sample()
         table.insert(rows, 1, current)
         while #rows > tuning.rows do table.remove(rows) end
     end
-    -- render, on change only
     local lines = {}
     for _, r in ipairs(rows) do
         lines[#lines + 1] = string.format("%4d  %s", r.frames, r.state)
@@ -305,11 +276,7 @@ LoopAsync(POLL_MS, function()
 end)
 LoopAsync(TUNE_MS, function()
     ExecuteInGameThread(function()
-        -- EVERYTHING on the game thread inside a pcall. The first version left this callback bare,
-        -- and the session it ran in ended in "Abort signal received" 63 s after the reload
-        -- (2026-09-08 14:41) -- the 2026-09-06 signature of a Lua error raised inside a callback
-        -- the engine cannot unwind. Not attributed to this line (nothing logged an error, and the
-        -- Archipelago mod was live too), but it is the one unguarded path this probe had.
+        -- Inside a pcall: a Lua error raised in a game-thread callback is one the engine cannot unwind.
         local ok, err = pcall(function()
             if built and read_tuning() then
                 if tuning.text ~= (tuning._built_text or tuning.text) then

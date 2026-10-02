@@ -1,29 +1,6 @@
--- MeshGhost sword-throw capture probe. The question, from the user 2026-09-01, four parts:
---
---   how does the thrown Dream Breaker work -- (1) what removes the sword from the HAND on a
---   throw, (2) what actor is the sword IN THE AIR and how does it track/bounce, (3) what puts
---   it back in the hand on pickup -- so the ghost can do all three; and (4) evidence for the
---   pickup CROSS-WIRE (a peer's pickup animating the LOCAL player -- UNVERIFIED.md, OPEN).
---
--- Method: watch the two thrown-sword actor classes (BP_looseWeapon_C, PRJ_PlayerCutter_C) and
--- every pawn's weapon fields, log ON CHANGE -- plus a position line per sample while a thrown
--- actor exists, which IS the flight track (bounces show as velocity sign flips). Dump both
--- pawns (player and ghost) rather than guessing which is which -- filter after, never before.
---
--- Throw the sword, let it bounce, pick it up, a few times. No timing to hit.
---
--- Safe shape: NAMED property reads only, no UFunction on anything FindAllOf returned, no
--- ForEachProperty. ~12 object-space walks/s while armed (3 classes at 250ms) -- heavier than a
--- shipped path is allowed to be, fine for a two-minute capture; unload it after.
---
--- Grounded field names (this repo's own measured records, documentation.md):
--- pawn 'weaponEquipped?', 'weaponRef', 'WeaponMesh'; BP_looseWeapon_C 'weaponState';
--- PRJ_PlayerCutter_C 'ProjectileMovement' (UProjectileMovementComponent: Velocity, bIsActive --
--- docs.unrealengine.com).
---
--- Deploy: overwrites the resident MeshGhostSlashVfx slot (a NEW mod folder cannot join a
--- running game; an existing mod reloads via probe_reloader) -- the log tag below is what
--- identifies it, not the mod name.
+-- Sword-throw capture: on change, every pawn's weapon fields and the two thrown-sword classes' state, plus a TRACK
+-- line per sample while one flies (a bounce is a velocity sign flip). Throw, let it bounce, pick it up, repeat.
+-- Named reads only, no UFunction on a FindAllOf result; 3 classes at 250ms is heavier than a shipped path may be.
 
 local TAG = "[MeshGhostSwordThrow]"
 local INTERVAL_MS = 250
@@ -67,8 +44,7 @@ local samples = 0
 local function sample()
     samples = samples + 1
 
-    -- Every pawn's weapon-facing state, keyed by the pawn's own instance name so the player and
-    -- the ghost stay separate columns of the same capture.
+    -- Keyed by each pawn's own instance name, so the player and the ghost stay separate columns.
     local pawns = FindAllOf("BP_PlayerGoatMain_C")
     local pawn_count = 0
     if pawns then
@@ -77,10 +53,7 @@ local function sample()
             if pname ~= "<nil>" then
                 pawn_count = pawn_count + 1
                 on_change(pname .. ".weaponEquipped?", tostring(prop(pawn, "weaponEquipped?")))
-                -- WHOSE anim instance does this pawn's animBPref point at? If the ghost's points
-                -- at the PLAYER's, every anim write the mirror aims at the ghost lands on the
-                -- player -- which is the 2026-09-01 two-peer symptom set exactly (player loses
-                -- the sword and plays the pickup montage; the ghost's hand never changes).
+                -- A ghost's animBPref on the player's anim instance would send every ghost anim write to the player.
                 local abp = prop(pawn, "animBPref")
                 on_change(pname .. ".animBPref", abp and (full_name(abp) or "<unnamed>") or "<none>")
                 local vm = prop(pawn, "VisualMesh")
@@ -98,8 +71,6 @@ local function sample()
         end
     end
 
-    -- The two candidate airborne/landed actors. Presence, state, and a position line per sample
-    -- while one exists -- the per-sample lines are the flight track.
     local classes = {
         {name = "BP_looseWeapon_C"},
         {name = "PRJ_PlayerCutter_C"},
@@ -124,8 +95,7 @@ local function sample()
                         active = tostring(prop(pm, "bIsActive"))
                         vel = prop(pm, "Velocity")
                     end
-                    -- Only a MOVING actor earns a per-sample line; a parked pooled one logs its
-                    -- appearance (via on_change of TRACK -> parked) and then stays quiet.
+                    -- Only a moving actor logs per sample; a parked pooled one logs once, on change.
                     local loc = vec_text(prop(root, "RelativeLocation"))
                     local vtxt = vel and vec_text(vel) or "?"
                     if pm and active == "true" then

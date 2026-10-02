@@ -1,12 +1,6 @@
--- MeshGhost SAFE-ZONE CENSUS (2026-09-09): READ-ONLY, once, hot-loaded over the scratch slot. The
--- pit fall returns the player to `respawnTransform` (a Transform on the pawn, -6550,6300,1100 at
--- 12:44 -- a placed, round number) and the driven clone's stays at zero, so its reset lands at the
--- world origin. The question: WHAT writes it -- a placed actor the player overlaps, most likely,
--- and the clone's capsule generates no overlap events. This walks every object once
--- (`ForEachUObject`, the callback only appends -- a Lua error inside it aborts the game) and
--- buckets by class name, then lists the classes whose names contain any of a few words and, for
--- each live actor of those classes, its name and location. Filtered AFTER the walk; the full
--- class count is logged too.
+-- Safe-zone census, read-only, once: what writes respawnTransform, the spot a pit fall returns the player to? Walks
+-- every object, buckets by class, then lists the classes named like safe/respawn/zone/hazard with each live actor's
+-- location. The walk's callback only appends: a Lua error inside it aborts the game. Run over the scratch slot.
 
 local TAG = "[MeshGhostSafeZone]"
 local WORDS = { "Safe", "safe", "Respawn", "respawn", "Checkpoint", "checkpoint", "Zone", "Kill", "Hazard", "Death", "Pit" }
@@ -60,11 +54,9 @@ LoopAsync(1500, function()
                 local ok2 = pcall(function()
                     if obj:GetClass():GetFName():ToString() == cname and valid(obj) then
                         local oname = fname_str(obj)
-                        -- Only actors that are NOT class defaults: a CDO's name starts with Default__.
+                        -- A class default object's name starts with Default__.
                         if not oname:find("^Default__") then
-                            -- An ACTOR only: a named property read first (`RootComponent` exists on
-                            -- every actor and on nothing else here); a UFunction is called on
-                            -- nothing that fails it (host CLAUDE.md, FindAllOf/ForEachUObject rule).
+                            -- Only an actor has a RootComponent, read first: nothing else gets a UFunction call.
                             local root = nil
                             local is_actor = pcall(function() root = obj.RootComponent end) and root ~= nil
                             local loc = is_actor and "?" or "(not an actor)"

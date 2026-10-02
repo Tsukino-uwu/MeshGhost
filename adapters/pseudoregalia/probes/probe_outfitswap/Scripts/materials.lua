@@ -1,29 +1,7 @@
--- MeshGhost MATERIAL-ORIGIN INSPECTOR (2026-09-13). READ-ONLY.
---
--- The question the counts could not answer. A glitched ghost wears `Kindred` with four
--- MaterialInstanceDynamic entries in the COMPONENT's `OverrideMaterials`, and `Kindred` has four
--- material slots -- so a count check passes while the model is visibly wrong. The counts matching
--- is a coincidence of two costumes having four slots each; what matters is what those overrides
--- are PARENTED to.
---
--- The adapter mirrors a peer's hurt reaction by running the game's own
--- `BPI_PerformDamageResponse` on the ghost (Plugin.cpp, MIRROR_HURT_REACTION). If that flash
--- builds dynamic material instances over whatever costume is worn AT THAT MOMENT, and an outfit
--- swap then replaces the mesh underneath them, `OverrideMaterials` is not cleared -- the previous
--- costume's materials stay bound to the new costume's slots, permanently. That is a mangled model
--- that survives every later swap and clears only when the ghost is respawned, which is what a save
--- reset does.
---
--- So this prints, per slot: what is actually RENDERING (`GetMaterial`), what the MESH ITSELF
--- declares for that slot, and, when the renderer's material is a dynamic instance, its `Parent`.
--- A parent naming a costume the ghost is NOT wearing is the bug, stated by the engine.
---
--- The local player is dumped as the control, same as the binding check -- a field is only
--- evidence if the player wearing a costume normally does not show it too.
---
--- WHAT THIS CANNOT SEE: whether the model looks right. It reads material bindings, never pixels.
---
--- Dev-only tooling; never ships.
+-- Material-origin inspector, read-only, one pass: for each slot of each pawn's meshes, what renders (GetMaterial), what
+-- the mesh asset declares, and a dynamic instance's Parent. A slot whose origin names a costume the pawn is not wearing
+-- is flagged FOREIGN, since a matching slot count proves nothing. The local player is dumped first, as the control.
+-- It reads material bindings, never pixels.
 
 local TAG = "[MeshGhostMaterials]"
 
@@ -57,17 +35,12 @@ local function class_str(x)
     local s pcall(function() s = c:GetFName():ToString() end) return s or "?"
 end
 
--- The costume a path belongs to, for the mismatch line. Deliberately the LAST path segment before
--- the dot rather than a hand-kept list of costume names -- a list is a guess about which costumes
--- can be involved, and every modded one would be missing from it.
+-- The costume is the path's last segment, never a hand-kept list that every modded costume would be missing from.
 local function asset_of(full)
     return (full:match("([^/]+)%.[^%.]*$")) or full
 end
 
--- Every mesh the pawn owns, not just the body. The outfit swap and the WEAPON swap use the same
--- recipe in Plugin.cpp (setter, then raw writes, never touching OverrideMaterials), so whether the
--- hurt flash strands materials on the weapon too is a question to ask the engine rather than to
--- assume from the body's answer -- the flash may well only touch the body.
+-- Not just the body: the weapon swap shares the outfit swap's recipe, so it is asked too.
 local MESHES = { "VisualMesh", "WeaponMesh", "LightMesh" }
 
 local function dump_mesh(pawn, vm, mesh_name, label)
@@ -87,19 +60,16 @@ local function dump_mesh(pawn, vm, mesh_name, label)
 
     local mismatches = 0
     for i = 0, n - 1 do
-        -- What is actually rendering in this slot.
         local rendering = nil
         pcall(function() rendering = vm:GetMaterial(i) end)
         local rendering_full = full_str(rendering)
 
-        -- If it is a dynamic instance, what was it built FROM.
         local parent_full = "-"
         if rendering ~= nil and valid(rendering) then
             local p = prop(rendering, "Parent")
             if p ~= nil then parent_full = full_str(p) end
         end
 
-        -- What the MESH ASSET itself declares for this slot, for comparison.
         local declared_full = "-"
         if mesh ~= nil and valid(mesh) then
             pcall(function()
@@ -114,7 +84,6 @@ local function dump_mesh(pawn, vm, mesh_name, label)
             end)
         end
 
-        -- The finding: a material whose origin names a costume the pawn is not wearing.
         local origin = (parent_full ~= "-" and parent_full ~= "none") and parent_full or rendering_full
         local flag = ""
         if origin ~= "none" and origin ~= "?" and worn ~= nil then

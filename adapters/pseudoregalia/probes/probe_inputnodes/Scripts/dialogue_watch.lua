@@ -1,13 +1,6 @@
--- MeshGhost DIALOGUE WATCH (2026-09-23): READ-ONLY, on the PLAYER's own pawn. Part C of
--- agent_docs/chaser-planning.md: which field marks talking to an NPC and reading a note, so the
--- chaser pack can hold there the way it holds for the pause menu and a chair (`moveState` 8).
--- `sit_watch.lua` (2026-09-09) plus the plan's candidates: the pawn's `DialogueCam` component
--- active, the camera manager's view target, the controller's mouse cursor. Logs on change only,
--- with a wall-clock stamp so a line pairs with what the user saw. Named reads only, no call, no
--- write. Hot-loaded over the scratch slot; restore the stub afterwards. Dev-only; never ships.
---
--- WHAT IT CANNOT SEE: a flag on the NPC or on a widget rather than on the player, pawn and
--- controller. If none of these move across a conversation, widen to those, not deeper here.
+-- Logs, on change, the player pawn's fields that could mark talking or reading, with DialogueCam active, the
+-- camera's view target and the mouse cursor: read-only, named reads. Blind to a flag on the NPC or a widget.
+-- Hot-loaded over the scratch slot; restore the stub afterwards.
 
 local TAG = "[MeshGhostDialogueWatch]"
 local FIELDS = { "foundInteracter", "hasMovementInput?", "moveInputAmount", "moveState", "actionState", "bIsCrouched" }
@@ -70,7 +63,7 @@ local function tick()
     now["inputVectorWorld"] = vec_text(prop(pawn, "inputVectorWorld"))
     local mv = prop(pawn, "CharacterMovement")
     now["MovementMode"] = mv and tostring(plain(prop(mv, "MovementMode"))) or "?"
-    -- The dialogue candidates (chaser-planning.md, Part C). Named reads, never a walk.
+    -- The dialogue candidates: named reads, never a walk.
     local cam = prop(pawn, "DialogueCam")
     now["DialogueCam.bIsActive"] = (cam ~= nil and valid(cam)) and tostring(plain(prop(cam, "bIsActive"))) or "none"
     local pcm = prop(pc, "PlayerCameraManager")
@@ -80,8 +73,7 @@ local function tick()
     now["bShowMouseCursor"] = tostring(plain(prop(pc, "bShowMouseCursor")))
     local changes = {}
     for k, v in pairs(now) do
-        -- the input vector and amount change every frame while moving: log those only on
-        -- zero <-> non-zero transitions, the rest on any change
+        -- The input vector and amount change every frame while moving, so only their zero/non-zero edges log.
         local coarse = v
         if k == "inputVectorWorld" then coarse = (v == "0.00,0.00,0.00") and "zero" or "moving" end
         if k == "moveInputAmount" then coarse = (v == "0" or v == "0.0") and "zero" or "moving" end

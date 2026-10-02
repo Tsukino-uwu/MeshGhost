@@ -1,22 +1,6 @@
--- MeshGhost world-fingerprint probe. 2026-08-31.
---
--- THE QUESTION, now that the trigger is proven: spawning a second player pawn into a world produced
--- by "reset to last save" kills the game, while the same spawn after a ZONE CHANGE is fine. Both
--- are freshly loaded worlds. So what is different about the one a reset makes?
---
--- Established first, so this probe is not chasing a guess (`../../UNVERIFIED.md`):
---   * the crash follows the SPAWN, not the reset -- holding the respawn 2s, 6s and 30s moved the
---     crash with it, and with the 30s hold the game ran quietly for fourteen seconds and died in
---     the same second the ghosts returned
---   * it is SpawnActor itself, not our setup -- a ghost spawned and left completely untouched
---     crashed identically
---
--- So this prints a FINGERPRINT of the world, every 2s and on change: the things most likely to
--- differ between a save-reset reload and a zone transition. Do a zone change, then a reset, and the
--- two fingerprints can be diffed line for line.
---
--- Property reads and cheap lookups only -- no UFunction calls into the Blueprint VM, which is where
--- the fault lives. It also stays quiet unless something changes, so it adds nothing while playing.
+-- World fingerprint, every 2s and on change: what differs between a world made by "reset to last save", where
+-- spawning a second player pawn crashed, and one made by a zone change. Do a zone change, then a reset, and diff.
+-- Property reads and cheap lookups only: no UFunction call into the Blueprint VM, where the fault lives.
 
 local POLL_MS = 2000
 local last_print = nil
@@ -80,8 +64,6 @@ LoopAsync(POLL_MS, function()
     local pawn = pc and safe(function() return pc.Pawn end, nil) or nil
     local pauser = ws and safe(function() return ws.Pauser end, nil) or nil
 
-    -- The fingerprint. Anything that could plausibly differ between a reset reload and a zone load,
-    -- and nothing that needs a function call to obtain.
     local fp = table.concat({
         "world=" .. name_of(pc and safe(function() return pc:GetWorld() end, nil)),
         "pc=" .. (pc and "yes" or "NO"),

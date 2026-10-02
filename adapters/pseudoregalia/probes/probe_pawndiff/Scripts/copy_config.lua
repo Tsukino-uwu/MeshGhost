@@ -1,13 +1,7 @@
--- MeshGhost COPY CONFIG (2026-09-09): a WRITING probe, dev-only. Every second, on every DRIVEN
--- ghost pawn (a pawn of the player's class steered by an AIController and holding a PRIVATE
--- game-instance ref -- the rig's own signature), the save-derived config fields the pawn diff
--- found different (`pawndiff-002922.log`: healUpgrades, damageUpgrades, powerBuildUpgrades,
--- powerMeterUpgrades, bonusAirKicks, healAmountPerDing, canMoveHeal?, canDoAirRecovery?) are
--- written from the PLAYER's pawn. The question: does the chair sit stop being the hurt variant
--- once the ghost carries the player's upgrades. Each write is read back through the property
--- itself and logged once per pawn; a mismatch is logged as such. Damage numbers are NOT copied
--- (the adapter zeroes them on purpose). Hot-loaded over the scratch slot; RESTORE THE STUB and
--- unload before judging anything else -- a writing probe is a suspect in every later report.
+-- Copy config, and it writes: every second, the save-derived upgrade fields the pawn diff found different are copied
+-- from the player's pawn onto every driven ghost pawn (the player's class, an AIController, a private game-instance
+-- ref), each read back through the property itself. Does the chair sit stop being the hurt variant? Damage numbers
+-- are not copied: the adapter zeroes them on purpose. Restore the scratch stub before judging anything else.
 
 local TAG = "[MeshGhostCopyConfig]"
 local FIELDS = { "healUpgrades", "damageUpgrades", "powerBuildUpgrades", "powerMeterUpgrades",

@@ -1,7 +1,5 @@
--- One-shot: does the pawn expose its BlobShadow component under a reflected PROPERTY name, and
--- which one? The shadow mirror read pawn["BlobShadow"] and did nothing on screen (2026-09-01)
--- -- a missing property reads as nil and both sides silently no-op. Candidates tested by name;
--- read-only.
+-- One-shot, read-only: under which reflected property name, if any, does the pawn expose its BlobShadow component?
+-- A missing property reads as nil, so a wrong name no-ops silently; each candidate is tried by name.
 
 local TAG = "[MeshGhostShadowProp]"
 

@@ -470,8 +470,8 @@ three gets re-tried blind:
   `BridgeClient::send_line` (`adapters/pseudoregalia/MeshGhostPseudo/Mod/src/BridgeClient.cpp`,
   fixed the same review sweep). The exact same discard-the-partial `sock:receive()` pattern (no
   prefix argument) is also present, unfixed, in the abandoned Pseudoregalia Lua probe scripts
-  (`adapters/pseudoregalia/probe_ghost/Scripts/main.lua:499`,
-  `adapters/pseudoregalia/probe_socket/Scripts/stage3_roundtrip.lua:110`) — a plausible
+  (`adapters/pseudoregalia/probes/probe_ghost/Scripts/main.lua`'s `drainBridge`,
+  `adapters/pseudoregalia/probes/probe_socket/Scripts/stage3_roundtrip.lua`'s receive loop) — a plausible
   *contributing* cause for the 7.5 "receive-side corruption" symptom (see the ABI-mismatch entry
   above), though the diagnostic ladder that investigation ran (failure rate independent of
   message size/frequency, correlated with session duration) points at a genuinely separate

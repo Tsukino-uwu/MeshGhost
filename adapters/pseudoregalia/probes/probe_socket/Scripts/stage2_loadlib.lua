@@ -1,29 +1,7 @@
--- MeshGhost Phase 7 socket-capability probe, Stage 2 (RISKIER): attempts to actually load the
--- vendored LuaSocket core into UE4SS's embedded Lua and create (not connect) a local TCP socket
--- object. Only run this after Stage 1 (main.lua) confirmed package.loadlib/package.cpath are
--- present -- and only with the user's explicit go-ahead, per agent_docs/phases/phase7.md.
---
--- NOT WIRED IN as this mod's entry point. UE4SS Lua mods load Scripts/main.lua as their fixed
--- entry point, so Stage 1's main.lua stays the default. To run Stage 2: back up the currently
--- deployed ue4ss/Mods/MeshGhostSocketProbe/Scripts/main.lua, then copy THIS file over it,
--- restart the game, and watch UE4SS.log. Restore the Stage 1 main.lua afterward either way.
---
--- Why this is riskier than Emerald's equivalent (adapters/emulator/pokemon/emerald/probes/phase3_loopback.lua):
--- BizHawk's Lua host is a real, separate lua54.dll, so Phase 3 could preload a byte-identical
--- copy of BizHawk's own lua54.dll and know the socket core binds to a compatible instance
--- (confirmed empirically at the time, see phase3_loopback.lua's own comment and
--- agent_docs/architecture.md). UE4SS's Lua 5.4 is statically compiled INTO UE4SS.dll -- it does
--- not export a lua54.dll at all. So the preload below loads OUR vendored lua54.dll (a distinct,
--- independently-built Lua 5.4 runtime) into the process, while the lua_State* that
--- luaopen_socket_core actually receives is UE4SS's own internal state. If the two Lua 5.4
--- builds don't agree on internal struct layout, this can corrupt memory instead of failing
--- cleanly -- there is no way to fully rule that out from outside UE4SS's source, only reduce
--- the blast radius (see the deliberately minimal steps below) and watch the result live.
---
--- Deliberately conservative about what it does once loaded: creates a local socket.tcp() object
--- and immediately closes it. Does NOT bind, connect, or send/receive a single byte -- if
--- luaopen_socket_core() itself doesn't corrupt anything, this is the smallest possible next
--- check before trying real network I/O in a later step.
+-- Socket probe, stage 2: loads the vendored LuaSocket core into UE4SS's embedded Lua and creates, then closes, a TCP
+-- socket; it never binds, connects or sends. UE4SS's Lua is compiled into UE4SS.dll, so the preloaded lua54.dll is a
+-- second runtime, and a layout mismatch between the two can corrupt memory rather than fail. To run it, back up the
+-- deployed MeshGhostSocketProbe\Scripts\main.lua, copy this over it, restart the game, read UE4SS.log, then restore.
 
 local function scriptDir()
     local src = debug.getinfo(1, "S").source

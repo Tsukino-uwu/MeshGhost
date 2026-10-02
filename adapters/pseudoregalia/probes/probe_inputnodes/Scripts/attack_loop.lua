@@ -1,10 +1,6 @@
--- MeshGhost INPUT-NODE CENSUS, the ATTACK LOOP variant (2026-09-08, the user's ask mid-census:
--- "can you make it do attacks constantly?"). Fires the pawn's three attack event nodes on a
--- GHOST pawn in blocks -- `_3` five times at 1.5 s, then `_4`, then `_5`, and round again --
--- so the person watching can say which block makes the ghost swing. Same identity guard as
--- main.lua (the pawn is never the player's: address/name identity, an AIController, a per-tick
--- refusal). Copy over the scratch slot's main.lua and reload; restore the stub afterwards.
--- Dev-only tooling; never ships.
+-- Fires the pawn's three attack event nodes on a ghost pawn in blocks (_3 five times at 1.5 s, then _4, then
+-- _5, round again), so a watcher can say which block makes the ghost swing. Never the player's pawn: address
+-- or name identity, an AIController, and a per-tick refusal. Over the scratch slot; restore the stub after.
 
 local TAG = "[MeshGhostAttackLoop]"
 local PAWN_CLASS = "BP_PlayerGoatMain_C"

@@ -1,10 +1,6 @@
--- MeshGhost INTERACT FUNCTION CENSUS (2026-09-09): READ-ONLY listing, hot-loaded beside the
--- hitable restore. Lists, once, every UFunction on the player's pawn class chain whose name
--- contains interact/sit/stand/chair/rest/heal (case-insensitive), and -- the first time any pawn
--- of that class holds a non-null `Interaction Target` -- that target's class chain and ALL of its
--- functions and plain-valued property names. The question: what the game calls to end a sit.
--- Named reads only; nothing written, nothing called. The listing is by name filter AFTER the
--- full walk (the count of everything walked is logged too).
+-- Interact function census, read-only: what does the game call to end a sit? Once, every UFunction on the player's
+-- pawn class chain named like interact/sit/stand/chair/rest/heal, then the first Interaction Target's class chain with
+-- all its functions and plain-valued property names. The filter applies after the full walk, whose count is logged.
 
 local TAG = "[MeshGhostInteractFns]"
 local PATTERNS = { "nteract", "sit", "Sit", "stand", "Stand", "hair", "rest", "Rest", "heal", "Heal", "seat", "Seat" }

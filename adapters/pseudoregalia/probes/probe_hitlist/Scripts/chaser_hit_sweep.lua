@@ -1,33 +1,11 @@
--- MeshGhost CHASER HIT SWEEP (written 2026-09-23): CALLS the game's own damage event on the player
--- THREE times, a chaser as the attacker. Part B/E of agent_docs/chaser-planning.md. NOT read-only:
--- each step costs the player one hit.
---
--- WHY. `try_damage_once.lua` proved `BPI_TryDamage` deals damage (2026-09-23: 75 -> 70,
--- `intangible?` on, the user saw a normal hurt) -- but with a REAL enemy as Attacker and the struct
--- that enemy's hit left behind. The shipped chaser has neither, so this builds both the way the
--- adapter would: Attacker = a chaser's pawn, `ST_HitboxData` from a table. Every field value comes
--- from `hitbox_capture.lua`'s 14 real hits the same day: a body touch from three enemy kinds carried
--- Damage 5, HitStopDuration 0.2, HitType false, the `Cue_contact` sound, `handSlot_RSocket`,
--- lengthRadiusHalfHeight 120/80/80, DamageType 5; the Maid's heavier hit DamageType 2 (and Damage
--- 10); a hazard and a projectile DamageType 0. Only those three DamageTypes are used -- a value the
--- game never produced is untested, and `BPI_PerformDamageResponse` crashed on 2 and 3 (2026-09-18),
--- which these real hits now show is a problem of that call, not of the values.
---
--- THE STEPS, STEP_GAP_S apart after a START_S countdown (well past the ~1.56 s i-frames):
---   1. Damage 20, DamageType 5  -- a contact touch at a custom amount: does the amount follow?
---   2. Damage 5,  DamageType 2  -- the Maid's kind: a different reaction (knockback, sword drop)?
---   3. Damage 5,  DamageType 0  -- the hazard/projectile kind.
--- Each logs its arguments, then CurrentHp and `intangible?` read back at +0/+500 ms. A step is
--- SKIPPED (and says so) while `intangible?` is true, never retried.
---
--- The struct's field names are the reflected ones (`Damage_15_<guid>` and so on), written below and
--- checked against the live struct before the first call.
---
--- HOW TO RUN: chasers running (relay up), stand still away from enemies. Restore the stub after.
+-- Chaser hit sweep, and it calls the game's damage event: BPI_TryDamage on the player three times, the nearest chaser
+-- as Attacker and an ST_HitboxData built from a table with values real hits left. Each step costs the player a hit.
+-- Only DamageTypes the game produced are used. Each step is read back at +0/+500 ms, and skipped while intangible?
+-- is set. Run with chasers up, standing still away from enemies; restore the scratch stub after.
 
 local TAG = "[MeshGhostChaserHit]"
 local START_S = 15
-local STEP_GAP_S = 6
+local STEP_GAP_S = 6 -- well past the i-frames
 local STEPS = {
     { damage = 20.0, damage_type = 5, label = "contact kind, Damage 20" },
     { damage = 5.0, damage_type = 2, label = "Maid's kind (DamageType 2)" },
@@ -66,8 +44,8 @@ local function loc(actor)
     return { X = v.X, Y = v.Y, Z = v.Z }
 end
 
--- The nearest pawn of the player's own class that is NOT the player: with no peer in the room and
--- no replay playing, that is a chaser. Identity by address (two wrappers are never ==).
+-- With no peer and no replay, the nearest other pawn of the player's class is a chaser. Identity by address: two
+-- wrappers are never ==.
 local function nearest_chaser(me)
     local my_addr = addr(me)
     local my_loc = loc(me)
@@ -90,8 +68,7 @@ local function nearest_chaser(me)
     return best, best_d, count, cls_name
 end
 
--- ST_HitboxData's reflected field names as this build spells them, WRITTEN rather than walked
--- (preflight's "blind reflection walks" gate): read off `hitbox_capture.lua`'s first run, 2026-09-23.
+-- ST_HitboxData's reflected field names as this build spells them, written rather than walked.
 local HITBOX_FIELD = {
     Damage = "Damage_15_2068E77745C092F1FC7634A91107BEAB",
     HitStopDuration = "HitStopDuration_16_E15EA3AC41362D7EA0AEB3A8064CF3A7",
@@ -171,14 +148,12 @@ LoopAsync(50, function()
         pcall(function() hitable = me.BP_HpHitable end)
         if hitable == nil or not valid(hitable) then return false end
         if names == nil then
-            -- Coverage: every written name must resolve on the live struct, or the call would
-            -- silently build a struct with that field left at zero.
+            -- A name that does not resolve would leave its field at zero in the struct the call builds.
             local info
             pcall(function() info = hitable.incomingHitboxInfo end)
             local missing = {}
             for short, full in pairs(HITBOX_FIELD) do
-                -- A name that does not resolve may read nil rather than raise, so the value is checked
-                -- too -- except HitSound, which is null at rest (the 2026-09-23 baseline).
+                -- A missing name may read nil rather than raise; HitSound alone is null at rest.
                 local ok, v = pcall(function() return info[full] end)
                 if not ok or (v == nil and short ~= "HitSound") then missing[#missing + 1] = short end
             end

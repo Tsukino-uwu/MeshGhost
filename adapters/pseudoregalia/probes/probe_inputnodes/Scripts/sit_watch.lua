@@ -1,11 +1,6 @@
--- MeshGhost SIT WATCH (2026-09-09): READ-ONLY, on the PLAYER's own pawn. Logs, on change, the
--- fields around an interaction -- `Interaction Target`, `foundInteracter`, `hasMovementInput?`,
--- `moveInputAmount`, `inputVectorWorld`, `moveState`, `actionState`, `bIsCrouched`, `MovementMode`
--- -- while the person at the game sits on a chair, stands up by moving, and then does the table
--- glitch (sit from a table, keep moving in the seated pose). The question: which field the game
--- flips when a real sit ends, and what stays set during the glitch, so the driven ghost can be
--- handed the same thing. Named reads only, no call on anything, nothing written. Hot-loaded
--- over the scratch slot; restore the stub afterwards. Dev-only; never ships.
+-- Sit watch, read-only, on the player's own pawn: the fields around an interaction, on change, while a chair sit ends
+-- by moving and then the table glitch runs (seated pose, still moving). Which field ends a real sit, and what stays
+-- set in the glitch? Named reads only. Hot-loaded over the scratch slot; restore the stub afterwards.
 
 local TAG = "[MeshGhostSitWatch]"
 local FIELDS = { "foundInteracter", "hasMovementInput?", "moveInputAmount", "moveState", "actionState", "bIsCrouched" }
@@ -70,8 +65,7 @@ local function tick()
     now["MovementMode"] = mv and tostring(plain(prop(mv, "MovementMode"))) or "?"
     local changes = {}
     for k, v in pairs(now) do
-        -- the input vector and amount change every frame while moving: log those only on
-        -- zero <-> non-zero transitions, the rest on any change
+        -- The input vector and amount change every frame while moving: logged only on zero <-> non-zero.
         local coarse = v
         if k == "inputVectorWorld" then coarse = (v == "0.00,0.00,0.00") and "zero" or "moving" end
         if k == "moveInputAmount" then coarse = (v == "0" or v == "0.0") and "zero" or "moving" end

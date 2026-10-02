@@ -1,23 +1,7 @@
--- MeshGhost TRY DAMAGE ONCE (written 2026-09-23): CALLS the game's own damage event ONCE on the
--- player. Part B of agent_docs/chaser-planning.md. NOT read-only: it costs the player one hit.
---
--- WHY. `hitbox_capture.lua` (2026-09-23) read back what two real enemies passed: after a hit the
--- player's `BP_HpHitable` holds `Attacker` (the enemy), `incomingHitboxInfo` (`ST_HitboxData`,
--- Damage 5.0, DamageType 5), `Forward Vector` (the attacker's facing) and `Query Location`, and
--- `intangible?` turns true -- the same four inputs `BPI_TryDamage(Attacker, HitboxInfo,
--- ForwardVector, QueryLocation)` takes (entry 603, the class's own bytecode). The four earlier bare
--- calls each left those at null/default. This calls `BPI_TryDamage` with the values the game itself
--- stored on the last real hit, so the only thing not copied from the game is the moment.
---
--- WHAT IT DOES: waits for ONE real hit (an HP drop), then fires once QUIET_S pass with no further
--- drop -- so a respawn or a stale reference cannot be what it calls with (the first run, 2026-09-23,
--- was REFUSED after the player died and respawned: a new pawn, a new component, Attacker null).
--- Refuses unless `intangible?` is false and `Attacker` is still a valid object; reads CurrentHp, calls once, and
--- reads CurrentHp and `intangible?` back through the component at +0/+100/+500/+1500 ms. Nothing
--- else is written. The call is logged with every argument so a negative says what was passed.
---
--- HOW TO RUN: load it through the scratch slot, take ONE ordinary enemy touch, walk away from every
--- enemy and stand still. It fires QUIET_S after the last hit. Restore the stub after.
+-- Calls the game's BPI_TryDamage once on the player with what the game stored on the last real hit (Attacker,
+-- hitbox info, forward vector): not read-only, it costs one hit. Fires QUIET_S after the last HP drop, so a
+-- respawn or a stale reference is never what it calls with, and only while intangible? is false.
+-- Run over the scratch slot: take one ordinary enemy touch, walk away from every enemy and stand still.
 
 local TAG = "[MeshGhostTryDamage]"
 local QUIET_S = 5

@@ -1,13 +1,5 @@
--- MeshGhost Phase 7 socket-capability probe, Stage 1 (SAFE): only checks whether
--- package.loadlib exists and is callable at all under UE4SS's embedded Lua. Does NOT attempt
--- to load any DLL yet -- that's a separate, riskier Stage 2 script, only to be run after this
--- one confirms loadlib is even present. Never writes memory, never touches the network.
---
--- Why this matters: agent_docs/risks.md and agent_docs/phases/phase7.md record that UE4SS's
--- own Lua API docs list no networking/socket capability, and RE-UE4SS's repo has zero
--- luasocket references -- but that doesn't prove package.loadlib itself is unavailable, only
--- that no first-party socket library ships. This probe checks the actual capability directly
--- rather than continuing to infer it from absence of documentation.
+-- Socket probe, stage 1: does package.loadlib exist and is it callable under UE4SS's embedded Lua?
+-- Loads no DLL and touches no network; stage 2 is the one that loads LuaSocket.
 
 print("[MeshGhostSocketProbe] Stage 1: checking Lua environment capabilities.\n")
 print(string.format("[MeshGhostSocketProbe] _VERSION = %s\n", tostring(_VERSION)))

@@ -1,25 +1,8 @@
--- MeshGhost probe reloader. Makes the Lua-probe loop fully automatic on Pseudoregalia: an
--- agent edits a probe, copies it into the install, then writes a line into this mod's trigger
--- file -- and the probe restarts inside the running game with no keystroke and no window focus.
---
--- Why not the Ctrl+R keybind (dev-scripts\pseudo-hotreload.ps1): UE4SS exposes hot reload only
--- as a keystroke at the game window, and Windows refuses the cross-process focus steal whenever
--- the user is typing somewhere else -- measured 2026-08-29, three sent reloads in a row landed
--- nowhere while the user was writing chat messages. RestartMod() (vendored RE-UE4SS docs,
--- lua-api/global-functions/modmanagement.md) restarts a named mod from Lua, so a resident
--- watcher plus a trigger file replaces the keystroke entirely.
---
--- Trigger file: reload_request.txt NEXT TO THIS SCRIPT's mod folder root, i.e.
---   ue4ss\Mods\MeshGhostProbeReloader\reload_request.txt
--- Format, one line:   <ModName> <any-nonce>
--- The nonce exists so writing the same mod name twice still triggers (content change is the
--- signal). Example:   MeshGhostNametagProbe 1756456789
---
--- This mod is deliberately dumb and edit-free: it never gets modified during an iteration, so
--- a syntax error in the probe being iterated cannot take the reload loop down with it. If the
--- probe's new code fails to load, fix the file and write the trigger again.
---
--- Dev-only tooling; never ships.
+-- Probe reloader: restarts a named mod inside the running game when its trigger file changes, with no
+-- keystroke and no window focus (the Ctrl+R keybind misses whenever the game window lacks focus).
+-- Trigger: ue4ss\Mods\MeshGhostProbeReloader\reload_request.txt, one line "<ModName> <nonce>"; the nonce
+-- makes a repeat of the same name a content change.
+-- Never edited during an iteration, so a syntax error in the probe cannot take the reload loop down.
 
 local TAG = "[MeshGhostProbeReloader]"
 
@@ -29,7 +12,6 @@ local function scriptDir()
     return path or "./"
 end
 
--- Scripts/ -> the mod folder root.
 local TRIGGER_PATH = scriptDir() .. "../reload_request.txt"
 
 local lastSeen = nil
@@ -40,18 +22,12 @@ local function readTrigger()
     local line = f:read("*l")
     f:close()
     if line == nil then return nil end
-    -- Strip a UTF-8 BOM. Windows PowerShell 5.1's `Set-Content -Encoding utf8` writes one, so a
-    -- trigger written the obvious way arrives as "<BOM>MeshGhostDustLightProbe" -- the `%S+`
-    -- match below happily captures the BOM as part of the name, and UE4SS answers "Could not
-    -- find mod to reinstall" for a mod that is sitting right there. Cost a live iteration on
-    -- 2026-08-29. Fixed here rather than written down as a rule about how to write the file,
-    -- because the next person to write it will use whatever their shell does by default.
+    -- PowerShell 5.1's Set-Content -Encoding utf8 writes a BOM, which %S+ would capture into the mod name.
     line = line:gsub("^\239\187\191", "")
     return line
 end
 
--- Prime with whatever is already there, so a stale file from a previous session does not fire
--- a restart the moment the game boots.
+-- Primed so a trigger left from a previous session does not fire a restart at boot.
 lastSeen = readTrigger()
 
 LoopAsync(1000, function()

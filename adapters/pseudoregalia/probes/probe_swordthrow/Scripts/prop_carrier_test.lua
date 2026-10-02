@@ -1,18 +1,7 @@
--- Carrier test #3 (2026-09-01). The whole-prop subtraction PROVED the thrown-weapon prop path
--- carries the cross-wire (toggle armed on the watcher -> the player kept their sword,
--- user-confirmed live). This splits it one level finer, with no peer and no adapter edge:
---
---   step 1: SPAWN a bare BP_looseWeapon_C near the ghost (exactly what tick_remote_weapon
---           does first) and sample the PLAYER's weapon flags for 3s.
---   step 2: call the game's "Change Weapon State"(0 = thrown/in-flight) on it -- the mirror's
---           second act -- and sample 3s more.
---   step 3: destroy the spawned actor (cleanup), report.
---
--- Whichever step flips the player's flags is the claimer. If NEITHER does, the carrier needs
--- the real sequence (spawn + state + position writes) and the next split runs on the C++ side.
---
--- The class object is taken from a LIVE BP_looseWeapon_C instance (the level keeps parked
--- ones), not from a remembered path -- CLAUDE.md's no-paths-from-memory rule.
+-- Prop carrier test, and it spawns: a bare BP_looseWeapon_C 200 above a ghost, the player's weapon flags sampled for
+-- 3 s, then the game's "Change Weapon State"(0, thrown) on it and 3 s more, then the actor destroyed. The step that
+-- flips the player's flags carries the cross-wire. It crashed a live client: never re-run it as written.
+-- The class comes from a live BP_looseWeapon_C (the level keeps parked ones), never a remembered path.
 
 local UEHelpers = require("UEHelpers")
 
@@ -66,9 +55,7 @@ local function find_loose_class()
             end
         end
     end
-    -- Fallback: any pawn's weaponRef keeps pointing at the LAST thrown loose weapon even after
-    -- pickup (measured -- it is why "weaponRef ~= nil" alone never meant thrown), so a session
-    -- where anyone has ever thrown still hands us the class.
+    -- Else from a pawn's weaponRef, which keeps the last thrown loose weapon even after pickup.
     local pawns = FindAllOf("BP_PlayerGoatMain_C")
     if pawns then
         for _, pawn in pairs(pawns) do

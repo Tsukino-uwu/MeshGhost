@@ -1,46 +1,9 @@
--- MeshGhost ENEMY HIT WATCH (written 2026-09-18): READ-ONLY. Part B step 1 of
--- agent_docs/chaser-planning.md, asked the way the plan actually asked it: let a REAL enemy hit the
--- player and watch what moves, instead of calling things and hoping.
---
--- WHY THIS EXISTS. The calling test ran first and came back a clean NEGATIVE (2026-09-18,
--- damage_sweep.lua): `BPI_PerformDamageResponse(DamageType, attackDirection)` called on the
--- PLAYER's own pawn moved no HP at any damage type tried, at +0/100/500/1000/2500 ms -- matching
--- what the shipped hurt mirror's tripwire has been saying about ghosts since 2026-08-27. So that
--- interface is the REACTION and not the damage, and whatever deducts HP has not been named yet.
--- Two independent facts also came out of that run and are recorded here because the next instrument
--- needs them: `attackDirection` is an **FVector** (the Lua table form is accepted), and UE4SS Lua
--- demands the EXACT arity -- the C++ helper only gets away with setting DamageType because it hands
--- ProcessEvent a fully zeroed parameter buffer.
---
--- WHAT IT WATCHES, at SAMPLE_MS on the local player's pawn, both health locations every sample
--- because which one is authoritative is the open question (the docs disagree; both read 80.0 at
--- rest, measured 2026-09-18):
---   * the GameInstance's `CurrentHp` through `As MV Game Instance Ref`;
---   * the pawn's own `BP_HpHitable` component's `CurrentHp` / `maxHP`;
---   * `LastHitBy` as an address only (established as staying null through a hurt -- if it ever is
---     NOT null, that is a finding, so it is watched rather than assumed).
---
--- HOW IT REPORTS -- a window, never a bare event. It keeps the last RING_SAMPLES samples in memory
--- and, on ANY change to either health value, dumps that whole window plus everything for
--- TAIL_MS afterwards. So the frames either side of a hit are readable, which is what makes an
--- ORDERING claim possible at all: if one location moves a sample before the other, that names the
--- authority and the mirror. If they always move in the same sample, say so and stop claiming
--- ordering -- SAMPLE_MS is the resolution limit and this file states it rather than implying more.
---
--- I-FRAMES come out of the same data for free: stand in an enemy and the gaps between consecutive
--- drops ARE the window, measured rather than guessed. The summary prints them at the end.
---
--- WHAT IT CANNOT SEE: which FUNCTION moved the value. It watches fields, so it can say "the
--- component moved first, by 5, and the GameInstance followed" and cannot say what called what.
--- Naming the function is the NEXT instrument (a dump of `BP_HpHitable_C`'s own functions), and it
--- is worth doing only once this run says which location to chase.
---
--- HOW TO RUN: load it, then go and let an ordinary enemy touch you two or three times. Endurance,
--- not timing -- there is no window to hit, it runs for TOTAL_S and logs only when something moves.
--- Read-only: no calls, no writes, no save. Restore probe_scratch's stub afterwards.
+-- Which health location a real enemy hit moves first, the GameInstance's CurrentHp or the pawn's own BP_HpHitable:
+-- each change dumps RING_SAMPLES before and TAIL_MS after, so ordering resolves to SAMPLE_MS and no finer.
+-- Read-only: let an ordinary enemy touch you two or three times; restore probe_scratch's stub afterwards.
 
 local TAG = "[MeshGhostEnemyHit]"
-local SAMPLE_MS = 25            -- 40Hz: fine enough to separate two writes a frame apart at 144fps
+local SAMPLE_MS = 25            -- 40Hz, about 3.6 frames at 144fps
 local TOTAL_S = 300
 local RING_SAMPLES = 40         -- 1s of history dumped ahead of every change
 local TAIL_MS = 2000            -- and this much after it
@@ -96,8 +59,7 @@ local function player_pawn()
     return nil
 end
 
--- Both locations, read through the game's own refs every sample. Never cached between samples: a
--- transition makes an entirely new pawn, and a stale ref is how a reading outlives its subject.
+-- Read through the game's own refs every sample, never cached: a transition makes an entirely new pawn.
 local function sample(pawn)
     local gi_hp, own_hp, max_hp
     local gi
@@ -134,11 +96,7 @@ local coverage_said = false
 say("loaded " .. os.date("%H:%M:%S") .. " -- READ-ONLY. Go and let an enemy touch you a few times.")
 say("sampling every " .. SAMPLE_MS .. "ms for " .. TOTAL_S .. "s; logs only when a health value moves. " .. OUT_PATH)
 
--- **HEARTBEAT, added 2026-09-18 after this probe's first run went silent mid-session and nobody
--- could tell whether it had died or the hits had simply stopped costing HP.** A watcher that logs
--- only on change cannot distinguish "nothing happened" from "I am dead" -- the exact trap
--- `checklists/before-trusting-a-reading.md` files twice. A counter that stops is readable; silence
--- is not.
+-- A heartbeat: a watcher that logs only on change cannot tell "nothing happened" from "I am dead".
 local HEARTBEAT_MS = 5000
 local last_beat = 0
 local samples = 0
@@ -174,8 +132,6 @@ local function tick()
 
     local changed = prev ~= nil and (s.gi ~= prev.gi or s.own ~= prev.own or s.max ~= prev.max)
     if changed then
-        -- Which location moved THIS sample is the whole point, so say it explicitly rather than
-        -- leaving it to be eyeballed out of two columns.
         local moved = {}
         if s.gi ~= prev.gi then moved[#moved + 1] = string.format("GI %s->%s", tostring(prev.gi), tostring(s.gi)) end
         if s.own ~= prev.own then moved[#moved + 1] = string.format("OWN %s->%s", tostring(prev.own), tostring(s.own)) end
@@ -215,8 +171,7 @@ local function tick()
     return false
 end
 
--- A Lua error raised straight out of a LoopAsync body stops the loop with no line anywhere, which
--- is the other half of the silence problem above. Catch it, say it ONCE, and keep sampling.
+-- A Lua error out of a LoopAsync body stops the loop silently: catch it, say it once, keep sampling.
 local loop_error_said = false
 LoopAsync(SAMPLE_MS, function()
     local ok, res = pcall(tick)

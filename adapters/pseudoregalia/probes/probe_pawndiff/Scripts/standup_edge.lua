@@ -1,12 +1,7 @@
--- MeshGhost STAND-UP EDGE (2026-09-09): a CALLING probe, dev-only, hot-loaded beside the hitable
--- restore. The driven ghost enters the seated state (moveState 8, MovementMode 5) at the clip's
--- sit and never leaves it (the DRIVE TRACE: seated until the loop seam). `sit_watch.lua` measured
--- a real stand-up as the RISING EDGE of `hasMovementInput?` while seated, and the table glitch as
--- the same sit with the input already held (no edge). The rig writes `hasMovementInput?` from the
--- stick, so this probe watches that field on the driven pawn at 50 ms and, on its false->true
--- edge while moveState == 8, calls the pawn's own `EndInteract` (no-arg, zero-filled params),
--- then logs moveState/MovementMode 100 ms and 500 ms later. Edge-triggered ONLY -- a level trigger
--- was the version that broke the glitch. Restore the stub before judging anything else.
+-- Stand-up edge, and it calls: on the driven pawn's rising edge of hasMovementInput? while seated (moveState 8), the
+-- pawn's own EndInteract, then moveState and MovementMode read 100 and 500 ms later. A real stand-up is that edge, and
+-- the table glitch is the same sit with the input already held, so only the edge may fire it, never the level.
+-- Restore the scratch stub before judging anything else.
 
 local TAG = "[MeshGhostStandUp]"
 
@@ -53,8 +48,7 @@ log("loaded -- EndInteract on the rising edge of hasMovementInput? while seated,
 
 LoopAsync(50, function()
     ticks = ticks + 1
-    -- Re-find the driven pawn every second (a loop seam replaces it): the player's class, an
-    -- AIController, not being destroyed.
+    -- Re-found every second: a loop seam replaces the driven pawn.
     if ticks % 20 == 1 or not (driven and valid(driven)) then
         local me = player_pawn()
         if me then
@@ -78,7 +72,6 @@ LoopAsync(50, function()
             end
         end
     end
-    -- Deferred read-backs.
     local keep = {}
     for _, d in ipairs(pending) do
         if ticks >= d.at_tick then

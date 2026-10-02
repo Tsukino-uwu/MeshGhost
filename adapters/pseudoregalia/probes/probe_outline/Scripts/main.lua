@@ -1,52 +1,8 @@
--- MeshGhost OUTLINE probe -- READ-ONLY. Who turns the PLAYER's through-walls outline on and off?
---
--- THE REPORT (user, 2026-09-05, screenshot in the session): standing among ghosts, the player's
--- own SWORD shows the blue silhouette THROUGH THE PLAYER'S OWN BODY, and it stays that way after
--- the ghosts are gone. Vanilla never draws that: body and sword both write custom depth, the
--- custom-depth pass keeps the NEAREST writer per pixel, so a sword behind the body is not "behind
--- scene depth" and gets no outline. The picture therefore says the BODY stopped writing custom
--- depth (or its render state did -- `documentation.md`, "The through-walls outline": the flag is
--- render-thread state and the bool can disagree with what is drawn). Separately: the player gets
--- outlined whenever a ghost stands between camera and player, because a ghost is opaque scene
--- depth that writes no custom depth. The user's call: a ghost must never do either.
---
--- THE THEORY THIS TESTS FIRST. `Plugin.cpp`'s GHOST_HOLD_OUTLINE_OFF walks EVERY object-typed
--- property on a ghost pawn (and on its thrown-weapon actor) and calls SetRenderCustomDepth(false)
--- on any value that has a `bRenderCustomDepth`. The pawn is a clone of the player's class; if any
--- of those properties refers to a component OWNED BY ANOTHER ACTOR -- the local player's mesh --
--- the hold strips the player every tick and says nothing (it logs once per property NAME, not per
--- owner). So the probe lists, for each ghost, every object-typed property whose value carries a
--- custom-depth flag and whose OUTER is not that ghost: a "CROSS-OWNER" line. None found is a
--- result too, and then the hunt widens (the game's own SetRenderCustomDepth calls, the afterimage
--- guard's proximity attribution, render-state drift).
---
--- WHAT ONE RUN DOES, fixed phases, a countdown, no window to hit (standing user preference):
---   every 500 ms for 90 s, the clock starting when the player pawn first exists (a launch is
---   not a window to hit either) --
---   1. FLAGS: for the PLAYER and every GHOST, `VisualMesh` / `WeaponMesh` / `LightMesh`:
---      bRenderCustomDepth, CustomDepthStencilValue, bRenderInMainPass, bVisible, the component's
---      outer. Printed in full once, then ON CHANGE only, with the sample number as a clock.
---   2. CROSS-OWNER: the walk described above, every 10th sample, with coverage counts (how many
---      properties were walked) so "none" and "the walk did nothing" can never be confused.
---   3. AFTERIMAGES: every live BP_AfterImage_C -- copyActor and PoseableMesh's custom depth --
---      on change, so a player image stripped by proximity attribution shows up.
---   Countdown at 60/30/10 s. Stops itself; nothing is left running.
---
--- What it CANNOT see: what is DRAWN. A flag that reads true with a stale render state looks
--- exactly like a healthy one here. If every flag reads healthy while the screen still shows the
--- silhouette, the next instrument is the engine setter itself (call SetRenderCustomDepth(true) on
--- the body and watch the screen), not a finer read of the same fields.
---
--- Grounded APIs, none from memory: UE4SS Lua FindAllOf, IsValid, GetFullName, GetFName, GetOuter,
--- GetClass, GetSuperStruct, UStruct:ForEachProperty, LoopAsync (vendored RE-UE4SS/docs/lua-api,
--- all exercised by probe_namecensus and probe_dustlight on this build). Engine fields:
--- UPrimitiveComponent::bRenderCustomDepth / CustomDepthStencilValue / bRenderInMainPass,
--- USceneComponent::bVisible (docs.unrealengine.com). Every read is pcall-guarded and an absent
--- field prints as "?" rather than vanishing.
---
--- Deploy: over the scratch slot -- copy to <install>\...\ue4ss\Mods\MeshGhostScratch\Scripts\
--- main.lua, then `echo MeshGhostScratch <nonce> > ...\Mods\MeshGhostProbeReloader\reload_request.txt`.
--- Restore the stub from probe_scratch/ afterwards. Dev-only tooling; never ships.
+-- Outline probe, stage 1, read-only: who turns the player's through-walls outline on and off? Every 500 ms for 90 s
+-- from the player pawn's arrival, on change: custom depth, stencil, main pass and visibility on the player's and each
+-- ghost's VisualMesh, WeaponMesh and LightMesh; every 10th sample, each ghost's object properties whose value carries
+-- a custom-depth flag and has another owner; and every live afterimage. It reads flags, never what is drawn.
+-- Run over the scratch slot through probe_reloader; restore the stub after.
 
 local TAG = "[MeshGhostOutlineProbe]"
 local PAWN_CLASS = "BP_PlayerGoatMain_C"
@@ -71,7 +27,6 @@ local function full_name(obj)
 end
 
 local function short(name)
-    -- "Class /Game/.../Actor.Comp" -> "Actor.Comp"
     return (tostring(name):gsub("^.*[/%.]([^/%.]+%.[^/%.]+)$", "%1"))
 end
 
@@ -145,8 +100,7 @@ local function sample_flags(pawns, player)
     end
 end
 
--- The theory test. For each GHOST pawn: every object-typed property on its class chain whose
--- value has a custom-depth flag and whose outer is not the ghost itself.
+-- This filter is wrong: a missing property reads back as a placeholder object, not nil; hooks.lua checks for a boolean.
 local function sample_cross_owner(pawns, player)
     local player_name = player and full_name(player) or ""
     for _, pawn in ipairs(pawns) do

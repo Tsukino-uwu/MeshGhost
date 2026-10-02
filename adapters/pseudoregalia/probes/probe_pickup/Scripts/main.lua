@@ -1,31 +1,7 @@
--- MeshGhost item-pickup capture probe. Two questions from the user, 2026-09-04, both about the
--- SAME event, so one run answers both:
---
---   (1) A replay ghost wears the Dream Breaker from a clip recorded BEFORE the pickup. Reading
---       says the show/hide path is innocent and the suspect is what we SEND: documentation.md
---       records that 'weaponEquipped?' means the sword is IN HAND, not owned, and nothing
---       establishes what it reads before the pickup. If it is already true on a fresh save,
---       that is the whole diagnosis.
---   (2) "recordings look a bit weird as if you are just floating in the air/frozen for a bit"
---       when picking up an item. So: what do the fields we SEND actually do across a pickup?
---
--- WHAT THIS CANNOT SEE, said up front because an enumeration is only as wide as its filter. It
--- reads a NAMED list and nothing else -- ForEachProperty is banned in an armed probe (preflight;
--- a blind walk crashed three live sessions on 2026-08-29). So it cannot FIND the "owns the sword"
--- flag, only prove whether 'weaponEquipped?' is the wrong signal. If it is, the next instrument is
--- the mod's own OBJECT_REFLECTION_DUMP, which Plugin.cpp:848 already names as the right tool
--- instead of guessing another name list.
---
--- NO WINDOW TO HIT. Everything logs ON CHANGE, plus a per-sample line for a few seconds either
--- side of any change -- the frames around an event are what make it readable. Play normally:
--- stand around a moment, then go and pick the sword up. Take as long as you like.
---
--- Safe shape: named property reads only; no UFunction called on anything FindAllOf returned (that
--- crashed live sessions twice); no ForEachProperty. One object-space walk per sample over one
--- class at 10Hz -- cheaper than probe_swordthrow's three-class 250ms walk. UNLOAD IT AFTERWARDS:
--- a loaded probe is a suspect in every later report.
---
--- Field names are this repo's own measured records (documentation.md), not guesses.
+-- Item-pickup capture: on change, each pawn's weapon fields and the fields the adapter puts on the wire, with a
+-- TRACK line per sample for a few seconds around any change, and a baseline census once a pawn exists (the
+-- pre-pickup state). A named list only: it can prove weaponEquipped? the wrong signal, never find the right one.
+-- Stand around a moment, then pick the sword up; no window to hit. Named reads only; unload it afterwards.
 
 local TAG = "[MeshGhostPickup]"
 local INTERVAL_MS = 100
@@ -79,12 +55,7 @@ local function num(v)
     return n
 end
 
--- A KEY'S FIRST SIGHTING IS DATA, NOT NOISE -- swallowing it hid the whole answer once
--- (2026-09-04). Before the baseline census this stays quiet, because the census prints those keys
--- itself. AFTER it, a key appearing for the first time means a NEW ACTOR arrived -- a replay ghost
--- spawning -- and its starting state is exactly what "does the ghost wear a sword it never had"
--- needs. The first version printed only transitions, so every ghost's initial weapon state went
--- into the table silently and the log had nothing to say about the one thing being measured.
+-- After the baseline census, a key's first sighting is a new actor (a replay ghost spawning): its start is data.
 local function on_change(key, value)
     if last[key] ~= value then
         local was = last[key]
@@ -116,7 +87,6 @@ local function sample()
             pawn_count = pawn_count + 1
             local p = pname .. "."
 
-            -- THE ANSWER TO QUESTION 1 IS IN THE BASELINE BLOCK BELOW.
             on_change(p .. "weaponEquipped?", tostring(read(pawn, "weaponEquipped?", "weaponEquipped?")))
             local wref = read(pawn, "weaponRef", "weaponRef")
             on_change(p .. "weaponRef", wref and short(full_name(wref)) or "<none>")
@@ -125,8 +95,7 @@ local function sample()
                 on_change(p .. "WeaponMesh.bVisible", tostring(prop(wmesh, "bVisible")))
             end
 
-            -- QUESTION 2: exactly the fields the adapter puts on the wire, so a "frozen/floating"
-            -- recording can be read back against what was sampled at the time.
+            -- The fields the adapter puts on the wire, so a recording can be read back against them.
             on_change(p .. "moveState", tostring(read(pawn, "moveState", "moveState")))
             on_change(p .. "actionState", tostring(read(pawn, "actionState", "actionState")))
             on_change(p .. "animJumpType", tostring(read(pawn, "animJumpType", "animJumpType")))
@@ -157,8 +126,6 @@ local function sample()
 
     if context_left > 0 then context_left = context_left - 1 end
 
-    -- THE BASELINE CENSUS: everything watched, printed once as soon as a pawn exists. This is the
-    -- pre-pickup state on the record, and question 1 is answered by reading it.
     if pawn_count > 0 and not last["__census"] then
         last["__census"] = "done"
         print(string.format("%s ===== BASELINE -- pawn exists; if you have not picked up the sword, this is the PRE-PICKUP state =====\n", TAG))

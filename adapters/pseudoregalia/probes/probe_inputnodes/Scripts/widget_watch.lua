@@ -1,25 +1,6 @@
--- MeshGhost WIDGET WATCH (written 2026-09-23): READ-ONLY. Part C of agent_docs/chaser-planning.md.
---
--- WHY. `dialogue_watch.lua` the same night: across a whole NPC conversation the only field on the
--- player, pawn, camera or controller that moved was `Interaction Target` (-> `BP_NPC_C_2` at the
--- start), and it STAYED set after the conversation ended -- the game never clears it (the chair
--- showed the same on 2026-09-09). So nothing there marks "talking NOW". A clean instrument that
--- sees nothing means widen the subsystem: the dialogue box and a note are UI, so this watches the
--- widgets.
---
--- WHAT IT READS, every POLL_MS: every live `UserWidget` from `FindAllOf` -- its class name and its
--- `Visibility` property. Nothing is filtered by name before looking (a guess about the answer); the
--- set of "class=visibility x count" is compared with the last poll and only a CHANGE is logged,
--- with a wall-clock stamp. Named reads only: never a UFunction call on what `FindAllOf` returned
--- (host `CLAUDE.md`), never a walk. `FindAllOf` costs ~1 ms; at 4 Hz that is a probe's cost, not a
--- shipping one.
---
--- WHAT IT CANNOT SEE: a widget whose `Visibility` never changes but is added to or removed from the
--- viewport (a live widget object that is not on screen reads the same as one that is), and any UI
--- that is not a `UserWidget`. If a conversation changes nothing here, that is the next place to look.
---
--- HOW TO RUN: hot-load over the scratch slot; talk to an NPC start to finish, read a note, sit on a
--- chair, each a few seconds apart. Restore the stub afterwards.
+-- Logs every live UserWidget's class and Visibility, on change only: read-only, named reads, no UFunction call.
+-- Blind to a widget added to or removed from the viewport with its Visibility unchanged, and to non-UserWidget UI.
+-- Hot-load over the scratch slot; talk to an NPC start to finish, read a note, sit on a chair. Restore the stub.
 
 local TAG = "[MeshGhostWidgetWatch]"
 local POLL_MS = 250
@@ -30,9 +11,7 @@ local function valid(obj)
     return ok and v == true
 end
 
--- The classes a conversation created and removed on the first run (01:40:09-01:40:37): their
--- instances' FULL names are logged on change, because one `UI_DialoguePrompt_C` exists at rest
--- and the owner chain in the name is what tells the conversation's instance from the resting one.
+-- Full names for these: one UI_DialoguePrompt_C exists at rest, and the owner chain tells a conversation's apart.
 local NAMED = { UI_DialoguePrompt_C = true, BP_ExpressiveTextWidget_C = true, UI_ExaminePrompt_C = true }
 
 local function snapshot()

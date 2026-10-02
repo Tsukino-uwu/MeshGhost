@@ -1,26 +1,8 @@
--- MeshGhost OUTFIT ECHO SOURCE (2026-09-13). DRIVES A GHOST'S MESH -- never the player's.
---
--- Measured already (echo_watch.lua): every ghost SPAWN re-runs costume setup on the LOCAL player
--- (its dynamicEyesMat is rebuilt, five of five), and after a peer's swap the player comes out of
--- that re-run wearing the peer's costume. Reproduced on a fresh v1.2.9 install with only the
--- costume paks. The adapter never writes the player's mesh, so the question is where the re-run
--- READS the costume from.
---
--- The experiment: with no human swapping anything, set the LIVE peer ghost's body to a costume
--- nobody is wearing (the same SetSkeletalMeshAsset the adapter uses), then wait for the replay
--- loop's next respawn and see what the player comes out wearing.
---   player -> that costume    : the re-run reads a GHOST's current mesh. No network involved.
---   player unchanged          : the source is not a ghost's mesh; widen (save object, peer data).
--- Then the ghost is put back, and one more respawn shows whether the player follows it back.
---
--- Every sample records every player-class pawn in FindAllOf's own ORDER, because "the first actor
--- of the class" is the leading suspect for how a lookup for the player lands on a ghost, and the
--- order at the moment of each spawn is what would show it. The controller's pawn is recorded too,
--- in case a spawn briefly hands the controller to a ghost.
---
--- Endurance, not timing: nothing to press. The replay loop must be running (shift+2). Your own
--- character may end up in the test costume; re-pick your outfit in the game's menu afterwards.
--- Dev-only tooling; never ships.
+-- Outfit echo source, and it drives a ghost's mesh, never the player's: after a baseline, sets the live peer ghost's
+-- body to a loaded costume nobody wears, waits for replay-loop respawns, then restores it, logging what the player
+-- wears after each. Does the costume re-run on the player read a ghost's current mesh? Each sample records the pawns
+-- in FindAllOf's own order and the controller's pawn, either of which could land a lookup for the player on a ghost.
+-- Needs the replay loop running (shift+2); re-pick your outfit in the game's menu afterwards.
 
 local TAG = "[MeshGhostEchoSource]"
 local PERIOD_MS = 100
@@ -79,8 +61,7 @@ local function pick_test_mesh(worn)
     end
     fout("loaded costume candidates nobody wears: " .. #cands)
     for i, m in ipairs(cands) do if i <= 20 then fout("   " .. full(m)) end end
-    -- Prefer a costume that is not the game's own default, so a reset-to-default is not mistaken
-    -- for a copy.
+    -- Not the game's default costume, so a reset to default is not mistaken for a copy.
     for _, m in ipairs(cands) do if not full(m):find("dreamLady", 1, true) then return m end end
     return cands[1]
 end
@@ -130,8 +111,7 @@ LoopAsync(PERIOD_MS, function()
 
         local since = elapsed - phase_t
         if phase == "baseline" and since >= BASELINE_MS then
-            -- The live peer ghost is the non-player pawn that has existed the longest: the replay
-            -- ghost is replaced at every loop, so it is never the oldest.
+            -- The live peer ghost is the oldest non-player pawn: the replay ghost is replaced every loop.
             local oldest = nil
             for _, p in ipairs(all or {}) do
                 local a = addr(p)

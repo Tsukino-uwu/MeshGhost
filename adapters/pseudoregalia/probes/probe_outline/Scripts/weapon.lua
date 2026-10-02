@@ -1,31 +1,7 @@
--- MeshGhost WEAPON probe -- READ-ONLY. What would a `weapon_mesh` field have to carry, and where does
--- the sword actually sit? The outfit path reads the body's asset off `VisualMesh` and re-applies it on
--- a ghost through `SetSkeletalMeshAsset`; nothing does the same for the hand `WeaponMesh`
--- (`agent_docs/ideas.md`, "Weapon MODEL sync", 2026-09-05). Before building it, read the real thing.
---
--- WHAT ONE RUN DOES, every 2 s for 120 s from the moment the player pawn exists, printing on change:
---   for the PLAYER and every GHOST pawn (BP_PlayerGoatMain_C):
---     WeaponMesh -- component class; the asset under each of the three names this build might use
---       (`SkeletalMesh`, `SkinnedAsset`, `SkeletalMeshAsset`; whichever resolves -- the outfit path
---       found `SkeletalMesh` readable and `SetSkeletalMeshAsset` callable on this build); AttachParent
---       and AttachSocketName (WHERE the sword hangs); RelativeLocation / RelativeRotation /
---       RelativeScale3D (the model's own offset in that socket); bVisible.
---     VisualMesh -- its asset, for the side-by-side with the outfit path.
---     the pawn's `weaponRef` (full name + class) and `weaponEquipped?`.
---   plus, once: every function on the pawn's class chain whose name mentions weapon or sword -- the
---   game's own verbs for swapping or equipping, if it has any.
---   Countdown at 60/30/10 s. Stops itself. No writes anywhere.
---
--- What it CANNOT see: a modded sword. The user has only the vanilla one, so this run establishes the
--- baseline names and transform; a second run with a modded weapon installed would show what changes.
---
--- Grounded APIs: UE4SS Lua FindAllOf, IsValid, GetFullName, GetFName, GetClass, GetSuperStruct,
--- UStruct:ForEachFunction, LoopAsync (vendored RE-UE4SS/docs/lua-api); engine names
--- USkeletalMeshComponent::SkeletalMesh / SkinnedAsset / SkeletalMeshAsset, USceneComponent::AttachParent,
--- AttachSocketName, RelativeLocation/Rotation/Scale3D, bVisible (docs.unrealengine.com); the game's
--- own `weaponRef` / `weaponEquipped?` (documentation.md). Every read pcall-guarded; absent prints "?".
---
--- Deploy over the scratch slot; trigger the reloader. Dev-only tooling; never ships.
+-- Read-only: every 2 s for 120 s, on change, the player's and each ghost's WeaponMesh (class, the asset under the
+-- three names this build might use, attach parent and socket, relative transform, bVisible), VisualMesh's asset,
+-- and the pawn's weaponRef and weaponEquipped?; once, every pawn function whose name mentions weapon or sword.
+-- Deploy over the scratch slot and trigger the reloader.
 
 local TAG = "[MeshGhostWeaponProbe]"
 local PAWN_CLASS = "BP_PlayerGoatMain_C"

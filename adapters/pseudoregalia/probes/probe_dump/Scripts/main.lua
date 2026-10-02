@@ -1,36 +1,16 @@
--- MeshGhost OBJECT DUMP -- any live UObject's reflected properties as JSON, without crashing the game.
+-- Any live UObject's reflected properties as JSON, without crashing the game: an object-valued property is written
+-- as the pointer's address and the property's declared class, never dereferenced (a pcall does not catch an access
+-- violation). Scalars in full, known structs by field, arrays up to ARRAY_MAX, the rest by type name. The only
+-- objects followed are the target's own components, through the arrays the actor owns.
 --
--- WHY (user, 2026-09-06): a tester compares objects with the UE4SS GUI console's object dump; the
--- user wants the same from a probe, "especially if it avoids us to kinda dump things without
--- crashing the game", and as the tool for vetting a ghost's components one at a time.
---
--- THE RULE THAT KEEPS IT SAFE. Every crash this repo has had from a reflection walk (three on
--- 2026-08-29, one on 2026-09-05) came from DEREFERENCING an object-valued property: stringifying
--- the pointee, calling GetFullName on it, calling a UFunction on it. The pointee may be a torn-down
--- object, and a pcall does not catch an access violation. So this dump NEVER touches what an object
--- property points at: it records the pointer's address and the property's DECLARED class (metadata
--- on the property, not the pointee). Scalars are read and written out in full; known structs
--- (Vector, Rotator, Quat, Vector2D, LinearColor, Color, Transform) by field; arrays of scalars by
--- element (up to ARRAY_MAX), arrays of objects as addresses; everything else by type name only.
--- The only objects it follows are the target's OWN components, reached through the arrays the
--- actor itself owns (RootComponent, BlueprintCreatedComponents, InstanceComponents, and each scene
--- component's AttachChildren) -- a live actor's owned components are live.
---
--- REQUEST. Write to `dump_request.txt` beside this mod's Scripts folder, one key=value per line:
+-- Request: dump_request.txt beside this mod's Scripts folder, one key=value per line:
 --     path=<full object path>          StaticFindObject; e.g. the name a census printed
 --     class=<ClassName>                every instance of that class (FindAllOf) ...
 --     name=<substring>                 ... whose full name contains this (optional)
 --     components=1                     also dump the target's own components (actors only)
 --     out=<label>                       file name stem (optional; default: the object's name)
--- Output: `dumps/<label>-<HHMMSS>.json` beside the request file, keys sorted so two dumps `diff`
--- cleanly, and one summary line in the log (properties read / refs / errors / coverage). A property
--- that cannot be read is written as {"error": "..."} rather than dropped -- the dump says what it
--- could not see.
---
--- COST. Nothing runs but a 500ms poll for the request file. A dump of one actor with its
--- components is a few hundred property reads, once. Read-only: no property is written, no
--- UFunction is called on anything. Unreal/UE4SS only -- a future Unreal game can copy this folder
--- as is. Dev-only tooling; never ships.
+-- Output: dumps/<label>-<HHMMSS>.json beside the request file, keys sorted so two dumps diff cleanly, and a summary
+-- line in the log; a property that cannot be read is written as {"error": "..."}. Read-only.
 
 local TAG = "[MeshGhostDump]"
 local POLL_MS = 500
@@ -125,8 +105,7 @@ local function scalar_value(v)
     local t = type(v)
     if t == "boolean" or t == "number" or t == "string" then return v end
     if t == "nil" then return nil end
-    -- FName / FString / FText wrappers stringify through their own ToString; a plain tostring on
-    -- one gives the userdata label instead.
+    -- FName, FString and FText wrappers stringify through ToString; tostring gives the userdata label.
     local ok, s = pcall(function() return v:ToString() end)
     if ok and s then return s end
     return tostring(v)
@@ -212,8 +191,7 @@ local function property_value(obj, prop)
     end
 end
 
--- Every reflected property of obj, walking the class chain, into a table keyed "Class.Property"
--- so a property redeclared in a subclass never hides the parent's, and the owner class is on the key.
+-- Keyed "Class.Property", so a property redeclared in a subclass never hides the parent's.
 local function dump_properties(obj)
     local props = {}
     local walked = 0
@@ -249,8 +227,7 @@ local function describe(obj)
     return d
 end
 
--- The target's OWN components, through the arrays the actor owns. Each entry is followed exactly
--- once; nothing beyond an owned component is ever dereferenced.
+-- Each owned component is followed exactly once; nothing beyond one is ever dereferenced.
 local function owned_components(actor)
     local found, seen = {}, {}
     local function add(c)

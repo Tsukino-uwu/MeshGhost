@@ -1,45 +1,7 @@
--- MeshGhost OUTFIT-SWAP ANIM PROBE (2026-09-13). DRIVES the local player's own mesh -- not
--- read-only. Unload it before judging anything on screen.
---
--- THE QUESTION. A peer who takes damage and swaps costume during the hurt/blink leaves the
--- watcher's ghost with a glitched model, and it PERSISTS until a save reset (user, 2026-09-13).
--- The watcher's UE4SS.log calls that same swap `outfit mesh applied` with a readback matching the
--- target, and carries zero `WARNING: SetSkeletalMeshAsset` lines -- so the mesh reference lands
--- and the setter fires. Two ways that still ends in a broken model, both inside Plugin.cpp's
--- outfit ghost-write block:
---
---   A. the setter runs but its anim RE-BIND does not take while a montage is playing, and the two
---      raw `SkeletalMesh`/`SkinnedAsset` writes kept after it as a safety net leave exactly the
---      mesh-without-a-binding that `call_set_skeletal_mesh_asset` was written to prevent; or
---   B. the setter REPLACES the anim instance, and the pawn's `animBPref` -- a Blueprint variable
---      the engine does not update -- is left pointing at the dead one, so every later montage
---      write from the adapter goes nowhere.
---
--- Both survive a readback (it reads the property that was written, never the render state), both
--- persist (`last_synced_outfit_mesh` now equals the target, so nothing retries), and both clear on
--- a save reset (a fresh ghost sets its mesh at construction, before it has any montage). The
--- adapter's own T-pose record (VERIFIED.md, 2026-08-15) confirmed the setter on an IDLE swap only,
--- which is the case that works -- the montage was never in the picture.
---
--- WHY THE LOCAL PLAYER AND NOT A GHOST. The ghost is a clone of `BP_PlayerGoatMain_C`, the class
--- the player's own pawn is (every `spawned ghost` line in UE4SS.log names it). Whether this
--- build's `SetSkeletalMeshAsset` replaces an anim instance is a fact about that class and this
--- engine, not about who owns the actor -- so it is answerable on one client with no relay, no
--- peer, and no second install. If it reproduces here it is the bug; if it does NOT, the theory is
--- wrong and the subsystem widens rather than the measurement deepening.
---
--- WHAT IT DOES TO YOUR GAME. It swaps your own character's mesh four times and plays the flinch
--- montage on you, then puts the original mesh back and says whether the restore took. No damage is
--- dealt, no save is touched, nothing is written to disk but this probe's own log.
---
--- ENDURANCE, NOT TIMING. Fixed phases on a countdown; there is no window to hit. Stand anywhere
--- with control of your character and leave it alone for 40 s.
---
--- Named reads and native getters only. No reflection walk -- that crashed this adapter four times
--- (pitfalls.md). Every engine touch is pcall'd, and every ExecuteInGameThread body is pcall'd
--- separately because an error inside one escapes the caller's pcall (probe_ghost/main.lua:589).
---
--- Dev-only tooling; never ships.
+-- Outfit-swap anim probe, and it drives the local player's own mesh: swaps it idle, then 200 ms into the flinch
+-- montage, the way the adapter writes a ghost's (the setter, then the two raw writes), restoring after each, and
+-- samples whether animBPref still is VisualMesh.AnimScriptInstance. A ghost is the player's class, so one client
+-- answers it. It cannot see the render state. Keep control and stand still for 40 s; unload before judging the screen.
 
 local TAG = "[MeshGhostOutfitSwap]"
 
@@ -102,10 +64,7 @@ local function class_str(x)
     return (c ~= nil and valid(c)) and fname_str(c) or "?"
 end
 
--- ---------------------------------------------------------------------------------------------
--- The sample. Every field this probe decides from, recorded every time -- a probe that returns a
--- verdict cannot be sanity-checked, so nothing here is reduced to a boolean that isn't printed
--- next to the two addresses it came from.
+-- Every field the verdict comes from is printed, the bind beside the two addresses it was decided from.
 local function sample(pawn, label, t_ms)
     if pawn == nil or not valid(pawn) then
         fout(string.format("%-22s t=%-5d PAWN GONE", label, t_ms))
@@ -142,9 +101,7 @@ local function sample(pawn, label, t_ms)
     return { anim = anim_a, abp = abp_a, bound = bound, skel = addr_of(skel) }
 end
 
--- ---------------------------------------------------------------------------------------------
--- Candidates. Dumped in FULL before anything picks from them -- a list filtered before you look is
--- a guess about the answer, and a wrong guess still produces a complete-looking result.
+-- Candidates are dumped in full before anything picks from them: a list filtered before looking is a guess.
 local function loaded_of_class(class_name)
     local found = {}
     pcall(function()
@@ -184,13 +141,8 @@ local function pick_montage()
     return hit, #all
 end
 
--- ---------------------------------------------------------------------------------------------
--- The swap, done EXACTLY as Plugin.cpp's outfit ghost-write block does it: the real setter first,
--- then the two raw property writes kept after it as a safety net. Reproducing the adapter's own
--- order is the point -- a different order would measure a different bug.
--- The outcome is written by the CALLBACK, not by the caller. ExecuteInGameThread is deferred, so
--- reading the flags on the line after the call would report the initial values every time -- a
--- result that looks like a measurement and is only a default.
+-- The adapter's own order, the setter then the two raw writes. The deferred callback writes the outcome: read on the
+-- line after the call, it would only ever be the defaults.
 local function do_swap(pawn, mesh, note)
     local want = (mesh ~= nil and valid(mesh)) and fname_str(mesh) or "?"
     fout(string.format("== SWAP (%s) -> %s requested", note, want))
@@ -229,8 +181,7 @@ local function do_montage(pawn, montage)
                 fout("   montage SKIPPED: no animBPref")
                 return
             end
-            -- Montage_Play returns the length it started, or 0 when it refused -- the return is
-            -- the signal, so it is recorded rather than discarded.
+            -- Montage_Play returns the length it started, or 0 when it refused.
             local okp, len = pcall(function() return abp:Montage_Play(montage, 1.0) end)
             fout("   Montage_Play returned " .. (okp and tostring(len) or ("CALL FAILED: " .. tostring(len))))
             log("MONTAGE " .. want .. " -> " .. (okp and tostring(len) or "call failed"))
@@ -242,7 +193,6 @@ local function do_montage(pawn, montage)
     end)
 end
 
--- ---------------------------------------------------------------------------------------------
 local function find_pawn()
     local pc = nil
     pcall(function() pc = FindFirstOf("PlayerController") end)
@@ -308,7 +258,7 @@ LoopAsync(SAMPLE_MS, function()
             orig_mesh = (vm ~= nil and valid(vm)) and prop(vm, "SkeletalMesh") or nil
             fout("mesh worn at start: " .. ((orig_mesh ~= nil and valid(orig_mesh)) and full_str(orig_mesh) or "NONE"))
 
-            -- Coverage: say what is reachable before deciding anything from it.
+            -- What is reachable, before anything is decided from it.
             local has_setter = false
             pcall(function() has_setter = (vm.SetSkeletalMeshAsset ~= nil) end)
             fout("SetSkeletalMeshAsset reachable on VisualMesh: " .. tostring(has_setter))
@@ -330,7 +280,6 @@ LoopAsync(SAMPLE_MS, function()
             return
         end
 
-        -- sampling
         if elapsed_ms <= window_until and elapsed_ms >= next_sample then
             local s = sample(pawn, label, elapsed_ms - phase_t)
             next_sample = elapsed_ms + SAMPLE_MS
@@ -343,7 +292,6 @@ LoopAsync(SAMPLE_MS, function()
             end
         end
 
-        -- phase machine, countdown announced every second
         if elapsed_ms % 1000 == 0 and elapsed_ms <= window_until then
             log(string.format("%s ... %d s left", label, math.ceil((window_until - elapsed_ms) / 1000)))
         end
@@ -381,7 +329,7 @@ LoopAsync(SAMPLE_MS, function()
             label = "after-montage-restore" window_until = elapsed_ms + WINDOW_MS
 
         else
-            -- Prove the restore took, through a fresh read, not the value we wrote.
+            -- The restore is checked through a fresh read, never the value written.
             local vm = prop(pawn, "VisualMesh")
             local now = (vm ~= nil and valid(vm)) and prop(vm, "SkeletalMesh") or nil
             fout("")

@@ -1,28 +1,7 @@
--- MeshGhost OUTFIT ECHO WATCH (2026-09-13). READ-ONLY.
---
--- The bug: when a peer swaps costume, the watcher's OWN character takes the same costume a few
--- seconds later and sends it back out (the user: *"the player swaps, and a bit after the other
--- player swaps into that same outfit"*). Both installs' UE4SS.log show it as a delayed echo --
--- 19:00:32.80 the Steam install applies p4's Starless to its ghost, 19:00:35.65 the Copy install
--- sees p3 as Starless; 58.18 -> 11.77 the same for SpiderSybil. The delay VARIES (2.9 s, 13.6 s), so
--- it is not the next send tick: something on the watcher copies the ghost's costume onto the player
--- later. Reverting the stranded-materials fix did not change it, so that change is not the cause.
---
--- The sender reads the controller's possessed pawn, so this asks the other question: does the
--- local player's REAL mesh change, and what changed just before it? It samples, and writes only
--- CHANGES:
---   * every BP_PlayerGoatMain_C's VisualMesh.SkeletalMesh (which pawn is the controller's is marked);
---   * every plain-valued and object-valued property of the LOCAL pawn and of the game instance it
---     holds (`As MV Game Instance Ref`) -- all of them, no name filter, because a filter applied
---     before looking is a guess about where a game keeps "the selected costume".
--- Object values are recorded as ADDRESS only (probe_dump's rule: never dereference a pointee).
--- Structs are skipped for cost and arrays are recorded as length; if the answer is in either, the
--- log says nothing changed where it should have, which is itself the pointer to widen.
---
--- The property list is built ONCE per object (names and kinds), then read by name each sample --
--- a ForEachProperty walk per sample is the cost that makes a probe the suspect.
---
--- Runs 240 s. Dev-only tooling; never ships.
+-- Outfit echo watch, read-only: after a peer's costume swap, does the local player's real mesh change, and what changed
+-- just before it? Logs on change every player-class pawn's VisualMesh, and every property of the local pawn and its
+-- game instance, unfiltered: scalars by value, objects as an address only (never a pointee), arrays as a length;
+-- structs are skipped. The property list is built once per object, then read by name each sample. Runs 240 s.
 
 local TAG = "[MeshGhostEchoWatch]"
 local PERIOD_MS = 200
@@ -70,7 +49,6 @@ local OBJECTISH = {
     ClassProperty = true, SoftClassProperty = true, InterfaceProperty = true,
 }
 
--- One pass over the class chain: {name, kind} for every property we can read cheaply.
 local function build_plan(obj)
     local plan = {}
     local cls = nil
@@ -154,7 +132,6 @@ LoopAsync(PERIOD_MS, function()
         if player == nil or not valid(player) then return end
         local player_addr = addr_of(player)
 
-        -- Every player-class pawn's body mesh; the controller's own is marked.
         local cls_name = "BP_PlayerGoatMain_C"
         local all = nil
         pcall(function() all = FindAllOf(cls_name) end)
