@@ -1591,3 +1591,9 @@ RAM under the same title; runtime address discovery from the ROM's code was scop
 ## 2026-10-01 — pointer: every build step now ends with its Status line, and the README fact-checked; logged in [phase12.md](phase12.md)
 
 ## 2026-10-01 (later) — pointer: the approved build-story beats written (new step 36, merges into 24, 30 and 31); logged in [phase12.md](phase12.md)
+
+## 2026-10-02 — pointer: game facts moved out of the autoplay driver's comments
+
+The A5 comment pass moved the autoplay driver's game facts that no record held into Crystal's `MEASURED.md`, entry
+"2026-10-02 — Facts the code comments carried, moved here word for word" (map-read ones under "Not measured yet").
+The account is `phase13.md`, same date.

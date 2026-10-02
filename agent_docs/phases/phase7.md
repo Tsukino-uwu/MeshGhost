@@ -3932,3 +3932,9 @@ Each DLL now records only its pdb's file name, and the Rust part's source paths 
 is [phase12.md](phase12.md), 2026-10-01 (A3). Deployed to both installs; not yet seen on screen.
 
 ## 2026-10-01 (later) — pointer: the approved build-story beats written (new steps 72–76, nine merges); logged in [phase12.md](phase12.md)
+
+## 2026-10-02 — pointer: game facts moved out of the autoplay driver's comments
+
+The A5 comment pass moved the autoplay driver's game facts that no record held into Pseudoregalia's `MEASURED.md`, entry
+"2026-10-02 — Facts the code comments carried, moved here word for word" (map-read ones under "Not measured yet").
+The account is `phase13.md`, same date.
