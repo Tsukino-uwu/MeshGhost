@@ -1,20 +1,6 @@
--- MeshGhost — Pokémon Emerald: when windows are set up, added, removed and freed (DEV TOOL, READ-ONLY,
--- never shipped) -- 2026-09-16
---
--- WHY THIS EXISTS. autoplay's Emerald `menu` counted the START menu's window as still open inside the
--- party menu: the party menu reused window id 1 and the START menu never passed through the removal
--- routine the driver hooks (`agent_docs/phases/phase13.md`, step 6). What tells a menu's window apart
--- from a later screen's window with the same id is to be measured: this logs every call to the window
--- routines with the window table's state beside it, while menus open and screens change.
---
--- ADDRESSES: a pokeemerald build whose ROM hashed identical to the vanilla ROM (SHA-1, 2026-09-16)
--- proves where the routines live (InitWindows, AddWindow, RemoveWindow, FreeAllWindowBuffers,
--- ClearWindowTilemap, Menu_MoveCursor), not what their calls mean. Vanilla only.
---
--- WHAT IT LOGS (window_life_probe_<target>_<time>.log beside this file; gitignored): for each call, the
--- routine, R0, gMain.callback2, and byte +0 of the first 12 window ids (the background; FF when free);
--- on a change of callback2, a CB2 line. WHAT IT CANNOT SEE: a window written to directly without
--- these routines; the frames between calls (it logs calls, not state per frame).
+-- MeshGhost — Pokémon Emerald: when windows are set up, added, removed and freed (dev tool, read-only, vanilla only,
+-- never shipped). Execute hooks on the routines in HOOKS log each call with R0, gMain.callback2 and byte +0 of window
+-- ids 0-11, plus a CB2 line on each change of callback2; it logs calls, not the state between them.
 
 local BUS = "System Bus"
 local GMAIN_CB2 = 0x030022c4

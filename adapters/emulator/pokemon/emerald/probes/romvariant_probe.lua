@@ -1,63 +1,7 @@
--- MeshGhost -- identify an Emerald-derived ROM and RESOLVE its anchors by search (DEV TOOL,
--- never shipped, never wired into meshghost_emerald.lua)
---
--- READ-ONLY. It writes no game memory, no ROM, no save, no savestate; it presses nothing
--- (`joypad.set` is never called) and it draws nothing, so what is on screen is exactly what the
--- player is doing. Its only output is the Lua Console and a timestamped log beside this file.
---
--- WHY THIS EXISTS
--- `meshghost_emerald.lua` today chooses between exactly TWO known layouts: vanilla, or the one
--- Archipelago Emerald base patch it was measured against, by testing a couple of known addresses
--- (detectSpriteAddrOffset / tryDetectAvatarAddrOffset, and their headers). That is a two-entry
--- table wearing the clothes of a detector: on SPEEDCHOICE, EX SPEEDCHOICE, or any Archipelago
--- world revision that recompiles differently, both tests fail, the adapter falls back to vanilla
--- addresses with a warning, and it then reads -- and, on the spawn path, WRITES -- whatever now
--- lives there. This probe is the runtime half of fixing that: it asks an UNKNOWN Emerald-derived
--- ROM where its anchors actually are, by searching for them, and reports what it found without
--- deciding anything.
---
--- WHAT IT MAY ASSUME, AND WHAT IT MAY NOT
--- It may assume STRUCTURE -- the layouts of `struct ObjectEventGraphicsInfo`, `struct
--- ObjectEvent`, `struct PlayerAvatar` and `struct SaveBlock1`, every field of which is already
--- used and cited in the shipped adapter (see its GOBJECTEVENTGRAPHICSINFOPOINTERS_ADDR /
--- graphicsInfo() / playerObjEventExistsAt() / getLocalState() and their headers) -- plus the GBA
--- cartridge header layout, which is hardware documentation (GBATEK, "GBA Cartridge Header":
--- title at 0x080000A0 (12 bytes), game code 0x080000AC (4), maker code 0x080000B0 (2), software
--- version 0x080000BC (1)).
--- It may NOT assume ADDRESSES. Every vanilla address below is used for exactly two things: as a
--- LABEL to print a shift against, and -- for the anchors no search can reach -- as a code site
--- whose literal and current value are logged verbatim for a human to compare against vanilla.
--- Nothing in any search is seeded with one.
---
--- WHAT IT WILL NOT DO
--- It never picks a winner from several. Every anchor is reported as RESOLVED (exactly one
--- candidate survived), AMBIGUOUS (more than one did -- every one is printed), or UNRESOLVED (none
--- did). Silently choosing the first match is how a two-entry table becomes a wrong address, which
--- is the whole failure this probe exists to prevent.
---
--- BUDGET (adapters/_template/probes.md, "A probe's read budget is real")
--- Every wide pass is CHUNKED across frames at roughly the same cost as the adapter's own
--- gMapGroups scan -- one `memory.read_bytes_as_array` per frame and about 32k Lua iterations over
--- it. Nothing here scans anything in a blocking loop, so the game keeps running at speed while it
--- works.
---
--- TIMING (probes.md's hard rule: endurance, not timing)
--- Fixed-length phases with a countdown printed to the console. There is no moment to hit and
--- nothing to press. The one thing that helps: be IN THE OVERWORLD, in a loaded save, by the time
--- the live phase starts (the console says when, with a countdown) -- the live anchors only exist
--- once the map and object systems are running. If you are not, the run still finishes and says
--- so, and re-running costs one control-file write.
---
--- HOW TO RUN
---   Point `dev-scripts/bizhawk-dev-loader.target` at this file (`agent_docs/environment.md`), or
---   open it directly in the Lua Console. Results go to the console and to
---   `romvariant_probe_<timestamp>.log` beside this script; the log is authoritative and uncapped,
---   the console gets the headlines.
+-- MeshGhost — Emerald: identify an Emerald-derived ROM and resolve its anchors by search (dev tool, read-only).
+-- Each is RESOLVED, AMBIGUOUS (all printed) or UNRESOLVED, never picked; be in the overworld for the live phase.
 
-----------------------------------------------------------------------------
--- Logging and paths -- same shape as dive_probe.lua, including the built
--- backslash: this emulator build's Lua rejects the escaped form (2026-08-21).
-----------------------------------------------------------------------------
+-- The backslash is built: this emulator's Lua rejects the escaped form.
 
 local BS = string.char(92)
 local scriptDir = (debug.getinfo(1, "S").source:sub(2)
@@ -88,10 +32,7 @@ local function rs16(a) return memory.read_s16_le(a) end
 local function hex(v) return string.format("0x%08X", v) end
 local function isRomPtr(p) return p >= 0x08000000 and p <= 0x09ffffff end
 
-----------------------------------------------------------------------------
--- Vanilla labels. LABELS, not inputs -- see the header. Every one of these is
--- already in meshghost_emerald.lua with its own citation.
-----------------------------------------------------------------------------
+-- Vanilla addresses: labels, never inputs to a search.
 
 local V = {
     romBase                = 0x08000000,
@@ -117,22 +58,15 @@ local V = {
 }
 
 local OBJECTEVENT_SIZE = 0x24
-local MAP_GROUPS_COUNT = 34   -- the adapter's bound; unmeasured (emerald/UNVERIFIED.md, the audit)
+local MAP_GROUPS_COUNT = 34   -- the adapter's bound, unmeasured
 local MAP_OFFSET = 7          -- ObjectEvent.currentCoords carry it; SaveBlock1.pos does not
 local PLAYERAVATAR_FROM_OBJECTS = 0x240 -- vanilla RELATION, verified below, never assumed
 
--- The one byte-literal seed in this file, and it is already committed and cited in the shipped
--- adapter (BRENDAN_PAL_REF_BYTES -- the first four bytes of gObjectEventPal_Brendan, read
--- directly from the vanilla ROM file 2026-08-14). Four bytes of a palette is a fact about where
--- something is, not game expression; nothing longer is embedded here on purpose, because a
--- 256-byte tile block copied into this repo would be a verbatim asset dump (CLAUDE.md).
+-- The adapter's BRENDAN_PAL_REF_BYTES, the first four bytes of Brendan's palette, and nothing longer: a tile block
+-- here would be an asset dump.
 local PAL_SEED = { 0x0e, 0x53, 0x5f, 0x5b }
 
-----------------------------------------------------------------------------
--- ROM bounds. ASK the host rather than assuming a size (probes.md, "Ask the
--- host what it has"); fall back to 16 MB and SAY which path was taken, so a
--- null search result can never be read as "searched everywhere".
-----------------------------------------------------------------------------
+-- ROM bounds: ask the host, and say which path was taken, so a null result never reads as "searched everywhere".
 
 local ROM_BOUND_FALLBACK = 0x1000000
 local romSize, romSizeSource
@@ -143,15 +77,8 @@ if type(memory.getmemorydomainsize) == "function" then
     end
 end
 if not romSize then
-    -- **MEASURE IT RATHER THAN ASSUME 16MB (2026-09-11).** This host's core does not answer
-    -- getmemorydomainsize, and the 16MB fallback is exactly half of a 32MB cartridge -- EX
-    -- SPEEDCHOICE 0.4.0 is one, so every search below would have quietly covered half the ROM and
-    -- reported "not found" for anything in the upper half. A search that silently narrows its own
-    -- haystack is worse than one that fails.
-    --
-    -- GBA cartridge space MIRRORS: on a 16MB ROM, 0x09000000 reads back the same bytes as
-    -- 0x08000000. So sample both halves at several offsets -- if any pair differs, the upper half
-    -- is real data and the cart is 32MB. Bytes that are all 00 or all FF are ignored as unmapped.
+    -- This host does not answer getmemorydomainsize, and 16 MB is half a 32 MB cartridge. Cartridge space mirrors, so
+    -- sample both halves: any pair that differs, ignoring all-00 and all-FF, means the upper half is real.
     local upperIsReal = false
     for _, off in ipairs({ 0x4, 0x1000, 0x40000, 0x200000, 0x700000, 0xA00000, 0xF00000 }) do
         local lo = memory.read_u32_le(0x08000000 + off)
@@ -170,9 +97,7 @@ end
 if romSize > 0x2000000 then romSize = 0x2000000 end
 local ROM_END = V.romBase + romSize
 
-----------------------------------------------------------------------------
--- Phase machine. Fixed lengths, countdown to the console, nothing to time.
-----------------------------------------------------------------------------
+-- Phases of fixed length, with a countdown to the console and nothing to time.
 
 local CH_CKSUM = 0x8000    -- 32 KB/frame, full byte coverage
 local CH_PAL   = 0x10000   -- 64 KB/frame, halfword-aligned candidates
@@ -192,16 +117,13 @@ local function record(name, state, detail, addr, shift)
     result[#result + 1] = { name = name, state = state, detail = detail, addr = addr, shift = shift }
 end
 
-----------------------------------------------------------------------------
--- PHASE 1 -- identity, and every literal this adapter would use.
-----------------------------------------------------------------------------
+-- Phase 1: identity, and every literal the adapter would use.
 
 local function romString(addr, n)
     local out = {}
     for i = 0, n - 1 do
         local b = r8(addr + i)
-        -- Printable ASCII only. A patched header is routinely padded with 0x00 or garbage, and
-        -- a raw byte in a log line is unreadable; the hex dump beside it keeps the real value.
+        -- Printable ASCII only: a patched header is often padded with 00 or garbage; the hex dump keeps the value.
         out[#out + 1] = (b >= 0x20 and b < 0x7f) and string.char(b) or "."
     end
     return table.concat(out)
@@ -224,9 +146,7 @@ local function phaseIdentity()
     loud(string.format("  version    0x080000BC : 0x%02X", r8(0x080000bc)))
     loud(string.format("  ROM bound  %s..%s  (%d MB, from %s)",
         hex(V.romBase), hex(ROM_END - 1), romSize // 0x100000, romSizeSource))
-    -- The header is NOT an identity on its own: an Archipelago or SPEEDCHOICE patch can leave
-    -- title and game code untouched, so two different builds share one header. That is exactly
-    -- why the checksum below exists, and why nothing here branches on the header.
+    -- A patch can leave title and game code untouched, so the header alone is no identity: hence the checksum.
     say("  NOTE: header alone does not identify a build -- patches commonly leave it unchanged.")
 
     say("")
@@ -259,11 +179,7 @@ local function phaseIdentity()
     say("")
 end
 
-----------------------------------------------------------------------------
--- PHASE 2 -- bounded ROM checksum, computed incrementally across frames.
--- FNV-1a/32. Also a per-megabyte digest, so two builds that differ in one
--- region can be compared without re-running anything.
-----------------------------------------------------------------------------
+-- Phase 2: a bounded FNV-1a/32 checksum across frames, with a per-megabyte digest to compare builds region by region.
 
 local ck = { at = V.romBase, whole = 2166136261, mb = 2166136261, mbIndex = 0, lines = {} }
 
@@ -294,12 +210,8 @@ local function ckStep()
     return false
 end
 
-----------------------------------------------------------------------------
--- PHASE 3 -- ANCHOR 1: the overworld character palette block.
--- Byte-signature search for the four seed bytes, then a STRUCTURAL check that
--- the 32 bytes there really are a GBA 16-colour palette (every halfword's bit
--- 15 clear -- BGR555 has no bit 15). Every surviving candidate is printed.
-----------------------------------------------------------------------------
+-- Phase 3: the character palette block, by the seed bytes and then a check that the 32 bytes are a 16-colour palette
+-- (BGR555 never sets bit 15).
 
 local pal = { at = V.romBase, hits = {}, raw = 0 }
 
@@ -314,8 +226,7 @@ local function palStep()
     local n = math.min(CH_PAL, ROM_END - pal.at)
     local b = memory.read_bytes_as_array(pal.at, n)
     local s1, s2, s3, s4 = PAL_SEED[1], PAL_SEED[2], PAL_SEED[3], PAL_SEED[4]
-    -- Halfword stride: a palette is a halfword-aligned block. Stated rather than assumed-away --
-    -- an odd-aligned copy of these bytes would be missed, and that exclusion is in the log.
+    -- Halfword stride, so an odd-aligned copy is missed, and the log says so.
     for i = 1, n - 3, 2 do
         if b[i] == s1 and b[i + 1] == s2 and b[i + 2] == s3 and b[i + 3] == s4 then
             pal.raw = pal.raw + 1
@@ -347,11 +258,8 @@ local function palStep()
         loud(string.format("ANCHOR palette: RESOLVED %s (shift %s0x%X)", hex(a),
             a >= V.palBrendan and "+" or "-", math.abs(a - V.palBrendan)))
         record("gObjectEventPal_Brendan", "RESOLVED", "single candidate", a, a - V.palBrendan)
-        -- The whole character graphics/palette block moved together on the one Archipelago build
-        -- this project measured (all six addresses by the same delta -- meshghost_emerald.lua's
-        -- SPRITE_ADDR_ARCHIPELAGO_SHIFT header). So the same shift applied to the other five is a
-        -- PREDICTION worth printing and worth checking, never a resolution: if this build split
-        -- that block, these lines are wrong and only a per-address check would say so.
+        -- The block moved as one on Archipelago, so the same shift for the other five is a prediction to check, never a
+        -- resolution: a build that split the block makes these lines wrong.
         local d = a - V.palBrendan
         for _, q in ipairs({ { "gObjectEventPal_May", V.palMay },
                              { "gObjectEventPic_BrendanNormal", V.picBrendanNormal },
@@ -363,15 +271,8 @@ local function palStep()
     return true
 end
 
-----------------------------------------------------------------------------
--- PHASE 4 -- ANCHOR 2: gObjectEventGraphicsInfoPointers.
--- PURELY STRUCTURAL, no seed bytes at all: find every run of >= RUN_MIN
--- consecutive word-aligned ROM pointers, then keep only those whose targets
--- validate as `struct ObjectEventGraphicsInfo` under exactly the rules the
--- shipped graphicsInfo() already enforces before handing a pointer to the
--- engine. This is the table the spawn path indexes, so getting it wrong is
--- not a wrong picture, it is a write of engine-dereferenced garbage.
-----------------------------------------------------------------------------
+-- Phase 4: gObjectEventGraphicsInfoPointers, purely structural: runs of word-aligned ROM pointers whose targets
+-- validate as graphics info under graphicsInfo()'s rules. The spawn path indexes it, so a wrong one is a bad write.
 
 local gt = { at = V.romBase, runStart = nil, runLen = 0, cands = {}, prevTailRun = 0 }
 
@@ -406,8 +307,7 @@ end
 local function gtStep()
     local n = math.min(CH_TABLE, ROM_END - gt.at)
     local b = memory.read_bytes_as_array(gt.at, n)
-    -- Cheap pre-filter: a word is "a ROM pointer" iff its high byte is 0x08 or 0x09. One byte
-    -- test per word, no dereference -- the expensive validation runs only on surviving runs.
+    -- A ROM pointer has 0x08 or 0x09 as its high byte; the costly validation runs only on surviving runs.
     for i = 1, n - 3, 4 do
         local hi = b[i + 3]
         if hi == 0x08 or hi == 0x09 then
@@ -454,10 +354,8 @@ local function gtStep()
             s.base >= V.gfxInfoPointers and "+" or "-", math.abs(s.base - V.gfxInfoPointers)))
         record("gObjectEventGraphicsInfoPointers", "RESOLVED",
             string.format("%d/%d validate", s.valid, s.checked), s.base, s.base - V.gfxInfoPointers)
-        -- CROSS-CHECK FROM AN INDEPENDENT DIRECTION (probes.md, move 5). The palette block and
-        -- the pointer table are different address families in vanilla -- if they shifted by the
-        -- SAME amount on this build, that is a whole-region relocation and worth knowing; if
-        -- they differ, no single ROM-wide offset applies and per-anchor resolution is mandatory.
+        -- The palette and the table are different address families: one shift for both means the region moved whole,
+        -- two mean no single ROM-wide offset applies.
         local pshift = (#pal.hits == 1) and (pal.hits[1] - V.palBrendan) or nil
         if pshift then
             local tshift = s.base - V.gfxInfoPointers
@@ -470,17 +368,8 @@ local function gtStep()
     return true
 end
 
-----------------------------------------------------------------------------
--- PHASE 5 -- the LIVE anchors. Runtime RAM, so no ROM search can reach them.
--- Resolved by structural search of EWRAM/IWRAM instead, and every candidate
--- must satisfy a TWO-WAY cross-link, never a single field.
---
--- Retried every frame for the whole phase: a script loaded during the intro
--- or the title sequence finds nothing because nothing is there yet -- the
--- exact timing bug the adapter's own tryDetectAvatarAddrOffset() header
--- documents. Missing the window costs nothing here; the phase simply keeps
--- asking until it ends.
-----------------------------------------------------------------------------
+-- Phase 5: the live anchors, runtime RAM, by structural search of EWRAM and IWRAM with a two-way cross-link each.
+-- Retried every frame of the phase: during the intro or title nothing is there yet.
 
 local EWRAM_BASE, EWRAM_SIZE = 0x02000000, 0x00040000
 local IWRAM_BASE, IWRAM_SIZE = 0x03000000, 0x00008000
@@ -492,9 +381,8 @@ local live = {
     sb1Ptr = nil, sb1Cands = {},
 }
 
--- The player's own object event: active, isPlayer, LOCALID_PLAYER, and a plausible map group --
--- the same four facts the adapter's playerObjEventExistsAt() requires, and for the same reason
--- (a uniform repeating garbage pattern satisfies any one of them by coincidence).
+-- Active, isPlayer, LOCALID_PLAYER and a plausible map group, as the adapter's playerObjEventExistsAt() requires:
+-- a repeating garbage pattern satisfies any one of them by chance.
 local function looksLikePlayerObj(a)
     return (r8(a + 0x00) & 0x01) == 1
         and (r8(a + 0x02) & 0x01) == 1
@@ -518,11 +406,8 @@ local function liveScanEwram()
     end
 end
 
--- Given a player-object-event candidate, the array BASE is that address minus its index times
--- the entry size -- and the index is not guessed, it is CONFIRMED from the other side:
--- gPlayerAvatar.objectEventId must point back at exactly that index, and gPlayerAvatar's flags
--- must be non-zero (a player is always in some avatar state). That also VERIFIES the +0x240
--- relation between the two arrays instead of assuming it survived this build's recompile.
+-- The base is the candidate minus its index times the entry size, the index confirmed by gPlayerAvatar.objectEventId
+-- pointing back with non-zero flags, which also checks the +0x240 relation survived this build.
 local function resolveObjBase()
     local out = {}
     for _, a in ipairs(live.pobjHits) do
@@ -539,9 +424,8 @@ local function resolveObjBase()
     return out
 end
 
--- gSaveBlock1Ptr: an IWRAM word holding a pointer into EWRAM whose target agrees with the
--- player's own object event on THREE independent facts -- both coordinates (SaveBlock1.pos does
--- not carry ObjectEvent's +7 map offset, which is itself a discriminator) and the map group.
+-- An IWRAM word pointing into EWRAM at a target agreeing with the player's object event on both coordinates (the
+-- save block has no +7 map offset) and the map group.
 local function resolveSaveBlockPtr()
     if not live.playerObj then return {} end
     local ox = rs16(live.playerObj + 0x10) - MAP_OFFSET
@@ -560,23 +444,18 @@ local function resolveSaveBlockPtr()
 end
 
 local function liveStep()
-    -- gMain.callback2, sampled at the VANILLA code site, as a histogram. It is not resolved --
-    -- the site itself is a literal here -- but the value that dominates a long overworld sample
-    -- IS this build's CB2_Overworld candidate, and the adapter's inOverworld() needs exactly
-    -- that number. Sampling rather than reading once, because one sample of a value that
-    -- changes during warps and battles is a coin flip (probes.md).
+    -- callback2 at the vanilla site, as a histogram: not resolved, but the value dominating a long overworld sample is
+    -- this build's CB2_Overworld candidate, and one sample during a warp or battle is a coin flip.
     local cb = r32(V.gMainCallback2)
     if not live.cb2[cb] then live.cb2[cb] = 0 live.cb2Order[#live.cb2Order + 1] = cb end
     live.cb2[cb] = live.cb2[cb] + 1
 
     if live.objBase then return end
-    -- One EWRAM sweep per frame is ~64k cheap iterations spread over two bulk reads; it only
-    -- runs until it succeeds, so the cost stops the moment the answer exists.
+    -- Runs only until it succeeds.
     liveScanEwram()
     local cands = resolveObjBase()
     if #cands == 0 then return end
-    -- Collapse duplicates: several hits can describe one base (a map with the player plus a
-    -- garbage look-alike), and the same base found twice is one answer, not two.
+    -- Several hits can describe one base, and one base found twice is one answer.
     local seen, uniq = {}, {}
     for _, c in ipairs(cands) do
         if not seen[c.base] then seen[c.base] = true uniq[#uniq + 1] = c end
@@ -644,9 +523,8 @@ local function liveReport()
             c.at >= V.gSaveBlock1Ptr and "+" or "-", math.abs(c.at - V.gSaveBlock1Ptr)))
         record("gSaveBlock1Ptr", "RESOLVED", "target " .. hex(c.target), c.at,
             c.at - V.gSaveBlock1Ptr)
-        -- gSaveBlock2Ptr sits immediately after gSaveBlock1Ptr in vanilla. Reported as an
-        -- OBSERVATION with its plausibility, never as a resolution: playerGender being 0 or 1 is
-        -- one weak bit of evidence, and one bit does not resolve an address.
+        -- gSaveBlock2Ptr follows gSaveBlock1Ptr in vanilla: an observation only, since playerGender reading 0 or 1 is
+        -- one weak bit of evidence.
         local p2 = r32(c.at + 4)
         local g = (p2 >= EWRAM_BASE and p2 < EWRAM_BASE + EWRAM_SIZE) and r8(p2 + 0x08) or nil
         say(string.format("  gSaveBlock2Ptr (vanilla sits at +4): word there = %s, playerGender "
@@ -675,9 +553,7 @@ local function liveReport()
     say("")
 end
 
-----------------------------------------------------------------------------
--- PHASE 6 -- the report.
-----------------------------------------------------------------------------
+-- Phase 6: the report.
 
 local function finalReport()
     loud("=== SUMMARY ===")
@@ -693,9 +569,7 @@ local function finalReport()
     loud("Full detail, including every rejected candidate, is in " .. logPath)
 end
 
-----------------------------------------------------------------------------
--- Tick. One chunk per frame, a countdown to the console, and then silence.
-----------------------------------------------------------------------------
+-- One chunk per frame, a countdown to the console, then silence.
 
 local function countdown(label, doneUnits, totalUnits)
     local pct = math.floor(doneUnits * 100 / math.max(totalUnits, 1))
@@ -749,8 +623,7 @@ local function tick()
             phase = 6
         end
     end
-    -- phase 6: done, and deliberately silent. A probe that keeps talking after it has answered
-    -- scrolls its own answer out of the console pane.
+    -- Done, and silent: a probe that keeps talking scrolls its own answer out of the console.
 end
 
 if MESHGHOST_DEV_LOADER then

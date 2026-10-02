@@ -1,20 +1,7 @@
--- MeshGhost — Emerald: which gSprites entry is the PLAYER, and where does it think it is? (PROBE)
---
--- READ-ONLY. Reads game memory, writes none, presses nothing, draws nothing.
---
--- THE QUESTION. On SPEEDCHOICE 1.2.2 every anchor the adapter needs is now measured and the player's
--- own tile is right -- pos=(3,11), coords=(10,18), consistent -- yet the adapter reports its player
--- SPRITE at screen (-56,160). A local player cannot be off the left edge of its own screen, so one
--- of two things is wrong: the spriteId read off the player's object event, or the gSprites base.
---
--- gsprites_scan_probe.lua confirmed 0x02020634 by WALKING the player and watching a sprite track
--- it, which is strong -- but it proves some sprite tracks the player, not that the entry the
--- adapter picks is that one. A shadow, a reflection or a follower tracks the player too.
---
--- So this prints, for BOTH plausible bases, the first few entries with their coordinates and their
--- inUse bit, beside the player's object-event spriteId. On vanilla the player's entry should sit
--- near the middle of a 240x160 screen; the build where it does not is the build with the fault.
--- Run it on vanilla first and diff -- a wrong base looks entirely reasonable on its own.
+-- Read-only: is this gSprites base right? For both candidate bases it prints the player's entry (by its object
+-- event's spriteId) and the first six entries with their coordinates and inUse bit. Walking a sprite that tracks
+-- the player does not settle it, since a shadow, a reflection or a follower tracks the player too. Sprite
+-- coordinates are not screen coordinates (the camera offset completes them), so diff against a vanilla run.
 
 local BASES = { 0x02020630, 0x02020634 }
 local SPRITE_SIZE = 0x44
@@ -47,11 +34,11 @@ local function tick()
         memory.read_u8(0x080000AE), memory.read_u8(0x080000AF))
     say("=== PLAYER SPRITE " .. code .. " " .. os.date("%H:%M:%S") .. " ===")
 
-    -- Which object-event shift is live on this build, by the same test the adapter uses.
+    -- Which object-event shift is live on this build.
     local objBase, avShift
     for _, sh in ipairs(SHIFTS) do
         local a = GOBJECTEVENTS_ADDR + sh
-        -- a plausible player entry: active bit set and coordinates inside a map
+        -- a plausible player entry: coordinates inside a map
         local x = memory.read_s16_le(a + 0x10)
         local y = memory.read_s16_le(a + 0x12)
         if x > 0 and y > 0 and x < 200 and y < 200 then

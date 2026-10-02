@@ -1,25 +1,5 @@
--- MeshGhost -- Mach Bike up and down a slope, by TILES (DEV TOOL, never shipped)
---
--- WHY. The Mach Bike exists to climb a MUDDY SLOPE: at anything below top speed the slope slides
--- the rider back down, so it is the one terrain that exercises acceleration, top speed, and being
--- pushed backwards while still holding a direction -- all the things a ghost has to mirror. Riding
--- it by hand while also watching two ghosts for defects is not something a person can hold steady
--- (.claude/skills/play-game/SKILL.md, "Drive it yourself before asking").
---
--- ROUTE (user, 2026-08-20): about 4-5 tiles up, then 4-5 back down, repeating.
---
--- COUNTED IN TILES, with a per-leg frame cap. Tiles, because a fixed frame count covers a
--- different distance depending on the speed reached and drifts the run across the map (that is how
--- an earlier square wandered into a trainer). A cap as well, because on this terrain failing to
--- gain ground is a REAL OUTCOME rather than a fault: too slow up a muddy slope and the game slides
--- you back, forever if it likes. The cap ends the leg and the log says how far it actually got.
---
--- It reports the metatile behaviour under the player each leg, so "the test ran" and "the test ran
--- ON THE SLOPE" stay different claims -- MB_MUDDY_SLOPE taken as 208 (where to look:
--- include/constants/metatile_behaviors.h; MB_POND_WATER 16 from the same place was measured by this
--- repo independently, 208 is what this log's on-slope reading tests).
---
--- Addresses copied from meshghost_emerald.lua, never from memory.
+-- Rides the Mach Bike down and up a muddy slope, counted in tiles with a frame cap per leg, logging the behaviour
+-- under the player: below top speed the slope slides the rider back, so a leg that gains no ground is a result.
 
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
@@ -30,16 +10,8 @@ local GBACKUPMAPLAYOUT = 0x03005dc0
 local GMAPHEADER = 0x02037318
 local MB_MUDDY_SLOPE = 208
 
--- Eight rather than five, and DOWN first: the mud on this map sits below where the ride starts
--- (user, 2026-08-20 -- *"need to go a bit further down again to get to the mud"*), and a five-tile
--- leg settled into a stretch with none of it, logging "0 of them on mud" lap after lap.
 local TILES_PER_LEG = 8
 local LEG_FRAME_CAP = 400   -- generous: a failed climb is an outcome, not a hang
--- CLIMB UNTIL THE MUD ENDS, rather than a guessed number of tiles. Five was not clearing the slope
--- (user, 2026-08-20: *"its going up on the mud, just not getting up far enough"*), and the right
--- length is a property of the slope, not something to tune: the leg ends once the player is past
--- TILES_PER_LEG *and* standing on something that is no longer MB_MUDDY_SLOPE. The frame cap still
--- ends a climb that never makes it, which on this terrain is a real outcome worth logging.
 
 local leg = { { key = "Down", delta = 1 }, { key = "Up", delta = -1 } }
 local which, startY, frames, laps, peak, stopped = 1, nil, 0, 0, 0, false
@@ -62,7 +34,7 @@ local function playerXY()
     return memory.read_s16_le(o + 0x10), memory.read_s16_le(o + 0x12)
 end
 
--- The behaviour under a grid coordinate, so the log can say whether this is the slope at all.
+-- The behaviour under a grid coordinate, so the log can say whether the ride was on the slope at all.
 local function behaviourAt(x, y)
     local w = memory.read_s32_le(GBACKUPMAPLAYOUT)
     local map = memory.read_u32_le(GBACKUPMAPLAYOUT + 0x08)
@@ -111,8 +83,7 @@ local function tick()
     if here == MB_MUDDY_SLOPE then mudFrames = mudFrames + 1 end
     if moved > bestGain then bestGain = moved end
 
-    -- Up: past the minimum AND off the mud. Down: the plain tile count is right, since coming back
-    -- down a slope needs no speed.
+    -- Up ends past the minimum and off the mud, so the slope's own length decides; coming down needs no speed.
     local doneLeg
     if s.key == "Up" then
         doneLeg = moved >= TILES_PER_LEG and here ~= MB_MUDDY_SLOPE

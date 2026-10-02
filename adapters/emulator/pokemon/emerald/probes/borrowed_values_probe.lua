@@ -1,32 +1,7 @@
--- MeshGhost — Pokémon Emerald: measure the numbers the adapter still borrows (2026-09-16)
---
--- DEVELOPMENT TOOL, read-only. It presses nothing and writes nothing but its own log.
---
--- WHY THIS EXISTS
--- The per-site audit (phases/phase12.md, 2026-09-16) left six VALUES in shipped code that came from
--- the decompilation alone (emerald/UNVERIFIED.md, the per-site audit entry): `DIRECTION_ANIM`,
--- `WALK_POSE_DURATIONS`/`RUN_POSE_DURATIONS`, `genderFrames.ctcVec`, `genderFrames.shadowDrop`,
--- `genderFrames.reflectiveBehaviour` and the branches of `fishingFrameShift`. Each is answered by
--- what the ENGINE builds for the PLAYER, so this probe records that and leaves the comparison to
--- whoever reads the log.
---
--- WHAT IT RECORDS, while the global `MESHGHOST_BV_REC` is truthy (set it from any script the dev
--- loader runs -- they share one Lua environment), once per frame, unfiltered:
---   * `F <frame> cb2 <gMain.callback2>`;
---   * `P` the player's object event, all 0x24 bytes;
---   * `S<nn>` every one of the 64 sprite slots whose bytes are not all zero, all 0x44 bytes;
---   * `V` a checksum of the VRAM OBJ tiles the player's sprite points at (attr2's tile number, 8
---     tiles for a 16x32 frame) -- what is DRAWN changes when this does.
--- A line `REC on/off` brackets each recording.
---
--- WHAT IT CANNOT SEE. Only the state after each frame: a between-frame write is invisible. It says
--- nothing about a ghost -- run it with the adapter unloaded, so every sprite is the game's own.
---
--- COST while recording: 64x0x44 + 0x24 + 256 bytes read and hex-formatted per frame, buffered,
--- flushed once a second. Idle when not recording. Not for judging pacing while recording.
---
--- ADDRESSES (vanilla, the adapter's own): gPlayerAvatar 02037590 {spriteId +4, objectEventId +5},
--- gObjectEvents 02037350 stride 0x24, gSprites 02020630 stride 0x44, gMain.callback2 030022C4.
+-- MeshGhost — Pokémon Emerald: what the engine builds for the player, every frame (dev tool, read-only, vanilla).
+-- While the global MESHGHOST_BV_REC is truthy (any script the dev loader runs can set it) it logs per frame:
+-- F the frame and gMain.callback2, P the player's object event, S<nn> each nonzero sprite slot, and V a checksum
+-- of the 8 VRAM OBJ tiles the player's sprite points at. Run it with the adapter unloaded; heavy while recording.
 
 local GPLAYERAVATAR, GOBJECTEVENTS, GSPRITES, GMAIN_CB2 = 0x02037590, 0x02037350, 0x02020630, 0x030022c4
 local BUS = "System Bus"

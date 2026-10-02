@@ -1,30 +1,5 @@
--- MeshGhost — Pokémon Emerald: put water in front of the player (DEV TOOL, never shipped)
---
--- WHY
--- Testing a surfing or fishing ghost needs water, and the water is somewhere else. Walking there
--- costs the user's time; warping needs machinery we do not have. But the game decides what a tile
--- IS from one number, so the cheaper move is to change the tile: find a metatile in the tilesets
--- this map already has loaded whose behaviour is water, and write it into the ground in front of
--- the player. The game then treats it as water, because as far as it is concerned it is.
---
--- This is the "combine the tools" idea in one script (agent_docs/environment.md): read the
--- decompilation to learn what makes a tile water, write memory to make one, checkpoint with a
--- savestate so the change is free to undo, and drive input to use it.
---
--- CHEAT, DEV ONLY, AND REVERSIBLE. It edits the live map grid, not the save -- the map is rebuilt
--- from ROM on the next map load, so walking out and back in undoes it. It restores the original
--- tile itself on unload as well. Nothing here is ever part of an adapter.
---
--- ADDRESSES, from our own make-compare-verified pokeemerald build:
---   gBackupMapLayout 03005DC0  { s32 width 0x00, s32 height 0x04, u16 *map 0x08 }
---   gMapHeader       02037318  -> mapLayout 0x00 -> primaryTileset 0x10, secondaryTileset 0x14
---   struct Tileset: metatileAttributes at 0x10
---   MAPGRID_METATILE_ID_MASK 0x03FF, METATILE_ATTR_BEHAVIOR_MASK 0x00FF
---   NUM_METATILES_IN_PRIMARY 512; MB_POND_WATER 16, MB_OCEAN_WATER 21
---
--- HOW TO RUN
---   Point dev-scripts/bizhawk-dev-loader.target at this file while standing in the overworld.
---   It counts down, then converts the tile you are FACING into water and reports what it used.
+-- MeshGhost — Pokémon Emerald: put water in front of the player (dev tool, writes the live map grid, never shipped).
+-- Load it in the overworld: after a countdown the tile being faced becomes water; unloading or a map load undoes it.
 
 local GBACKUPMAPLAYOUT = 0x03005dc0
 local GMAPHEADER = 0x02037318
@@ -60,7 +35,6 @@ local function s16(a) return memory.read_s16_le(a) end
 local function u32(a) return memory.read_u32_le(a) end
 local function s32(a) return memory.read_s32_le(a) end
 
--- Which tileset owns a metatile id, and where its attribute table is.
 local function behaviourOf(metatileId)
 	local layout = u32(GMAPHEADER + 0x00)
 	if layout == 0 then return nil end
@@ -76,8 +50,7 @@ local function behaviourOf(metatileId)
 	return u16(attrs + index * 2) & METATILE_ATTR_BEHAVIOR_MASK
 end
 
--- The first metatile in this map's own tilesets that the game considers water. Searching what is
--- already loaded matters: a metatile id from another tileset would render as unrelated garbage.
+-- Only this map's own tilesets: a metatile id from another tileset would draw as unrelated garbage.
 local function findWaterMetatile()
 	for id = 0, 1023 do
 		local b = behaviourOf(id)
@@ -129,17 +102,7 @@ MESHGHOST_DEV_TICK = function()
 		return
 	end
 	original = { addr = addr, value = u16(addr) }
-	-- Metatile id, collision ZERO, and elevation ELEVATION_SURF. Two wrong versions came first and
-	-- the second is the instructive one:
-	--   v1 changed only the metatile id, so the tile had water behaviour but stayed walkable.
-	--   v2 then set the COLLISION bit, which made it solid -- and a "walk into it" test was
-	--      blocked, which looked like success and was not. Real water is not impassable; it is a
-	--      different ELEVATION -- the decomp's hint (where to look:
-	--      `IsPlayerFacingSurfableFishableWater`, field_player_avatar.c:1322) is that fishing wants an
-	--      elevation mismatch, not a solid tile -- so the "fix" that made the symptom look right
-	--      appears to be what stopped fishing from working.
-	-- The hypothesis this tool runs on: water at elevation 1 (ELEVATION_SURF) against the player's 3
-	-- (ELEVATION_DEFAULT) is what the game reads as "standing next to water".
+	-- Collision 0 at elevation 1, never the collision bit: water is another elevation; a solid tile refuses the rod.
 	local kept = u16(addr) & ~(MAPGRID_METATILE_ID_MASK | MAPGRID_COLLISION_MASK | MAPGRID_ELEVATION_MASK)
 	memory.write_u16_le(addr, kept | (waterId & MAPGRID_METATILE_ID_MASK) | (ELEVATION_SURF << 12))
 	log(string.format("tile in front (%d,%d, facing %d) -> metatile %d (%s); was 0x%04X",

@@ -1,21 +1,5 @@
--- MeshGhost — Pokémon Emerald: a trainer coming for the player, raw (DEV TOOL, READ-ONLY, never shipped) -- 2026-09-17
---
--- WHY THIS EXISTS. autoplay's `goto` ran into a trainer's line and answered `no_response` while the trainer
--- walked over: from the input side, a trainer's approach looks like a stuck hold. The decomp names globals
--- the sight check sets; which of them say "a trainer is coming", and from which frame, is to be measured.
--- This logs them raw whenever any changes, with the player's coordinates and the pad, so the frame the
--- player steps into a line can be paired with the frame they change.
---
--- ADDRESSES: a pokeemerald build whose ROM hashed identical to the vanilla ROM (SHA-1, 2026-09-16)
--- proves where each lives (the names below are the build's), not what its bytes mean. Vanilla only.
---
--- WHAT IT LOGS (trainer_approach_probe_<target>_<time>.log beside this file; gitignored):
---   ST on any change of: gNoOfApproachingTrainers, gTrainerApproachedPlayer, gApproachingTrainerId,
---      the 0x18 bytes of gApproachingTrainers, sGlobalScriptContextStatus, gSelectedObjectEvent,
---      gSpecialVar_LastTalked, gMain.callback2, the player's SaveBlock1 coordinates and the avatar
---      block's first four bytes -- all raw hex -- and the pad
--- WHAT IT CANNOT SEE: anything in the frames between two logged changes; which object a trainer is by
--- anything but its slot; a patched ROM.
+-- MeshGhost — Pokémon Emerald: a trainer coming for the player, raw (dev tool, read-only, vanilla only, never shipped).
+-- On any change: the approach globals, the script context status, the player's tile and the pad, to a log beside it.
 
 local BUS = "System Bus"
 local SB1PTR = 0x03005d8c

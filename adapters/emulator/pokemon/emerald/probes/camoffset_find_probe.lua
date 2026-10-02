@@ -1,29 +1,5 @@
--- MeshGhost — Emerald: find gTotalCameraPixelOffset on a build that moved IWRAM (PROBE)
---
--- READ-ONLY. Reads game memory, writes none, presses nothing, draws nothing.
---
--- THE QUESTION. EX SPEEDCHOICE 0.4.0 has every other anchor measured and still renders no peers:
--- its player's tile and sprite read correctly and steadily, but camOff reads garbage that changes
--- every frame -- (-1,513), then (4879,257), then (-1030,-1286). The painted tier positions peers
--- against that pair, so every one of them lands off-screen.
---
--- THE TEST, and it needs no known address. The local player is drawn at the centre of its own
--- screen, and the adapter's own arithmetic says how: sprite.x + cameraOffsetX = screen x. Vanilla
--- reads sprite (168,112) with camOff (-48,0) and lands on (120,112); SPEEDCHOICE reads (24,144)
--- with (96,-32) and lands on the same place. So on any build the true offsets are
---
---     wantX = 120 - sprite.x        wantY = 112 - sprite.y
---
--- Scan IWRAM for that exact s16 pair, laid out as vanilla lays it out: Y first, X four bytes later
--- (gTotalCameraPixelOffsetY 0x03005DE8, gTotalCameraPixelOffsetX 0x03005DEC).
---
--- THEN IT WALKS, because a pair of numbers that happens to match once is not an address. The
--- player moves and the candidate must keep satisfying sprite + offset = centre at every step.
--- Straight lines only, out and back on one axis, per the user's constraint for this savestate.
---
--- WHAT IT CANNOT SEE: whether the pair it finds is gTotalCameraPixelOffset rather than something
--- that tracks it. Two survivors are reported as AMBIGUOUS rather than resolved by preferring the
--- lower address.
+-- Finds gTotalCameraPixelOffset on a build that moved IWRAM, needing no known address (dev tool, presses Down and Up).
+-- The local player is drawn at screen centre, so sprite + offset = (120,112) on any build; every match is then walked.
 
 local IWRAM_START, IWRAM_END = 0x03000000, 0x03008000
 local GOBJECTEVENTS_ADDR = 0x02037350
@@ -69,7 +45,7 @@ end
 
 local function scan(wantY, wantX)
     local out = {}
-    -- the Y slot is the anchor; X sits four bytes later, as in vanilla
+    -- Y first, X four bytes later, as vanilla lays them out.
     for a = IWRAM_START, IWRAM_END - 8, 2 do
         if memory.read_s16_le(a) == wantY and memory.read_s16_le(a + 4) == wantX then
             out[#out + 1] = a

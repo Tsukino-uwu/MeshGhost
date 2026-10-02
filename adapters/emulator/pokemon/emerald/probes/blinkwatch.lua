@@ -1,11 +1,5 @@
--- MeshGhost -- does a ghost's SPRITE ever go invisible across a seam? (DEV TOOL, never shipped)
---
--- The user, after cross-map ghosts landed: both ghosts *"disappear a bit slightly during the
--- transition"*. The drawn tier's blink had a mechanical cause (the clear-without-repaint frames,
--- fixed); this asks whether the SPAWNED tier blinks at all: per frame, for every active object
--- with the ghost localId, the sprite's invisible flag and its on-/off-screen position. A line is
--- written only when something changes, so a crossing produces a handful of lines that say exactly
--- which frames, if any, the engine hid the sprite.
+-- Does a ghost's spawned sprite ever go invisible across a seam? Logs, on change only, each ghost object's sprite
+-- invisible flag and on- or off-screen position, so a crossing yields a handful of lines naming the frames it hid.
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GSPRITES_ADDR = 0x02020630
 local OBJECTEVENT_SIZE = 0x24
@@ -29,8 +23,7 @@ local function tick()
         local a = GOBJECTEVENTS_ADDR + i * OBJECTEVENT_SIZE
         if (memory.read_u8(a) % 2) == 1 and memory.read_u8(a + 0x08) == 255 then
             local d = GSPRITES_ADDR + memory.read_u8(a + 0x04) * SPRITE_SIZE
-            -- sprite +0x3E: bit 0 inUse, bit 2 invisible (names from struct Sprite, include/sprite.h;
-            -- the adapter flips these same bits in despawnGhost).
+            -- Sprite +0x3E bit 2 is invisible, the bit the adapter's despawnGhost sets.
             local inv = (memory.read_u8(d + 0x3e) >> 2) % 2
             parts[#parts + 1] = string.format("slot%d inv=%d sx=%d sy=%d", i, inv,
                 memory.read_s16_le(d + 0x20) + memory.read_s16_le(d + 0x24),

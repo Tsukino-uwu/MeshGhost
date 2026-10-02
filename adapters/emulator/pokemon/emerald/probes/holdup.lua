@@ -1,15 +1,5 @@
--- MeshGhost -- hold UP, and nothing else (DEV TOOL, never shipped)
---
--- WHY. The Mach Bike's whole purpose is the muddy slope: hold a direction into it at top speed and
--- you climb, drop below that speed and the slope pushes you back down. Holding one key for minutes
--- while watching two ghosts for defects is exactly what a script should do instead of the user
--- (.claude/skills/play-game/SKILL.md).
---
--- No turns, no legs, no tile counting -- the user is on the tile in front of the slope and wants it
--- held. The only logic is the safety gate and a once-a-second line saying whether the climb is
--- actually happening: the y coordinate, the speed reached, and the behaviour underfoot
--- (MB_MUDDY_SLOPE taken as 208, include/constants/metatile_behaviors.h). "Held the key" and "climbed the
--- slope" are different claims and the log keeps them apart.
+-- Holds Up and nothing else, for a Mach Bike climb from the tile in front of a muddy slope. Once a second it logs
+-- the y coordinate, the speed reached and the behaviour underfoot: holding the key and climbing are separate claims.
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GMAIN_CALLBACK2_ADDR = 0x030022c4

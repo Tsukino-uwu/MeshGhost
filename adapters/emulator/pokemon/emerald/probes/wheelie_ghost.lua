@@ -1,34 +1,13 @@
--- MeshGhost -- why does a GHOST not finish a wheelie, when the player does? (DEV TOOL, never shipped)
---
--- WHY. `wheelie_watch.lua` settled the half of this that was theory: driven on the player, every
--- Acro Bike wheelie action completes -- 0x6B, one of the three the adapter's watchdog kept freeing
--- at its 60-frame limit, ran nine frames and reported finished (`agent_docs/verified.md`,
--- 2026-08-20). So the action is completable and the difference is in the ghost. This measures the
--- ghost's own fields through the same action, which is the comparison that was never made.
---
--- WHAT THE PLAYER LOOKED LIKE, to compare against: nine frames with `data2` (the step function's
--- sub-state) at 1 and the sprite's paused bit CLEAR, its animation number 23 and its command index
--- advancing 0 -> 1, then `data2` = 2 and finished on the tenth frame. A sub-state that never leaves
--- 1 is therefore a step function still waiting for its animation.
---
--- THREE CONDITIONS, not one, and the third is the combination -- "A alone did nothing" never
--- implies A+B does nothing (`CLAUDE.md`):
---   1. the action as the adapter issues it today
---   2. plus the engine's own `enableAnim` switch on the object (byte +0x01, bit 0x08), which is
---      what clears a paused sprite the way the game does
---   3. plus clearing the sprite's paused bit outright, every frame
--- A ghost's sprite is known to sit PAUSED most of the time it is settled (`verified.md`: paused on
--- 232 of 252 stepping frames before that was fixed), which is why pausing is the first suspect.
---
--- The adapter is left running underneath: it issues no new step while a ghost reads busy, so an
--- action written here runs undisturbed until it finishes or its watchdog frees it. Both outcomes
--- are visible in this log.
+-- MeshGhost — why a ghost does not finish a wheelie when the player does (dev tool, writes live RAM: a ghost's
+-- movement action, vanilla only, never shipped). Issues each condition in CONDS to a ghost on the Acro Bike and logs
+-- its object and sprite fields for 120 frames, noting when it finishes. Run it with the adapter loaded: that issues no
+-- new step while the ghost is busy, so the action runs until it finishes or the adapter's watchdog frees it.
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GSPRITES_ADDR = 0x02020630
 local OBJECTEVENT_SIZE = 0x24
 local SPRITE_SIZE = 0x44
 local GHOST_LOCAL_ID = 255
-local ACRO_BIKE_GFX = { [63] = true, [91] = true }   -- Brendan / May, verified.md's graphicsId table
+local ACRO_BIKE_GFX = { [63] = true, [91] = true }   -- Brendan / May
 local ACTION = 0x68                                   -- ACRO_POP_WHEELIE_*, family base
 
 local function r8(a) return memory.read_u8(a) end
@@ -56,33 +35,6 @@ local function findGhost()
     return nil
 end
 
--- The fourth condition is the one that matters now: conditions 1-3 all FINISHED in eleven
--- frames, so a ghost on the Acro Bike completes the pop-wheelie perfectly well and pausing was
--- never the cause. What is left is the ghost NOT wearing the bike when the action arrives --
--- the peer's graphic and its action travel separately -- so the same action is issued again
--- with the ghost on the walking graphic. A hang there is the whole explanation.
--- ROUND TWO. The first three conditions above all FINISHED in eleven frames, so a ghost sitting
--- idle on the Acro Bike completes the pop-wheelie perfectly, and neither pausing nor `enableAnim`
--- was ever the cause. What is different in the adapter is WHEN it issues these: the wheelie branch
--- fires on the peer's action CHANGING and does not check `ghostIsIdle` first, so the action lands
--- on top of a step that is still running. `requestAction` resets the sprite's `data[2]`
--- (`sActionFuncId`) but leaves `data[1]` (`sTypeFuncId`) alone -- and `data[1]` is what selects
--- which FAMILY of step functions the engine calls. Stale, it keeps calling the old family with the
--- new action id, which is a step that can never report finished.
--- ROUND THREE, after round two also finished in eleven frames: `data[1]` was already 0 in the
--- interrupted case, so a stale step-function family is not it either.
---
--- What every attempt so far shares is that the action's DIRECTION matched the ghost's own facing,
--- because the probe derived one from the other. The adapter does not: it mirrors the PEER's action
--- id verbatim, and the direction baked into that id is the peer's facing, which the ghost need not
--- have yet. The three ids the watchdog kept freeing were 0x69, 0x6B and 0x6D -- never the `+0`
--- south member, which is the one a probe facing south would produce. So: issue all four members of
--- the family to a ghost, whatever way it happens to be facing, and see which of them hang.
---
--- ROUND FOUR'S FIRST RUN (`wheelie_ghost_20260820_114119.log`) DOES NOT ANSWER THAT and must not
--- be cited: the issuing line ignored each condition's `act` and re-derived the id from the ghost's
--- facing, so all six conditions issued 0x6B and all six finished in eleven frames. Fixed below;
--- the header line now records the id actually written and the ghost's facing at the time.
 local CONDS = {
     { name = "pop wheelie, direction matching the ghost's own facing", frames = 120 },
     { name = "pop wheelie SOUTH (0x68) regardless of facing", frames = 120, act = 0x68 },
@@ -117,9 +69,7 @@ local function tick()
 
     local s = GSPRITES_ADDR + r8(a + 0x04) * SPRITE_SIZE
 
-    -- A condition that wants the action to land mid-step has to WAIT for a real step: the adapter
-    -- drives the ghost from the peer, so the honest way to reach that state is to let it happen
-    -- rather than to fake a movement here.
+    -- An overStep condition waits for a real step from the peer rather than faking one.
     if n == 0 and CONDS[ci].overStep then
         local busy = (r8(a) & 0xc0) == 0x40 and r8(a + 0x1c) ~= 0xff
         if not busy then
@@ -133,15 +83,11 @@ local function tick()
 
     if n == 1 then
         say(string.format("condition %d/%d: %s", ci, #CONDS, CONDS[ci].name))
-        -- ROUND FOUR'S RESULT WAS A PROBE BUG, found 2026-08-20 by reading the log rather than the
-        -- summary: every condition issued `ACTION + facing` and the per-condition `act` field was
-        -- never read, so all six "directions" were the same id (0x6B, the ghost facing east) and
-        -- all six finished in eleven frames. The mismatched-direction question was never asked.
+        -- The id actually written goes in the header line, so each condition is proved different.
         local want = CONDS[ci].act or (ACTION + (r8(a + 0x18) & 0x0f) - 1)
         line(string.format("# condition %d %s (issuing %02X, ghost facing %02X, interrupting action %02X, data1=%d)",
             ci, CONDS[ci].name, want, r8(a + 0x18), r8(a + 0x1c), memory.read_s16_le(s + 0x30)))
-        -- Issued exactly the way the adapter does: action id, heldMovementActive set and finished
-        -- cleared, and the step function's sub-state reset.
+        -- Issued the way the adapter does: action id, heldMovementActive set, finished cleared, sub-state reset.
         w8(a + 0x1c, want)
         w8(a + 0x00, (r8(a) | 0x40) & ~0x80)
         w16(s + 0x32, 0)

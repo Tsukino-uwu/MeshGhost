@@ -1,23 +1,5 @@
--- MeshGhost -- what the ENGINE does with a wheelie, frame by frame (DEV TOOL, never shipped)
---
--- WHY. A ghost given one of the Acro Bike's wheelie actions (0x64..0x73) never reports finished:
--- the watchdog in `ghostIsIdle` freed it at the 60-frame limit over and over, on 0x69, 0x6B and
--- 0x6D. So those poses are not mirrored at all, and a peer's standing wheelie is invisible
--- (agent_docs/unverified.md, 2026-08-20). The standing theory is that the pose depends on state the
--- engine keeps on the PLAYER and a ghost has none of -- which is a guess, and this project's one
--- rule that kept paying is to measure the engine before changing anything.
---
--- THE QUESTION. Does the PLAYER'S OWN object event ever set heldMovementFinished while it is in a
--- wheelie? Two outcomes, and they point at completely different fixes:
---   * it DOES finish  -> the action is completable and something about the ghost differs; the diff
---                        between the two objects' bytes during the pose is then the whole answer.
---   * it NEVER finishes -> the pose is a HOLD the engine ends from outside, and a ghost's release
---                        is ours to issue. Waiting on `finished` would be the bug, not the pose.
---
--- HOW. Drive it: B is the wheelie on the Acro Bike, held. Fixed phases with a countdown, nothing to
--- time by hand. Then log the player's ObjectEvent and its sprite every frame, plus the first 16
--- bytes of gPlayerAvatar -- DUMPED, not read at a guessed offset, so the acro state can be located
--- by watching which byte moves rather than by trusting +0x08.
+-- MeshGhost -- what the engine does with a wheelie, frame by frame (dev tool, holds the pad, never shipped).
+-- Drives B through fixed phases on the Acro Bike; logs the player's object, its sprite and gPlayerAvatar raw per frame.
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GSPRITES_ADDR = 0x02020630
@@ -29,8 +11,7 @@ local CB2_OVERWORLD_ADDR = 0x08085e5c
 local function r8(a) return memory.read_u8(a) end
 local function rs16(a) return memory.read_s16_le(a) end
 
--- A lone backslash inside a Lua pattern is an escape sequence, so the separator class is built
--- rather than written out -- a scripted edit lost one and the load failed on the pattern itself.
+-- Built rather than written: a backslash in this pattern is easily lost to a scripted edit, and the load then fails.
 local BSLASH = string.char(92)
 local logPath = ("%s/wheelie_watch_%s.log"):format(
     (debug.getinfo(1, "S").source:sub(2):match("^(.*)[/" .. BSLASH .. "][^/" .. BSLASH .. "]*$") or "."),
@@ -44,22 +25,15 @@ local function line(s)
     if logFile then logFile:write(s .. string.char(10)) logFile:flush() end
 end
 
--- HELD, not tapped -- the user, 2026-08-20: *"you need to hold for the jumping"*. A tap gives a
--- pop-wheelie and nothing else, which is how the first Acro capture caught 0x6A and no hop.
+-- B held, not tapped: a tap pops a wheelie and nothing else.
 local PHASES = {
-    -- NO `keys` AT ALL, deliberately: `joypad.set` replaces the whole pad state, so a probe that
-    -- writes an empty table every frame silently cancels another probe's press. The first run of
-    -- this one did exactly that to `use_acro`'s SELECT and captured a walk instead of a wheelie.
-    -- Phase 1 is therefore hands-off, which is also the window `use_acro` needs to mount the bike.
+    -- No keys: joypad.set replaces the whole pad, and this is the window use_acro needs to press SELECT.
     { name = "stand still (baseline, pad left alone)", frames = 180, keys = nil },
     { name = "hold B -- standing wheelie",    frames = 300, keys = function() return { B = true } end },
     { name = "release -- end the wheelie",    frames = 180, keys = function() return {} end },
     { name = "hold B + Right -- moving wheelie", frames = 300, keys = function() return { B = true, Right = true } end },
     { name = "release -- settle",             frames = 180, keys = function() return {} end },
-    -- EVERY DIRECTION, because the ghost hung on 0x69, 0x6B and 0x6D -- the +1 and +3 members of
-    -- their families -- and a player facing south only ever produces the +0 ones. "The action never
-    -- finishes" and "that DIRECTION's action never finishes" are different claims and the first run
-    -- could not tell them apart.
+    -- Every direction: the ghost hung on its families' +1 and +3 members, and facing south only produces +0.
     { name = "face north",                    frames = 40,  keys = function() return { Up = true } end },
     { name = "hold B facing north",           frames = 240, keys = function() return { B = true } end },
     { name = "release",                       frames = 90,  keys = function() return {} end },
@@ -69,9 +43,7 @@ local PHASES = {
     { name = "face west",                     frames = 40,  keys = function() return { Left = true } end },
     { name = "hold B facing west",            frames = 240, keys = function() return { B = true } end },
     { name = "release",                       frames = 90,  keys = function() return {} end },
-    -- The user, 2026-08-20, naming the three things the bike does: *"up+B while idle on the bike
-    -- and not jumping for a sideway jump"*. A direction pressed WITH B from a standstill is its own
-    -- move, not the same as pressing B first.
+    -- A direction pressed with B from a standstill is the sideways jump, its own move.
     { name = "Up+B together from a standstill", frames = 180, keys = function() return { Up = true, B = true } end },
     { name = "release",                       frames = 90,  keys = function() return {} end },
 }
@@ -88,10 +60,7 @@ local function tick()
         return
     end
 
-    -- DON'T MEASURE A WALK AND CALL IT A WHEELIE. The first run captured 976 frames of ordinary
-    -- walking because the bike was never mounted, and nothing in the log said so. The Acro Bike's
-    -- graphicsId is 63 for Brendan and 91 for May (verified.md's graphicsId table), so the probe
-    -- can see the bike for itself and simply wait for it.
+    -- Waits for the Acro Bike's graphicsId (63 Brendan, 91 May), so a bike never mounted cannot log a walk.
     local pObjId = r8(GPLAYERAVATAR_ADDR + 0x05)
     if pObjId > 15 then return end
     local gfx = r8(GOBJECTEVENTS_ADDR + pObjId * OBJECTEVENT_SIZE + 0x05)
@@ -126,9 +95,6 @@ local function tick()
     local av = {}
     for k = 0, 15 do av[#av + 1] = string.format("%02X", r8(GPLAYERAVATAR_ADDR + k)) end
 
-    -- One line per frame: the action the engine gave itself, whether it calls it active/finished,
-    -- where its step function has got to (sprite data[1]/data[2]), and the animation actually on
-    -- screen. `finished` going 1 at any point in a wheelie answers the whole question.
     line(string.format(
         "f=%4d ph=%d act=%02X active=%d finished=%d dir=%02X b1=%02X "
         .. "anim=%d/%d ended=%d data1=%d data2=%d pos2=%d,%d avatar=%s",
@@ -139,8 +105,7 @@ local function tick()
 
     if lastAct ~= r8(o + 0x1c) then
         lastAct = r8(o + 0x1c)
-        -- The whole ObjectEvent on every change of action: cheaper than a second live run when a
-        -- byte nobody thought to print turns out to be the one that differs.
+        -- The whole object on each action change: cheaper than a second live run when an unprinted byte differs.
         local d = {}
         for k = 0, OBJECTEVENT_SIZE - 1 do d[#d + 1] = string.format("%02X", r8(o + k)) end
         line(string.format("  OBJ act=%02X | %s", lastAct, table.concat(d, " ")))

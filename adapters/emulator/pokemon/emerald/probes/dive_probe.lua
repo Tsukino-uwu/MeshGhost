@@ -1,43 +1,7 @@
--- MeshGhost — Pokémon Emerald: what DIVING does to a character (PROBE, never shipped)
---
--- WHY
--- Underwater is expected not to be a variant of surfing. The decomp suggests diving warps to a
--- separate map, swaps the player's graphic, and starts a bobbing driver (where to look:
--- `StartUnderwaterSurfBlobBobbing`, src/field_effect_helpers.c:1150) -- what this probe checks.
--- None of the surf-blob work
--- covers any of that, and nothing about an underwater peer has ever been seen on screen
--- (`agent_docs/unverified.md`, 2026-08-21).
---
--- So this reads the real thing while the user dives: what the player becomes, what the engine
--- creates alongside, and how far and how often the bob actually moves — the three facts each
--- self-drawn tier needs before it can reproduce any of it.
---
--- WHAT IT PRINTS
---   * one CHANGE line whenever the player's graphicsId, avatar flags, map, or fieldEffectSpriteId
---     changes — so the walk -> surf -> dive -> emerge transitions each leave a mark;
---   * one BOB line per frame for a bounded window after the player goes underwater, carrying the
---     rider's `y2` and the driver sprite's data slots, which is the curve itself rather than a
---     claim about it;
---   * one GHOST line per change for each of OUR ghosts (object events with localId 255), so
---     "the peer became a diver" and "our copy did not" are on the same timeline.
---
--- ADDRESSES, from our own make-compare-verified pokeemerald build, same as surfblob_probe.lua:
---   gPlayerAvatar   02037590  flags 0x00, spriteId 0x04, objectEventId 0x05
---                             (field names: struct PlayerAvatar, include/global.fieldmap.h)
---   gObjectEvents   02037350  stride 0x24; graphicsId 0x05, localId 0x08, spriteId 0x04,
---                             fieldEffectSpriteId 0x1A
---   gSprites        02020630  stride 0x44; callback 0x1C, pos1 0x20, pos2 0x24, data[0] 0x2E
---   gSaveBlock1Ptr  03005D8C  { mapGroup 0x04, mapNum 0x05 }
---   PLAYER_AVATAR_FLAG_UNDERWATER taken as 1 << 4 (include/global.fieldmap.h:292) -- this probe's
---                             CHANGE lines while diving are what test it
---   OBJ_EVENT_GFX_BRENDAN_UNDERWATER 111 / _MAY_UNDERWATER 112  (agent_docs/verified.md 2026-08-18)
---
--- COST. One read set per frame; a write only on a change, plus a bounded per-frame window while
--- underwater. Buffered and flushed every 60 lines — never console.log, which lags the emulator.
---
--- HOW TO RUN
---   Add this file to dev-scripts/bizhawk-dev-loader-emerald.target, then surf to a dive spot and
---   dive. It writes probes/dive_probe_<date>.log and says so in the console.
+-- MeshGhost — Pokémon Emerald: what diving does to a character (dev tool, read-only, never shipped). Dive from a
+-- dive spot; it logs on change the player (graphic, avatar flags, map, field-effect sprite, action, its graphic and
+-- animation pair), each of our ghosts with its tile range, VRAM against ROM and OAM entries, and the window
+-- registers; per frame, a BOB window once underwater and screenshots to shots/ after a ghost's tiles change or go bad.
 
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
@@ -45,14 +9,12 @@ local OBJECTEVENT_SIZE = 0x24
 local GSPRITES_ADDR = 0x02020630
 local SPRITE_SIZE = 0x44
 local SAVEBLOCK1PTR = 0x03005d8c
-local FLAG_UNDERWATER = 0x10
+local FLAG_UNDERWATER = 0x10 -- the decomp's bit, unmeasured; the PLAYER lines while diving test it
 local GHOST_LOCAL_ID = 255
-local BOB_WINDOW_FRAMES = 240
-local REFLECTION_CB = 0x081540a8 + 1   -- UpdateObjectReflectionSprite (pokeemerald.sym)
--- Beside this probe, never an absolute path: this repo is public and a home directory must not
--- appear in a tracked file (CLAUDE.md). scriptDir is resolved above.
+local BOB_WINDOW_FRAMES = 240 -- four seconds of the curve, then it stops writing per frame
+local REFLECTION_CB = 0x081540a8 + 1   -- UpdateObjectReflectionSprite
 local SHOT_DIR = nil   -- set after scriptDir exists, below
-local SHOT_FRAMES = 24                  -- how many frames to photograph after a tile range changes   -- four seconds of the curve, then it stops writing per-frame
+local SHOT_FRAMES = 24                  -- how many frames to photograph after a tile range changes
 
 local function r8(a) return memory.read_u8(a) end
 local function r16(a) return memory.read_u16_le(a) end
@@ -62,9 +24,7 @@ local function rs16(a) return memory.read_s16_le(a) end
 local function sprAddr(id) return GSPRITES_ADDR + id * SPRITE_SIZE end
 local function objAddr(id) return GOBJECTEVENTS_ADDR + id * OBJECTEVENT_SIZE end
 
-local BS = string.char(92) -- a literal backslash, BUILT rather than escaped: this
--- emulator build's Lua rejects the escaped form, and it cost ripple_probe.lua a load
--- failure the same way (2026-08-21, dev-loader log).
+local BS = string.char(92) -- a backslash built, not escaped, so no tool writing this file can drop one
 local scriptDir = (debug.getinfo(1, "S").source:sub(2)
     :match("^(.*)[/" .. BS .. "][^/" .. BS .. "]*$") or ".")
 SHOT_DIR = scriptDir .. "/shots"
@@ -83,8 +43,7 @@ end
 console.log("MeshGhost dive probe: writing " .. logPath)
 say("# frame | what")
 
--- A sprite, described in the fields that matter for a bob: where it is, what drives it, what it
--- carries. data[0..2] are the driver's own slots (sSpriteId / sBobY / sTimer).
+-- A sprite in the fields that matter for a bob; d0..d2 are its driver's first data slots.
 local function spriteLine(id)
     if not id or id >= 64 then return "spr=none" end
     local s = sprAddr(id)
@@ -101,10 +60,7 @@ local bobUntil = nil
 local shootUntil = nil
 
 local function tick()
-    -- The EMULATOR's frame number, not a private counter: the screenshot filenames, the adapter's
-    -- swap lines and these lines must all be laid on ONE timeline, or a garbled shot cannot be
-    -- matched to what the sprite held that frame -- which is exactly the correlation that failed
-    -- before this change.
+    -- The emulator's frame number, so screenshots, the adapter's lines and these share one timeline.
     frame = emu.framecount()
     local sb1 = r32(SAVEBLOCK1PTR)
     if sb1 < 0x02000000 then return end
@@ -117,9 +73,7 @@ local function tick()
     local fldSpr = r8(o + 0x1a)
     local sprId = r8(o + 0x04)
 
-    -- movementActionId (ObjectEvent +0x1C) is in the key too: the surf START looks like a HELD
-    -- MOVEMENT in the decomp (where to look: GetJumpSpecialMovementAction, src/field_effect.c:3050),
-    -- and a transition read only through graphicsId could not see that happen at all.
+    -- movementActionId is in the key: a surf start is a held movement, which graphicsId alone cannot see.
     local act = r8(o + 0x1c)
     local key = string.format("%d|%02X|%d.%d|%d|%02X", gfx, flags, mapG, mapN, fldSpr, act)
     if key ~= last.player then
@@ -135,7 +89,6 @@ local function tick()
         end
     end
 
-    -- The curve itself. The rider's y2 is what moves; the driver's slots say why.
     if bobUntil and frame <= bobUntil then
         say(string.format("%6d | BOB rider_y2=%d %s", frame, rs16(sprAddr(sprId) + 0x26),
             spriteLine(fldSpr)))
@@ -145,12 +98,7 @@ local function tick()
         if fh then fh:flush() end
     end
 
-    -- THE PLAYER'S OWN (graphic, animation) PAIR, EVERY FRAME IT CHANGES.
-    --
-    -- Three fixes in a row assumed the incoherent pair on the wire was manufactured by the sender.
-    -- That is an inference; this is the measurement. If the PLAYER is genuinely in `gfx=3
-    -- anim=20/4` for a frame, then the pair is real, the wire is honest, and the fix belongs on the
-    -- consumers instead. Logged per change, not per frame.
+    -- The player's own (graphic, animation) pair on change: a pair the player is never in is not real.
     do
         local ps = sprAddr(sprId)
         local pk = string.format("%d|%d|%d", gfx, r8(ps + 0x2a), r8(ps + 0x2b))
@@ -161,29 +109,17 @@ local function tick()
         end
     end
 
-    -- WHO ELSE IS DRAWING FROM OUR TILES.
-    --
-    -- A ghost that goes grey is drawing from OBJ VRAM somebody else owns, and there are only two
-    -- ways that happens: nobody wrote our range, or somebody else is writing it. This answers the
-    -- second directly -- for every ghost sprite, scan the other live sprites for one whose tile
-    -- number lands inside the ghost's own range. One line per change, so a clash that lasts a
-    -- single frame is still recorded and a stable frame costs nothing.
-    --
-    -- 64 sprite reads a frame: a probe's budget, not an adapter's (_template/probes.md).
+    -- Who else draws from a ghost's tiles: any other live sprite whose tile number lands in the ghost's range.
     for i = 0, 15 do
         local a = objAddr(i)
         if i ~= objId and (r8(a) & 0x01) == 1 and r8(a + 0x08) == GHOST_LOCAL_ID then
             local gsp = r8(a + 0x04)
             local gs = sprAddr(gsp)
             local gStart = r16(gs + 0x04) & 0x3ff
-            -- Frame size from the graphic: 32x32 is 16 tiles, 16x32 is 8. Read from the sprite's
-            -- own shape/size bits rather than assumed, so a swap mid-flight is measured honestly.
             local shape = (r16(gs + 0x00) >> 14) & 3
             local sz = (r16(gs + 0x02) >> 14) & 3
             local nTiles = (shape == 0 and sz == 2) and 16 or 8  -- square 32x32, else 16x32
-            -- A REFLECTION IS NOT A CLASH. UpdateObjectReflectionSprite (08154 0A8) copies the
-            -- character's own tileNum every frame -- sharing the tiles IS how a reflection works --
-            -- so every ghost reported one and the signal was pure noise until this excluded it.
+            -- A reflection draws its character's own tiles, so it is not a clash.
             local clash = nil
             for j = 0, 63 do
                 if j ~= gsp then
@@ -196,10 +132,7 @@ local function tick()
             end
             local ck = string.format("%d|%d|%d|%s", gsp, gStart, nTiles, tostring(clash))
             if last["clash" .. i] ~= ck then
-                -- PHOTOGRAPH THE SWAP. The reported glitch is a flash of a few frames on a real
-                -- sprite, which no struct field describes -- but a screenshot sees the spawned
-                -- tier, because it is genuine hardware. A tile range changing is exactly the
-                -- moment a graphic swap lands, so that is the trigger.
+                -- A tile range changes when a graphic swap lands; a screenshot sees the spawned tier.
                 shootUntil = frame + SHOT_FRAMES
                 last["clash" .. i] = ck
                 say(string.format("%6d | TILES obj=%d spr=%d range=%d..%d clash=%s%s",
@@ -209,16 +142,7 @@ local function tick()
         end
     end
 
-    -- IS THE GHOST DRAWING THE PIXELS IT IS SUPPOSED TO BE DRAWING?
-    --
-    -- "It looks grey" is a claim about VRAM, and VRAM can be checked against the ROM directly --
-    -- which beats every pixel heuristic tried before it (a grey-pixel count over the whole screen
-    -- turned out to be measuring the dialogue box). For each ghost: resolve the frame its own
-    -- sprite says it is showing, and compare the first tiles of its OBJ VRAM range against the
-    -- ROM image that frame names. A mismatch means it is drawing something nobody loaded.
-    --
-    -- Reads are the budget here: 8 words of ROM against 8 of VRAM per ghost per frame, and a line
-    -- only when the verdict CHANGES.
+    -- Each ghost's OBJ VRAM against the ROM frame its sprite names; a mismatch is pixels nobody loaded.
     for i = 0, 15 do
         local a = objAddr(i)
         if i ~= objId and (r8(a) & 0x01) == 1 and r8(a + 0x08) == GHOST_LOCAL_ID then
@@ -239,9 +163,7 @@ local function tick()
                     else
                         local dst = 0x06010000 + (r16(gs + 0x04) & 0x3ff) * 32
                         verdict = "ok"
-                        -- The whole frame, not its first tile: a 32x32 graphic owns 16 tiles and
-                        -- the first version checked 8 words -- one tile -- so garbage in the other
-                        -- fifteen read as "ok".  Size from the sprite's own shape/size bits.
+                        -- The whole frame, sized from the sprite's own shape/size bits.
                         local shp = (r16(gs + 0x00) >> 14) & 3
                         local szb = (r16(gs + 0x02) >> 14) & 3
                         local words = (shp == 0 and szb == 2) and 128 or 64  -- 32x32 : 16x32
@@ -253,9 +175,8 @@ local function tick()
                                 break
                             end
                         end
-                        -- THE BYTES NAME THE WRITER. On a mismatch, log where it starts and what
-                        -- is actually there against what should be -- garbage from a Pokemon pic,
-                        -- a stale walker frame and an engine-freed range all look different.
+                        -- The bytes name the writer: a Pokémon picture, a stale walker frame and a freed
+                        -- range all look different.
                         if badAt then
                             local got, want = {}, {}
                             for k = badAt, math.min(badAt + 3, words - 1) do
@@ -279,20 +200,13 @@ local function tick()
         end
     end
 
-    -- THE HARDWARE'S OWN STORY. FLAGS.md's anim-trace note, learned on fishing: when every
-    -- struct field agrees and the screen does not, the answer is in the REAL OAM at 0x07000000 --
-    -- the entries the PPU actually drew from. For the ghost's tile range, list every entry that
-    -- points into it: a clean 32-wide character is its subsprite pieces; a scrambled one is
-    -- whatever this prints instead. One line per CHANGE of the whole signature.
+    -- The real OAM entries drawing from the slot-15 ghost's tiles: when every struct agrees and the screen does not.
     do
         local ga = objAddr(15)
         if (r8(ga) & 0x01) == 1 and r8(ga + 0x08) == GHOST_LOCAL_ID then
             local gs2 = sprAddr(r8(ga + 0x04))
             local t0 = r16(gs2 + 0x04) & 0x3ff
-            -- TRUE OVERLAP, both directions. The first version required the entry's STARTING tile
-            -- to fall in the ghost's range, which is blind to a big sprite that starts below it
-            -- and spans across -- exactly the shape of a 64x64 Pokemon picture. Sizes from the
-            -- shape/size bits (GBATEK's OBJ size table), 1D mapping.
+            -- Any overlap, so a big sprite starting below the range counts; tile counts per GBATEK's OBJ sizes, 1D.
             local SIZES = {
                 [0] = { [0] = 1, [1] = 4, [2] = 16, [3] = 64 },   -- square: 8,16,32,64
                 [1] = { [0] = 2, [1] = 8, [2] = 16, [3] = 32 },   -- wide
@@ -310,12 +224,10 @@ local function tick()
                     sig[#sig + 1] = string.format("e%d:%04X/%04X/%04X(n%d)", e, a0, a1, a2, n)
                 end
             end
-            -- The allocator bitmap over our neighbourhood, one hex digit per 4 tiles, so "who
-            -- believed these tiles were free" is on the same timeline as who drew from them.
+            -- The tile allocator's bitmap beside it: who believed these tiles were free.
             do
                 local bm = {}
-                -- sSpriteTileAllocBitmap 02021B3C (the adapter's own cited constant); byte k
-                -- covers tiles 8k..8k+7, so bytes 10..17 span tiles 80..143.
+                -- sSpriteTileAllocBitmap; byte k covers tiles 8k..8k+7, so bytes 10..17 span tiles 80..143.
                 for k = 10, 17 do bm[#bm + 1] = string.format("%02X", r8(0x02021b3c + k)) end
                 sig[#sig + 1] = "bm80-144:" .. table.concat(bm)
             end
@@ -328,11 +240,7 @@ local function tick()
         end
     end
 
-    -- THE BANNER'S WINDOW. The decomp points at hardware window 0 (WIN0H/WIN0V, animated per
-    -- frame; where to look: field_effect.c:2617-2668) as what reveals the show-mon banner, so the
-    -- 1:1 clip for the painted tier would be that rectangle, not the tilemap -- unmeasured. WIN0H/V are WRITE-ONLY on hardware; whether this
-    -- emulator serves reads anyway is exactly what this measures. DISPCNT and WININ are
-    -- readable regardless.
+    -- The banner's window: WIN0H/WIN0V are write-only on hardware, so a read may be junk; DISPCNT and WININ read fine.
     do
         local wk = string.format("%04X %04X %04X %04X", r16(0x04000040), r16(0x04000044),
             r16(0x04000048), r16(0x04000000))
@@ -342,8 +250,7 @@ local function tick()
         end
     end
 
-    -- EVERY LIVE ENTRY IN THE ADAPTER'S OAM RANGE (64..127), per change. The dismount leaves
-    -- static garbage entries and a missing body; which SLOTS hold what is the whole question.
+    -- Every live entry in the adapter's OAM range (64..127), on change.
     do
         local hsig = {}
         for e = 64, 127 do
@@ -366,7 +273,7 @@ local function tick()
         pcall(function() client.screenshot(string.format("%s/g_%06d.png", SHOT_DIR, frame)) end)
     end
 
-    -- Our ghosts, on the same timeline: active, localId 255, not the player's slot.
+    -- Our ghosts: active, localId 255, not the player's slot.
     for i = 0, 15 do
         if i ~= objId then
             local a = objAddr(i)

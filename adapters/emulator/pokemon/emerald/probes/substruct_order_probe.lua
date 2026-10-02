@@ -1,33 +1,12 @@
--- MeshGhost — Pokémon Emerald: which of a Pokémon's four encrypted 12-byte blocks the game reads for
--- which kind of data, per personality (DEV TOOL, WRITES gPlayerParty -- live RAM, restored on unload
--- -- never shipped) -- 2026-09-16
---
--- WHY THIS EXISTS. autoplay's `observe` reads the party's species, held item and moves, which sit in
--- the 48 encrypted bytes at +0x20 of each 0x64-byte slot (`party_bag_probe.lua`: XOR with +0x00 ^ +0x04
--- makes the words sum to +0x1C). WHICH block holds what depends on the personality word, and one
--- party of one Pokémon shows one arrangement. This asks the game's own routine for all of them.
---
--- HOW. The routine the build names GetSubstruct is entered with the slot in R0, the personality in R1
--- and a kind 0-3 in R2 (read here, not assumed: each call is logged raw), and returns a pointer. An
--- execute hook at its entry notes the call and its return address; a second hook at that return
--- address (installed from the tick, the first time an address is seen) reads the pointer, so the
--- block is (pointer - slot - 0x20) / 12. To give the game every personality mod 24, each round
--- rewrites all six slots as copies of slot 0 whose personalities have residues round*6 + slot, with
--- all four decrypted blocks set to slot 0's species block -- so however the game orders them, the
--- summary screen reads a valid species, moves and flags -- re-encrypted and with +0x1C recomputed.
--- Open a slot's SUMMARY and page through all six with Down; then write the next round.
---
--- COMMAND FILE: `substruct_order_probe.cmd` beside this script (`.gitignore` covers `*.cmd`), read
--- every 15 frames: a round number 0-3 writes that round; `restore` puts the party back. Unloading
--- restores it too.
---
--- ADDRESSES: a pokeemerald build whose ROM hashed identical to the vanilla ROM (SHA-1, 2026-09-16)
--- proves where the routine and the party live. Vanilla only.
--- LOG: substruct_order_probe_<time>.log beside this file (gitignored): ROUND lines (what was written),
--- CALL lines (each distinct entry: R1 mod 24, R2, return address), SEEN lines (each distinct
--- residue/kind -> block) and CONFLICT lines (the same residue and kind giving another block).
--- WHAT IT CANNOT SEE: calls made before a return address was hooked (the first page view of a round
--- can miss some); a kind never read on the screens opened.
+-- Which of a Pokémon's four encrypted 12-byte blocks the game reads for each kind of data, for every personality
+-- mod 24 (dev tool: writes gPlayerParty in live RAM, restored on unload; never shipped). An execute hook on
+-- GetSubstruct's entry logs the slot (R0), personality (R1), kind (R2) and return address; a hook on that return
+-- address, installed from the tick, reads the returned pointer, so the block is (pointer - slot - 0x20) / 12.
+-- Each round rewrites all six slots as copies of slot 0 with personality residues round*6 + slot and all four
+-- blocks set to slot 0's species block, so any order reads valid, re-encrypted with +0x1C recomputed. Open a
+-- SUMMARY and page through all six with Down, then write the next round: substruct_order_probe.cmd beside it
+-- (gitignored), read every 15 frames, takes a round 0-3 or `restore`. Vanilla only. The log has ROUND, CALL, SEEN
+-- and CONFLICT lines; it misses calls made before their return address was hooked, and kinds no screen read.
 
 local BUS = "System Bus"
 local PARTY_COUNT, PARTY, MON_SIZE = 0x020244e9, 0x020244ec, 0x64
@@ -59,7 +38,7 @@ local function u32of(b, i) return b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b
 local function writeRound(round)
 	local b = original.bytes
 	local pers, otId = u32of(b, 1), u32of(b, 5)
-	-- Slot 0's decrypted block 1 (the block holding MUDKIP's species on this save, party_bag_probe).
+	-- Slot 0's decrypted block 1, which held the species on the save this was written for.
 	local key = pers ~ otId
 	local block = {}
 	for w = 0, 2 do

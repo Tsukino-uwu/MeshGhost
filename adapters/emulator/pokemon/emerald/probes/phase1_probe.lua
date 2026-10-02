@@ -1,32 +1,5 @@
--- Phase 1 read-only verification probe. Prints local player X/Y and map bank/number
--- every 15 frames (~4/sec at 60fps) so they can be watched against known-direction motion.
--- Never writes memory.
---
--- Address source: pret/pokeemerald, built locally 2026-08-11 from a checkout matching
--- ROM SHA1 F3AE088181BF583E55DAF962A92BB46F4F1D07B7 (`make compare` -> "pokeemerald.gba: OK").
--- gSaveBlock1Ptr = 0x03005d8c, confirmed independently in both pokeemerald.map and
--- pokeemerald.sym from that build.
---
--- SaveBlock1 position and map-location offsets: looked up in include/global.h (struct
--- SaveBlock1); the code below holds the values, and this probe's on-screen test checks them.
---
--- gSaveBlock1Ptr is a pointer (the save block can relocate), so it is re-read every frame
--- rather than cached.
---
--- gPlayerAvatar = 0x02037590, confirmed the same way (pokeemerald.map + pokeemerald.sym,
--- same build; sym size 0x24 matches the struct's fields summed by hand). Unlike
--- gSaveBlock1Ptr, this is a plain global struct, not a pointer.
--- PlayerAvatar fields read here (flags with its dash bit, runningState, objectEventId): offsets
--- and meanings looked up in struct PlayerAvatar, include/global.fieldmap.h -- hypotheses this
--- probe's on-screen test checks.
---
--- gObjectEvents = 0x02037350, confirmed the same way (pokeemerald.map + pokeemerald.sym,
--- same build; sym size 0x240 = 16 * 0x24). Player's entry is taken as
--- gObjectEvents[gPlayerAvatar.objectEventId], each entry 0x24 bytes.
--- facingDirection (where to look: struct ObjectEvent, include/global.fieldmap.h; DIR_* in
---   constants/global.h) -- offset, low-4-bit packing and the 1-4 = down/up/left/right values are
---   NOT YET CONFIRMED ON SCREEN. Bitfield packing order is a compiler convention, not guaranteed,
---   so this needs the same known-direction test as everything else before it's trusted.
+-- Phase 1: prints the local player's x/y, map, avatar flags and facing whenever they change, to watch against motion
+-- in a known direction. Reads only. gSaveBlock1Ptr is re-read every frame because the save block can move.
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GPLAYERAVATAR_ADDR = 0x02037590

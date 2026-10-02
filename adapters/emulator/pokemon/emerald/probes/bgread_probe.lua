@@ -1,13 +1,5 @@
--- MeshGhost -- can we read the BG layers at all? (PROBE, never shipped)
---
--- WHY. A drawn reflection has to know whether a higher-priority BG covers a given pixel, which
--- means reading the BG control registers, the tilemaps and the tile pixels in VRAM. This project
--- has a recorded case of a VRAM region reading back as all zeros through the domain in use --
--- which, taken at face value, is a confident and completely false answer (probes.md, "A dud
--- instrument reads as a finding"). So this checks the instrument before anything is built on it.
---
--- Prints the four BG control registers, their scroll, and a non-triviality check on the tilemaps
--- and on tile pixel data.
+-- Can the BG layers be read at all? Prints the four BG control registers and their scroll, and checks that the
+-- tilemaps and the tile pixels are not all zero: an all-zero VRAM read is an instrument fault, not an answer.
 local function say(s) console.log("bgread: " .. s) end
 local done = false
 local n = 0
@@ -22,8 +14,7 @@ local function tick()
             bg, cnt, cnt & 3, (cnt >> 2) & 3, (cnt >> 8) & 0x1f,
             r16(0x04000010 + bg * 4), r16(0x04000012 + bg * 4)))
     end
-    -- Tilemaps: how many of the first 1024 entries are non-zero, per BG. All-zero would mean the
-    -- read is not landing on the tilemap.
+    -- All zero would mean the read is not landing on the tilemap.
     for bg = 1, 2 do
         local cnt = r16(0x04000008 + bg * 2)
         local base = 0x06000000 + ((cnt >> 8) & 0x1f) * 0x800
@@ -31,7 +22,6 @@ local function tick()
         for i = 0, 1023 do if r16(base + i * 2) ~= 0 then nz = nz + 1 end end
         say(string.format("BG%d tilemap at %08X: %d/1024 entries non-zero", bg, base, nz))
     end
-    -- Tile pixels: how many of the first 4KB of character data are non-zero.
     local cnt1 = r16(0x0400000a)
     local charBase = 0x06000000 + ((cnt1 >> 2) & 3) * 0x4000
     local nz = 0

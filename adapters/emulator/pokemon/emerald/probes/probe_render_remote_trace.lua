@@ -1,25 +1,8 @@
--- MeshGhost dev probe: a headless companion to meshghost_emerald.lua that connects to the same
--- bridge protocol (same addresses, same networking, same JSON -- all identical to and copied
--- from that script, see its header for the full derivation/citations) but does NOT decode or
--- draw a sprite. Its only job is to print, every ~2s, this client's own area/position and
--- every currently-known remote's area/position/match status. Never writes memory.
---
--- Why this exists: found live 2026-08-14 during the first real non-loopback two-peer Emerald
--- test, ghosts weren't rendering and the cause turned out to be a launch-time mistake (the
--- second BizHawk instance never got MESHGHOST_BRIDGE_PORT set, so both instances silently
--- shared one core's bridge) -- see agent_docs/pitfalls.md's "Running two instances of the same
--- emulator/game silently collide on a shared default port" entry. Diagnosing that took adding
--- throttled trace logging directly into the shipping adapter and internal/core, then reverting
--- both once confirmed. This probe exists so that trace capability doesn't need to be
--- re-added/re-reverted in the shipping script next time -- load this instead, alongside or
--- instead of meshghost_emerald.lua, to see the same local/remote area+position trace without
--- touching the file that ships.
---
--- Usage: load this in BizHawk's Lua Console the same way as meshghost_emerald.lua (same
--- MESHGHOST_BRIDGE_PORT env var convention). Can run standing in for a real adapter (it does
--- send its own real local_state, so it participates in the room like a normal peer, just with
--- no visible ghost) or alongside a real running adapter on a different bridge port to observe
--- that peer's own traffic pattern from a second vantage point.
+-- A headless companion to meshghost_emerald.lua: the same bridge protocol, networking and JSON, no sprite. Every
+-- ~2s it prints this client's area and position and each known remote's, with whether they match, so a ghost that
+-- does not render can be traced without touching the shipped file. It sends its own real local_state, so it joins
+-- the room as a peer with no visible ghost: load it like the adapter (MESHGHOST_BRIDGE_PORT), in its place or
+-- beside a running one on another bridge port. Never writes memory.
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GPLAYERAVATAR_ADDR = 0x02037590
@@ -42,11 +25,6 @@ local ADAPTER_VERSION = "probe_render_remote_trace"
 
 local FACING = { [1] = "south", [2] = "north", [3] = "west", [4] = "east" }
 
-----------------------------------------------------------------------------
--- Paths -- identical to meshghost_emerald.lua, see its header for why
--- debug.getinfo does NOT work here.
-----------------------------------------------------------------------------
-
 local function scriptDir()
     local pwd = io.popen and io.popen("cd"):read("*l")
     if not pwd or pwd == "" then
@@ -56,10 +34,6 @@ local function scriptDir()
 end
 
 local SCRIPT_DIR = scriptDir()
-
-----------------------------------------------------------------------------
--- LuaSocket -- identical to meshghost_emerald.lua, see its header.
-----------------------------------------------------------------------------
 
 local function preloadLua54()
     pcall(function()
@@ -85,10 +59,6 @@ local function loadSocketCore()
 end
 
 local socketCore = loadSocketCore()
-
-----------------------------------------------------------------------------
--- Minimal JSON -- identical to meshghost_emerald.lua, see its header.
-----------------------------------------------------------------------------
 
 local JSON_STRING_ESCAPES = {
     ["\\"] = "\\\\", ['"'] = '\\"', ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t",
@@ -224,10 +194,6 @@ local function jsonDecode(line)
     return val
 end
 
-----------------------------------------------------------------------------
--- Bridge connection -- identical to meshghost_emerald.lua, see its header.
-----------------------------------------------------------------------------
-
 local sock = nil
 local connected = false
 local recvPartial = ""
@@ -265,10 +231,6 @@ local function sendLine(line)
     end
     resetBridge()
 end
-
-----------------------------------------------------------------------------
--- Local state reading -- identical to meshghost_emerald.lua, see its header.
-----------------------------------------------------------------------------
 
 local lastMapGroup, lastMapNum = nil, nil
 
@@ -316,10 +278,7 @@ local function getLocalState()
     }
 end
 
-----------------------------------------------------------------------------
--- Remote set + trace. This is the one part that's NOT copied from
--- meshghost_emerald.lua -- that script draws remotes, this one only prints.
-----------------------------------------------------------------------------
+-- The remote set and trace: the one part not copied from the adapter, which draws where this prints.
 
 local remotes = {}
 
@@ -383,9 +342,7 @@ local function traceRemotes(localAreaId)
     end
 end
 
-----------------------------------------------------------------------------
--- Main loop -- same tick model as meshghost_emerald.lua, minus sprite drawing.
-----------------------------------------------------------------------------
+-- The adapter's tick model, minus drawing.
 
 if not memory.usememorydomain("System Bus") then
     console.log("ERROR: 'System Bus' memory domain not found on this core.")

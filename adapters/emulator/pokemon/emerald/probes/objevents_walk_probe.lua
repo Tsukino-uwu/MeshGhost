@@ -1,28 +1,9 @@
--- MeshGhost — Emerald: pick gObjectEvents by WALKING, for a build whose save block is lost (PROBE)
---
--- READ-ONLY of game memory; it drives the D-pad and nothing else.
---
--- WHY THIS EXISTS, AND WHY objevents_pick_probe.lua CANNOT DO IT.
--- That probe decides between candidates by comparing each one's player slot against the SAVE
--- BLOCK's tile, which works beautifully on SPEEDCHOICE 1.2.2 -- there gSaveBlock1Ptr is exactly
--- where the adapter expects it. On EX SPEEDCHOICE 0.4.0 it is not: 0x03005D8C reads FDFDFFFF,
--- gMain.callback2 reads E0999086, and neither is a pointer. The whole of IWRAM moved, so the
--- known-truth this test depends on is gone.
---
--- Movement is the way in that needs no known address at all. Walk one axis and watch which
--- candidate's player slot tracks it: a real gObjectEvents changes x by exactly one per completed
--- tile step with y held constant, and an array that merely LOOKS like one does not.
---
--- THE USER'S CONSTRAINT IS RESPECTED (2026-09-11): from this savestate straight lines are clear in
--- every direction, but MIXING directions can walk into an NPC or a house. So each axis is walked
--- out and walked straight back before the other is tried, and the probe never turns a corner.
---
--- WHAT IT CANNOT SEE: whether the array it picks is gObjectEvents rather than another array that
--- also tracks the player (a copy, a backup, a follower's). Two candidates agreeing is reported as
--- AMBIGUOUS rather than resolved by preferring one -- picking on the strength of address order is
--- how a plausible wrong answer gets written into an adapter that then writes to it.
+-- MeshGhost — Pokémon Emerald: pick gObjectEvents by walking, for a build whose save block is lost (dev tool,
+-- read-only, holds the D-pad, never shipped). Walks LEG tiles out and back on each axis, never turning a corner, so
+-- start where straight lines are clear; a candidate slot that moves exactly one tile per step on the right axis wins.
+-- Two winners are reported as ambiguous, never resolved by preferring one.
 
-local CANDIDATES = {
+local CANDIDATES = { -- the six survivors on EX SPEEDCHOICE 0.4.0
     0x02025790, 0x02029308, 0x02029350, 0x02029374, 0x020293BC, 0x02037FD0,
 }
 local OBJECTEVENT_SIZE = 0x24
@@ -44,7 +25,6 @@ local function say(line)
     if f then f:write(line, "\n") f:close() end
 end
 
--- one sample = every candidate's every slot, as a flat list of {x, y}
 local function sample()
     local out = {}
     for ci, base in ipairs(CANDIDATES) do
@@ -78,7 +58,6 @@ for ci = 1, #CANDIDATES do
 end
 
 local function judgeStep(dir, a, b)
-    -- what a real player slot must do for this direction, in tiles
     local wantX = (dir == "Right" and 1) or (dir == "Left" and -1) or 0
     local wantY = (dir == "Down" and 1) or (dir == "Up" and -1) or 0
     checked = checked + 1

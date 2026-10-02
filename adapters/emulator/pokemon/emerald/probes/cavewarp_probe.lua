@@ -1,44 +1,7 @@
--- MeshGhost -- Emerald warp-transition probe (DEVELOPMENT TOOL, never shipped)
---
--- WHY IT EXISTS
--- The user, 2026-08-21, walking into a cave with all three tiers on screen: *"when going inside a
--- cave, the drawn ghost stays on the screen for a bit too long."* A cave mouth is a warp with no
--- door animation, which is exactly the case the drawn tier's two hiding mechanisms were NOT
--- measured against -- both were built and confirmed on a HOUSE door (`drawRemotes`' header, and
--- probes/turn_and_door_probe.lua):
---
---   1. the hard cut, taken from the invisible bit (0x04) on the player sprite's flags (+0x3e),
---      which the engine sets for a door transition; and
---   2. the scene-brightness ratio, live OBJ palette against the ROM palette, which fades the
---      painted copy with everything else.
---
--- A screenshot cannot settle this: the drawn tier is a Lua overlay painted after the frame, so
--- `client.screenshot()` never sees it (.claude/skills/play-game/references/screenshots.md). So this probe logs the INPUTS to
--- both mechanisms every frame across a transition, and the answer is read off the table.
---
--- WHAT IT LOGS, one line per frame while armed:
---   f       -- frame counter
---   cb2     -- gMain.callback2, so the map-load/fade handlers are visible as themselves
---   map     -- gSaveBlock1Ptr->location group.num: when the map id ACTUALLY changes
---   spr     -- the player's sprite id, and inv=1 when its invisible bit is set (mechanism 1)
---   pal     -- the OBJ palette slot that sprite is drawn from
---   ratio   -- the OLD scalar brightness ratio, live/ROM clamped to 1: what the adapter used
---              until 2026-08-21, kept so a log line shows why it could not see a white fade
---   a, b    -- the blend fit the adapter uses now, live = a*rom + b (b in 0..255 units)
---
--- ADDRESSES are the adapter's own, already cited in meshghost_emerald.lua: gSaveBlock1Ptr
--- 0x03005d8c, gSaveBlock2Ptr 0x03005d90, gPlayerAvatar 0x02037590 (spriteId at +0x04),
--- gSprites 0x02020630 stride 0x44, gMain.callback2 0x030022c4, and the two ROM object palettes.
--- Palette RAM 0x05000200 is GBA hardware (OBJ palettes), not a fact about this game.
---
--- HOW TO USE. Load it beside the adapter through the dev loader, then write a command into
--- probes/cavewarp.cmd: `arm <frames>` starts a run (default 240), `off` stops one early. It logs
--- to a timestamped file beside itself -- a verdict that exists only in the Lua Console has to be
--- copied back by a human (adapters/_template/probes.md).
---
--- COST. Thirty-four 16-bit palette reads plus a handful of byte reads per frame, and only while
--- armed. It writes one buffered line per frame and flushes when the run ends, because per-frame
--- file I/O is itself measurable -- a probe's own logging cost 7.4 fps on 2026-08-21.
+-- MeshGhost — Emerald warp-transition probe (dev tool, read-only, never shipped). Logs the inputs to the drawn
+-- tier's two hiding mechanisms every frame while armed: the player sprite's invisible bit and the live-vs-ROM OBJ
+-- palette, as the old scalar ratio and the blend fit live = a*rom + b (b in 0..255). A screenshot cannot see the
+-- drawn tier. Write `arm <frames>` (default 240) or `off` into cavewarp.cmd beside it.
 
 local SB1PTR = 0x03005d8c
 local SB2PTR = 0x03005d90
@@ -50,9 +13,6 @@ local OBJPAL_RAM = 0x05000200
 local PAL_BRENDAN = 0x084987f8
 local PAL_MAY = 0x084a4278
 
--- Its own directory, so the log and the command file sit beside this script wherever the repo
--- lives -- the same helper fpshold.lua uses, and the reason is the public-repo rule: no tracked
--- file may carry a machine-specific path.
 local function scriptDir()
     local info = debug.getinfo(1, "S")
     if info and info.source and info.source:sub(1, 1) == "@" then
@@ -82,8 +42,7 @@ local function readCmd()
     return (s:gsub("%s+$", ""))
 end
 
--- drawRemotes' own brightness arithmetic, repeated here rather than shared: this probe must be
--- able to disagree with the adapter, and a shared helper could only ever agree with it.
+-- drawRemotes' brightness arithmetic, repeated rather than shared so the probe can disagree with the adapter.
 local function sceneDim(spriteAddr)
     local slot = (r16(spriteAddr + 0x04) >> 12) & 0xF
     local romPal = PAL_BRENDAN
@@ -104,13 +63,11 @@ local function sceneDim(spriteAddr)
             sx, sy = sx + x, sy + y
         end
     end
-    -- The OLD scalar ratio, kept alongside the new fit so a log line shows both and the
-    -- difference between them is visible rather than argued about.
     local dim = 1
     if ref > 0 then dim = live / ref end
     if dim > 1 then dim = 1 elseif dim < 0 then dim = 0 end
 
-    -- drawRemotes' blend fit: live = a*rom + b across all 48 channel values.
+    -- The blend fit, across all 48 channel values.
     local nPts = #xs
     local mx, my = sx / nPts, sy / nPts
     for i = 1, nPts do

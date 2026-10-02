@@ -81,8 +81,8 @@ declines and cross-map ghosts still read vanilla's map header. The queue is
   what `dev-scripts/stage-release.ps1` (invoked by `.github/workflows/release.yml`) stages into
   the release, and what any future fix belongs in.
   `probes/phase5_5_sprite.lua` is a historical copy under its original development-phase name (split
-  off 2026-08-14, byte-identical only at that moment — see that file's own header for how far
-  it's since diverged) — the "How this adapter was built" section below is the accurate
+  off 2026-08-14, byte-identical only at that moment; how far it has since diverged is in `agent_docs/pitfalls/by-lesson.md`,
+  "The stories behind the code") — the "How this adapter was built" section below is the accurate
   history of how it came to be, under whatever name it had at each point.
 
 See [agent_docs/contract.md](../../../../agent_docs/contract.md) for the adapter interface and

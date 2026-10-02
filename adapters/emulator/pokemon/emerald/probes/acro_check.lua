@@ -1,12 +1,5 @@
--- MeshGhost -- is the Acro Bike actually in the bag and registered? (DEV TOOL, never shipped)
---
--- WHY. `use_acro` registers ITEM_ACRO_BIKE to SELECT and presses it, and twice in a row the player
--- stayed on foot with no menu on screen. "The press did nothing" has three different causes -- the
--- item is not in the bag, the registration did not take, or the pad is not reaching the game --
--- and guessing between them is what this project has a rule against. So: read all three.
---
--- Offsets are grant_test_kit.lua's, already cited there: SaveBlock1 bagPocket_KeyItems 0x5D8,
--- registeredItem 0x496, struct ItemSlot { u16 itemId; u16 quantity; }, ITEM_ACRO_BIKE 272.
+-- Is the Acro Bike in the bag, is it registered to SELECT, and is the player on it? Logs all three, once (dev tool,
+-- never shipped). SaveBlock1 offsets as in grant_test_kit.lua; a key-item slot is a u16 id then a u16 quantity.
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
@@ -14,8 +7,8 @@ local KEYITEMS_OFF = 0x5d8
 local KEYITEMS_COUNT = 30
 local ITEM_ACRO_BIKE = 272
 
--- The Lua console is not readable from outside the emulator, so every line also goes to a
--- file next to this probe. A backslash inside a Lua pattern is an escape, hence string.char.
+-- Also logged beside the probe: the Lua console cannot be read from outside the emulator. A backslash in a Lua
+-- pattern is an escape, hence string.char.
 local BSLASH = string.char(92)
 local logPath = ("%s/acro_check.log"):format(
     (debug.getinfo(1, "S").source:sub(2):match("^(.*)[/" .. BSLASH .. "][^/" .. BSLASH .. "]*$") or "."))

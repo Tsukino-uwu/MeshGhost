@@ -1,41 +1,7 @@
--- MeshGhost — Pokémon Emerald: who has a shadow and who has dust (PROBE, never shipped)
---
--- WHY
--- Two questions about a hopping ghost that a screenshot answers badly and a memory read answers
--- exactly:
---
---   1. Does the REAL shadow sprite the adapter builds for a spawned ghost actually exist, sit
---      where the engine would put it, and carry the engine's subpriority? It was disabled after it
---      reset the game (the NULL callback, `pitfalls.md` 2026-08-21), and re-enabling it deserves an
---      observation rather than "it did not crash this time".
---   2. Does the engine spawn its OWN landing dust for a ghost? The adapter paints dust over the
---      spawned ghost on the assumption that the engine's is there but hidden behind our painted
---      shadow. If the engine's is really there, the painted one is a bandage that can come out; if
---      it is not, the painted one is the only dust that tier will ever have. Nobody has looked.
---
--- HOW IT TELLS THEM APART, without knowing which sprite belongs to whom: a shadow and a dust are
--- ordinary sprites drawing from a field effect's own ROM `images` pointer, so every in-use sprite
--- is compared against those five pointers by value. That is the same describe-it-do-not-memorise
--- discipline the rest of this folder uses.
---
--- ADDRESSES, from our own make-compare-verified pokeemerald build:
---   gSprites      02020630  stride 0x44 { oam 0x00, images 0x0C, pos1 0x20, pos2 0x24,
---                                         callback 0x1C, flags 0x3E, subpriority 0x43 }
---   gPlayerAvatar 02037590  { spriteId 0x04, objectEventId 0x05 }
---   gObjectEvents 02037350  stride 0x24 { movementActionId 0x1C }
---   gSpriteCoordOffsetX/Y 03005dec / 03005dee
---   Field effect sprite templates (pokeemerald.map), `images` at +0x0C:
---     ShadowSmall 0850C9FC · ShadowMedium 0850CA14 · ShadowLarge 0850CA2C
---     ShadowExtraLarge 0850CA44 · GroundImpactDust 0850CCA0
---
--- COST. One pass over 64 sprites per frame, all plain reads, and it writes a line only when the
--- set of shadows/dusts on screen CHANGES. A probe can break what it measures (`_template/probes.md`)
--- so it stays quiet by default: nothing is drawn, nothing is written to the game.
---
--- HOW TO RUN
---   Add this file to dev-scripts/bizhawk-dev-loader-emerald.target alongside the adapter, get a
---   ghost hopping (probes/acro_hop.lua does it without anyone holding a button), and read
---   probes/shadowdust_probe_<date>.log.
+-- MeshGhost — Pokémon Emerald: who has a shadow and who has dust (dev tool, read-only, vanilla only, never shipped).
+-- Finds them by what they are: each in-use sprite whose images pointer is a shadow or landing-dust field effect
+-- template's, logged on any change with its offset from the player's sprite, subpriority, priority, palette, tile,
+-- visibility and callback. Run it beside the adapter with a ghost hopping (acro_hop.lua makes one).
 
 local GSPRITES_ADDR = 0x02020630
 local SPRITE_SIZE = 0x44
@@ -92,9 +58,7 @@ local function tick()
         if (r8(d + 0x3e) & 0x01) == 1 then
             local what = WANTED[r32(d + 0x0c)]
             if what then
-                -- dx/dy against the PLAYER's own sprite is what says whose effect this is: the
-                -- loopback ghost stands a couple of tiles to the side, so anything near 0,0 is the
-                -- player's and anything ~32px out is the ghost's.
+                -- Whose effect: near 0,0 is the player's, ~32px out the loopback ghost's, which stands to the side.
                 parts[#parts + 1] = ("%s spr=%d dx=%d dy=%d sub=%d pri=%d pal=%d tile=%d "
                     .. "vis=%s cb=%08X")
                     :format(what, i, rs16(d + 0x20) - px, rs16(d + 0x22) - py,

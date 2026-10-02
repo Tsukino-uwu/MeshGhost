@@ -1,24 +1,6 @@
--- Read-only probe, not part of the shipped adapter. Investigates two open questions from
--- agent_docs/status.md's 2026-08-14 "surf/Mach Bike/Acro Bike" next-step entry:
---
--- (1) Does PLAYER_AVATAR_FLAG_MACH_BIKE/_ACRO_BIKE/_SURFING (bits 1/2/3 on the same
---     PlayerAvatar.flags byte meshghost_emerald.lua already reads for the dash bit, bit 7 --
---     pokeemerald's real include/global.fieldmap.h:288-295) actually behave as documented on
---     this real Archipelago-patched ROM, the same "bitfields need an on-screen check" rule
---     agent_docs/pitfalls.md already states.
--- (2) What is the REAL per-tile frame duration for surfing/Mach Bike/Acro Bike -- measured the
---     same way walking (16) and running (8) were: log the real frame gap between consecutive
---     whole-tile position commits (gSaveBlock1Ptr x/y), per mode, and look for a clean,
---     repeated, near-zero-variance number the same way those two were confirmed.
---
--- Never writes memory. Logs only on a flag-byte CHANGE (not every frame) plus once per real
--- tile-position commit, to stay readable across a real multi-minute test covering all three
--- modes plus normal walking/running as a sanity baseline.
---
--- How to use: load this script (Lua Console -> Script -> Open Script), then in-game: walk a
--- few tiles normally (baseline), surf a few tiles, ride the Mach Bike a few tiles, ride the
--- Acro Bike a few tiles (plain riding is enough -- wheelies are a separate, later question).
--- Copy the full console output back.
+-- MeshGhost — the avatar flags and the frames per tile on foot, surfing and on both bikes (dev tool, read-only, never
+-- shipped). Logs each change of PlayerAvatar.flags as set bit numbers, and the frame gap at every tile commit, to the
+-- console; walk, surf and ride each bike a few tiles. Finds the avatar block on vanilla and the Archipelago ROM.
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GPLAYERAVATAR_ADDR = 0x02037590
@@ -27,9 +9,7 @@ local OBJECTEVENT_SIZE = 0x24
 local AVATAR_ADDR_ARCHIPELAGO_SHIFT = 0x284
 local MAP_GROUPS_COUNT = 34
 
--- Same live-detection logic as meshghost_emerald.lua's tryDetectAvatarAddrOffset() --
--- duplicated here rather than shared, since this is a standalone throwaway probe, not shipped
--- code. See that function's own comments for the full derivation/citation.
+-- A copy of meshghost_emerald.lua's tryDetectAvatarAddrOffset().
 local function playerObjEventExistsAt(gObjectEventsBase)
     for i = 0, 15 do
         local addr = gObjectEventsBase + i * OBJECTEVENT_SIZE
@@ -57,9 +37,7 @@ local function tryDetectAvatarAddrOffset()
     end
 end
 
--- The avatar flags print as set bit numbers. A bit-name table copied from the decompilation was
--- removed 2026-09-16 (the audit, the user's call); which bit means what is what a run shows.
-
+-- Bit numbers, not names: which bit means what is what a run shows.
 local function decodeFlags(flags)
     local parts = {}
     for i = 0, 7 do
@@ -118,13 +96,6 @@ local function step()
     end
 end
 
--- TWO WAYS TO RUN, and the loader one is not optional politeness. This probe predates
--- dev-scripts/bizhawk-dev-loader.lua and carried a bare `while true ... emu.frameadvance()`, which
--- under the loader HIJACKS THE FRAME LOOP FOREVER: the loader never gets control back, so it stops
--- polling its control file and every other target -- the adapter included -- silently stops
--- ticking while the game keeps running at full speed. Found live 2026-08-19; from outside it looks
--- exactly like the loader having quietly died, and the only recovery is restarting the emulator.
--- The loader's own header states this contract; this file simply never got updated to it.
 if MESHGHOST_DEV_LOADER then
     MESHGHOST_DEV_TICK = step
 else

@@ -1,26 +1,5 @@
--- MeshGhost — Pokémon Emerald: the naming screen's state, raw (DEV TOOL, READ-ONLY, never shipped) -- 2026-09-17
---
--- WHY THIS EXISTS. autoplay's `advance_text` stops `stuck` on the naming keyboard, which nothing reads: the new-game
--- run typed its name with raw presses, and a nudge once typed "AA" there (`agent_docs/phases/phase13.md`). What the
--- screen holds -- the name so far, which page shows, where the cursor is, how long a name may be -- is to be
--- measured, so a reader and a program can be built on it.
---
--- ADDRESSES: a pokeemerald build whose ROM hashed identical to the vanilla ROM (SHA-1, 2026-09-16) proves where the
--- pointer the build names sNamingScreen (0x02039F94) and the sprite array gSprites (0x02020630, 0x44 a sprite) live.
--- The offsets below are where its struct layout says to LOOK -- the text buffer at +0x1800, a tail from +0x1E10 with the
--- page and the cursor's sprite id, the template pointer at +0x1E28 -- and each is logged raw, to be read against the
--- screen: none of them is taken as meaning anything until a press moves it.
---
--- WHAT IT LOGS (naming_probe_<target>_<time>.log beside this file; gitignored), each on change, with the pad:
---   CB2    gMain.callback2
---   NS     the sNamingScreen pointer
---   TXT    +0x1800, 16 bytes raw
---   TAIL   +0x1E10..+0x1E3F raw
---   SPR n  sprite n's 0x44 bytes raw, for the id at +0x1E23 and for every sprite whose +0x2E..+0x31 changed since the
---          last frame (so a cursor on another sprite still shows)
---   TPL    the 12 bytes at the pointer in +0x1E28
--- WHAT IT CANNOT SEE: anything between two changes, a keyboard not opened through this struct, a patched ROM.
--- COST: about 0x1100 bytes read a frame (the sprite array), no hooks.
+-- MeshGhost — Emerald: the naming screen, raw, on every change with the pad (dev tool, read-only, no hooks, vanilla).
+-- sNamingScreen's +0x1800 (the name so far) and +0x1E10..+0x1E3F, the cursor's sprite, the template, the keyboard once.
 
 local BUS = "System Bus"
 local GMAIN_CB2, SNAMINGSCREEN, GSPRITES, SPRITE_SIZE, SPRITES = 0x030022c4, 0x02039f94, 0x02020630, 0x44, 65
@@ -68,8 +47,7 @@ local function onChange(key, value, line)
 end
 
 log("naming_probe loaded")
--- Added the same day: the 0x60 bytes the build names sKeyboardChars (0x0858BE40), once, as 3 blocks of 4 rows of 8,
--- letters and digits decoded -- to be read against captures of the three pages.
+-- sKeyboardChars, once: three blocks of 4 rows of 8.
 do
 	local b = memory.read_bytes_as_array(0x0858be40, 0x60, BUS)
 	for k = 0, 2 do

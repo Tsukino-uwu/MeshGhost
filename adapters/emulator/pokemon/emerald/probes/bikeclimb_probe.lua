@@ -1,24 +1,7 @@
--- MeshGhost -- Mach Bike run-up and climb, repeating (DEV TOOL, never shipped)
---
--- WHY. The Mach Bike's whole purpose is the muddy slope: hold a direction into it at top speed and
--- you climb, drop below that speed and the slope pushes you back down. Holding one key for minutes
--- while watching two ghosts for defects is exactly what a script should do instead of the user
--- (.claude/skills/play-game/SKILL.md).
---
--- THE RUN-UP IS THE POINT. Held from a standing start one tile below the mud, the bike never
--- accelerates at all: it gains a tile and loses it, once a second, forever -- measured, and the
--- reason `speed=0 peak=0` appeared in every line of the hold-Up log. Where the decomp points for
--- why (unmeasured): ForcedMovement_MuddySlope, src/field_player_avatar.c:567-581.
---
--- So the ride does what a player does (user, 2026-08-20): back off 3 tiles, then hold Up all the
--- way, arriving at the mud already at top speed. Repeating, so the climb can be watched more than
--- once without anyone touching the pad.
---
--- Both phases are counted in TILES and the climb ends when the mud does, not at a guessed number --
--- the slope's length is a property of the slope. Each phase logs the speed it actually reached and
--- how many frames it spent on mud, so "held the key" and "climbed the slope" stay separate claims
--- (MB_MUDDY_SLOPE taken as 208 from include/constants/metatile_behaviors.h -- the value this
--- log's on-slope reading tests).
+-- Mach Bike run-up and climb of a muddy slope, repeating (dev tool, never shipped). Held from a standing start
+-- below the mud the bike never speeds up, so each round backs off BACK_OFF_TILES and climbs at top speed. Both
+-- phases count tiles and the climb ends when the mud does; each logs its peak speed and frames on mud, so "held
+-- the key" and "climbed the slope" stay separate claims.
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GMAIN_CALLBACK2_ADDR = 0x030022c4

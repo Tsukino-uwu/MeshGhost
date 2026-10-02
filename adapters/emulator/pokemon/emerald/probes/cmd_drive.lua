@@ -1,51 +1,24 @@
--- MeshGhost — Pokémon Emerald: a command-queue driver that builds a test state on the spot
--- (DEV TOOL, WRITES, HOLDS THE CONTROLLER, never shipped) -- 2026-09-16
---
--- WHY THIS EXISTS. `.claude/skills/play-game/SKILL.md`, "You decide what happens inside the game": anything inside the game may be made to
--- happen to reach a test, and the mechanism under test is then driven the way the game intends. This
--- is that loop for vanilla Emerald without a relaunch or a savestate: it re-reads a small command file
--- and runs it line by line. Crystal's twin is `crystal/probes/cmd_drive.lua`.
---
--- COMMAND FILE: `cmd_drive.cmd` beside this script (`.gitignore` covers `*.cmd`), read every 15
--- frames; a CHANGED file replaces the queue. One command per line, `#` comments allowed:
+-- Builds a test state on the spot on vanilla Emerald (dev tool that writes and holds the controller, never shipped;
+-- Crystal's twin is crystal/probes/cmd_drive.lua). It re-reads cmd_drive.cmd beside it (gitignored) every 15
+-- frames, a changed file replacing the queue, and runs it line by line. One command per line, `#` comments allowed:
 --   hold BTN[+BTN] N       hold buttons N frames (a tap of ~4 turns toward a blocked tile)
 --   wait N                 do nothing for N frames
 --   shot NAME              client.screenshot to dev-scripts/shots/emerald/NAME.png, then `status`
 --   status                 SaveBlock1 pos and map, avatar flags, the player object and sprite
---   warp G.N X,Y           the game's own map load to map G.N, standing at map tile X,Y
+--   warp G.N X,Y           the game's own map load to map G.N, standing at map tile X,Y (onto water arrives surfing)
 --   grid DX,DY             the map-grid value at the player's tile + (DX,DY)
---   mtscan BEH             metatile ids of the loaded tilesets whose behaviour byte is BEH (decimal)
---   mtset DX,DY ID[:COLL]  rewrite the metatile id (and collision) at the player's tile + (DX,DY)
+--   mtscan BEH             metatile ids of the loaded tilesets whose behaviour byte is BEH (decimal); past the
+--                          secondary tileset's real count it reads whatever follows, so trust low ids only
+--   mtset DX,DY ID[:COLL]  rewrite the metatile id (and collision) at the player's tile + (DX,DY); a tile written
+--                          on screen is not redrawn, so write it off screen and walk to it; a warp undoes it
 --   givekey ID             an item id (decimal) into the first free Key Items slot, quantity 1
 --   register ID            the item Select uses
 --   rec on LABEL | rec off `borrowed_values_probe.lua`'s recorder flag (the loader shares globals)
 --   objdump                every non-empty object event slot, raw
 --   poke8|poke16|poke32 ADDR VAL   one System Bus write (hex), read back
---
--- WHAT IS MEASURED (vanilla, 2026-09-16, this tool's log and `borrowed_values_probe.lua`):
---   * `warp` -- sWarpDestination and SaveBlock1's location, SaveBlock1 pos, gFieldCallback, then
---     gMain.callback2 = CB2_LoadMap (`goto_map.lua`'s writes) -- landed on the named map and tile
---     every time, onto land and onto water; a warp onto water arrives SURFING (graphic 2, the blob).
---     A warp reloads the map grid from ROM, so it undoes every `mtset`.
---   * `mtset` into gBackupMapLayout's grid: a ledge metatile (135, behaviour 59) written 8 rows below
---     the player was drawn by the game when it scrolled on screen and hopped two tiles by walking
---     into it. A tile written ON screen is not redrawn -- write it off screen and walk to it.
---   * `mtscan` reads gMapHeader -> mapLayout -> primary/secondary tileset -> metatileAttributes;
---     behaviours 16/22/56/57/59 came back as tiles that behaved as such. Past the secondary
---     tileset's real count it reads whatever follows, so trust low secondary ids only.
---   * `givekey`/`register`: SaveBlock1 Key Items at +0x5D8 with the quantity XOR SaveBlock2's key low
---     half (`testkit.lua`'s write), and SaveBlock1+0x496 -- Select then mounted the Acro Bike (272)
---     and cast the Super Rod (264) through the game's own paths.
---   * SaveBlock1's object-event copy starts at +0xA30 (slot 0 matched it byte for byte).
--- UNMEASURED: every address on a patched build -- `warp` refuses unless gMain.callback2 is vanilla's
--- CB2_Overworld, and nothing else checks.
---
--- Nothing here writes the save file, but SaveBlock1 is what an in-game save stores: a `givekey` or
--- `register` survives one. Take it off the target when done -- an input-driving tool left loaded is a
--- suspect in every later report.
---
--- FINDING A REAL PLACE: `find_behaviour.py` (beside this file) scans every map grid in the ROM for a
--- behaviour and lists tiles to warp to, including a walkable tile directly above one.
+-- Vanilla addresses only: `warp` refuses unless gMain.callback2 is vanilla's CB2_Overworld, and nothing else
+-- checks. SaveBlock1 is what an in-game save stores, so a `givekey` or `register` survives one; take it off the
+-- target when done. find_behaviour.py, beside it, lists real tiles of a behaviour to warp to.
 
 local GPLAYERAVATAR, GOBJECTEVENTS = 0x02037590, 0x02037350
 local GSPRITES = 0x02020630

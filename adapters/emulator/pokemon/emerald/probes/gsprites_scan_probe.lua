@@ -1,48 +1,9 @@
--- Dev-only probe: find gSprites' EWRAM base on an arbitrary (possibly Archipelago-patched)
--- Emerald build. READ-ONLY of game memory; it drives the D-pad (joypad.set) and nothing else.
---
--- WHY THIS EXISTS
--- gObjectEvents/gPlayerAvatar's Archipelago relocation was measured (avatar_scan_probe.lua ->
--- avatar_verify_probe.lua, meshghost_emerald.lua's AVATAR_ADDR_ARCHIPELAGO_SHIFT). gSprites'
--- was not, and until it is, meshghost_emerald.lua refuses to run the SPAWN path on a patched
--- ROM -- writing a wrong gSprites corrupts whatever now lives there (BANDAGES.md, "Two render
--- paths at once"). gSprites is a RUNTIME EWRAM array, so unlike the sprite/palette ROM data it
--- cannot be found by byte-searching the ROM file: it needs a live probe.
---
--- WHAT IT IS ALLOWED TO ASSUME
--- Nothing about where gSprites is. It is handed only what is already measured on this build:
--- gPlayerAvatar/gObjectEvents (detected here the same way the adapter detects them) and the
--- struct field offsets, which are build-independent: the struct Sprite (include/sprite.h) and
--- struct ObjectEvent (include/global.fieldmap.h) offsets used below are the ones
--- meshghost_emerald.lua's shipped spawn path already uses; this probe adds none of its own.
---
--- METHOD -- two independent stages, and the second is the one that decides.
---
--- STAGE 1, STRUCTURAL. The engine's object events and its sprites are cross-linked: object
--- event i names its sprite in objectEvent.spriteId, and that sprite's data[0] holds i back
--- (the same round trip spawnGhost() already self-tests before it writes a byte). So a candidate
--- base B is kept only if, for EVERY active object event i on the map at once,
--- sprite[B][obj[i].spriteId].data[0] == i AND that sprite's inUse bit is set. With the player
--- plus a few NPCs that is several simultaneous equalities, which random EWRAM does not satisfy.
---
--- STAGE 2, MOVING. Stage 1 is a snapshot, and a snapshot is exactly the false positive this
--- project has been caught by before (agent_docs/pitfalls.md, "memory probing methodology"):
--- something plausible while standing still. So the probe then WALKS the player several tiles in
--- each axis and requires the candidate's sprite coordinates to track the player's object-event
--- coordinates at 16 px per tile, at rest, every single step. A candidate that merely looked
--- right standing still cannot survive that.
---
--- HOW TO RUN: name it in a bizhawk-dev-loader target file. Stand in the overworld with room to
--- walk a few tiles right/left and down/up (it returns to where it started). It reports to the
--- console and to gsprites_scan_probe.log beside this file.
+-- MeshGhost — Emerald: find gSprites' EWRAM base on any build, from gObjectEvents alone (dev tool, drives the D-pad).
+-- A runtime array cannot be byte-searched in the ROM file. Stand in the overworld with room to walk; it walks back.
 
 local EWRAM_BASE = 0x02000000
 local EWRAM_SIZE = 0x00040000
 
--- gMain.callback2 and the two known CB2_Overworld entry points (vanilla, and this
--- Archipelago build's) -- the same three constants meshghost_emerald.lua's inOverworld() uses.
--- A wild encounter is the thing most likely to interrupt a walking test, and it leaves the
--- object array standing while the sprite slots get reused, so it has to be detected here.
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
 local CB2_OVERWORLD_ARCHIPELAGO_ADDR = 0x080867f1
@@ -57,8 +18,7 @@ local SPRITE_SIZE = 0x44
 local MAX_SPRITES = 64
 local ARRAY_SIZE = SPRITE_SIZE * MAX_SPRITES
 
--- Known vanilla value, used ONLY to say "this run re-derived it" / "this run did not" in the
--- report. Nothing in the search is seeded with it.
+-- Only for the report's "re-derived it" line: nothing in the search is seeded with it.
 local GSPRITES_VANILLA = 0x02020630
 
 local READS_PER_FRAME = 6000
@@ -79,14 +39,11 @@ local function r8(a) return memory.read_u8(a) end
 local function r16(a) return memory.read_u16_le(a) end
 local function rs16(a) return memory.read_s16_le(a) end
 
--- Same test the adapter uses (playerObjEventExistsAt): the player's own object event is active,
--- carries localId 0xFF, and sits in a real map group.
+-- The adapter's playerObjEventExistsAt: an object event with isPlayer set, localId 0xFF and a real map group.
 local function playerObjEventExistsAt(base)
     for i = 0, 15 do
         local a = base + i * OBJECTEVENT_SIZE
-        -- active is bit 0 of +0x00; the isPlayer bit is bit 0 of +0x02, a DIFFERENT byte --
-        -- getting that wrong reads a movement flag instead and the player is only "found"
-        -- while mid-step (caught here 2026-08-19 before it cost a measurement).
+        -- isPlayer is bit 0 of +0x02, not the active byte: the wrong byte finds the player only mid-step.
         if (r8(a + 0x02) & 0x01) == 1
             and r8(a + 0x08) == 0xff and r8(a + 0x0a) < MAP_GROUPS_COUNT then
             return true
@@ -112,16 +69,15 @@ end
 local phase = "detect"
 local frames = 0
 
--- Stage 1 state
+-- Stage 1: a base is kept only if every active object event's sprite names it back in data[0], with inUse set.
 local primary, others = nil, nil
 local scanCursor, candidates = 0, nil
 local filterList = nil
 
--- Stage 2 state
+-- Stage 2: the player walks both axes, and a base's sprite must track it at 16 px a tile, at rest, every step.
 local playerObjAddr, playerObjId
--- Several attempts per direction, because a real map has walls, ledges and NPCs in it: a
--- blocked step is a legitimate outcome and simply contributes a "did not move" sample. The
--- verdict below requires real movement in BOTH axes before it will rule at all.
+-- Several tries per direction: a blocked step is a fair "did not move" sample, and the verdict rules only after
+-- real movement on both axes.
 local SEQ = { "Left", "Up", "Left", "Up", "Left", "Up",
               "Right", "Down", "Right", "Down", "Right", "Down" }
 local seqIndex, stepFrames, samples = 1, 0, {}
@@ -134,22 +90,11 @@ local function fail(msg)
     phase = "done"
 end
 
--- The run is only meaningful while the overworld is still the thing on screen. A wild
--- encounter, a warp or a menu tears the object/sprite pairing down and reuses the sprite slots
--- for something else entirely -- caught live on the first run of this probe 2026-08-19, where a
--- BARBOACH appeared on the last step and the sample it produced looked like the address failing.
--- Anything after that point is not evidence either way, so the probe says so instead of ruling.
+-- A wild encounter, a warp or a menu reuses the sprite slots, and a sample taken after one is no evidence either way.
 local function stillOverworld()
     local cb2 = memory.read_u32_le(GMAIN_CALLBACK2_ADDR)
-    -- SPEEDCHOICE 1.2.2's CB2_Overworld is 0x080864D4/D5 (romvariant_probe sampled it across 900
-    -- consecutive overworld frames, 2026-09-11). Without it this probe declared "the game left the
-    -- overworld" on the very first frame of every run on that build and reported NOT MEASURED --
-    -- three times, each looking like the player was somewhere awkward rather than like the gate
-    -- being wrong.
-    -- On a build whose gMain has MOVED, this address is not the callback at all and can only ever
-    -- answer "no" -- EX SPEEDCHOICE 0.4.0 reads E0999086 here. A reading that is not even a code
-    -- pointer means the test is unavailable, not that the game left the field, so fall through to
-    -- the adapter's own fallback: a live player object event.
+    -- 0x080864D4 is SPEEDCHOICE 1.2.2's CB2_Overworld. A reading that is not a code pointer means gMain moved on this
+    -- build (EX SPEEDCHOICE): the test is unavailable, not failed, so the live player object event decides.
     if cb2 >= 0x08000000 and cb2 < 0x0A000000
         and cb2 ~= CB2_OVERWORLD_ADDR and cb2 ~= CB2_OVERWORLD_ADDR + 1
         and cb2 ~= CB2_OVERWORLD_ARCHIPELAGO_ADDR
@@ -186,14 +131,10 @@ MESHGHOST_DEV_TICK = function()
             avatarOffset = 0
         elseif playerObjEventExistsAt(GOBJECTEVENTS_ADDR + AVATAR_ADDR_ARCHIPELAGO_SHIFT) then
             avatarOffset = AVATAR_ADDR_ARCHIPELAGO_SHIFT
-        -- SPEEDCHOICE 1.2.2, measured 2026-09-11 (objevents_pick_probe.lua picked 0x020373F4 out of
-        -- six candidates using the save-block tile, and romvariant_probe independently put
-        -- gPlayerAvatar 0xA4 past its vanilla address too). Without this the probe sat printing
-        -- "no player object event at either known base" forever on that build.
+        -- SPEEDCHOICE 1.2.2
         elseif playerObjEventExistsAt(GOBJECTEVENTS_ADDR + 0xA4) then
             avatarOffset = 0xA4
-        -- EX SPEEDCHOICE 0.4.0, +0xC80 (objevents_walk_probe.lua, 2026-09-11: of six structural
-        -- candidates exactly one tracked the player across all 16 steps).
+        -- EX SPEEDCHOICE 0.4.0
         elseif playerObjEventExistsAt(GOBJECTEVENTS_ADDR + 0xC80) then
             avatarOffset = 0xC80
         else
@@ -236,8 +177,7 @@ MESHGHOST_DEV_TICK = function()
     end
 
     if phase == "scan" then
-        -- B is 4-aligned; the field read is at B + spriteId*0x44 + 0x2E, so addresses are walked
-        -- at the same stride and converted back to a base.
+        -- The field read is at B + spriteId*0x44 + 0x2E, so addresses are walked and converted back to a base.
         local delta = primary.spriteId * SPRITE_SIZE + 0x2e
         local limit = EWRAM_SIZE - ARRAY_SIZE
         local n = 0
@@ -289,17 +229,13 @@ MESHGHOST_DEV_TICK = function()
     if phase == "walk" then
         stepFrames = stepFrames + 1
         if stepFrames <= HOLD_FRAMES then
-            -- No controller index: joypad.set(t, 1) is silently ignored on BizHawk's GBA core
-            -- (measured 2026-08-19 with joypad.get read back); the one-argument form registers.
+            -- No controller index: BizHawk's GBA core silently ignores joypad.set(t, 1).
             joypad.set({ [SEQ[seqIndex]] = true })
             return
         end
         if stepFrames < HOLD_FRAMES + SETTLE_FRAMES then return end
         if not stillOverworld() then
-            -- Cut the walk short rather than discard the run. Every sample already taken was
-            -- taken while this check passed, so they are all still evidence; what is thrown
-            -- away is the rest of the sequence. The verdict still refuses to rule unless the
-            -- player really moved in both axes, so a walk interrupted too early fails anyway.
+            -- Every sample so far was taken while this check passed, so end the walk here rather than discard the run.
             log("the game left the overworld (a wild encounter, a warp or a menu) -- ending the "
                 .. "walk here and judging on the " .. #samples .. " samples taken before it.")
             phase = "verdict"

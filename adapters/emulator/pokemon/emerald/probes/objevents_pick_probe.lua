@@ -1,30 +1,12 @@
--- MeshGhost — Emerald: which gObjectEvents candidate is the real one? (PROBE)
---
--- READ-ONLY. Reads game memory, writes none, presses nothing, draws nothing.
---
--- THE QUESTION. `romvariant_probe.lua` resolves anchors by structural search and, on SPEEDCHOICE
--- 1.2.2, left gObjectEvents AMBIGUOUS with six survivors -- correctly, because it never picks one
--- of several. This probe decides between them using a fact that probe did not have: on this build
--- gSaveBlock1Ptr WORKS, so the player's true tile is known independently.
---
--- THE TEST. A map object's x/y (struct ObjectEvent +0x10/+0x12) is the save-block tile plus the
--- map border offset of 7. So the real gObjectEvents is the candidate whose player slot agrees with
--- the save block on BOTH axes. A wrong array agreeing by luck on one axis is plausible; agreeing
--- on both, at a position the player can then be walked to change, is not.
---
--- It also prints the DELTA each candidate would need, so a near-miss (a different border constant,
--- a different struct size) is visible as a small consistent number rather than being reported as a
--- failure.
---
--- WHAT IT CANNOT SEE: whether the array it picks is gObjectEvents rather than some other array of
--- the same shape holding the same numbers. The confirmation for that is movement -- walk, re-run,
--- and the agreement must hold. It says so in its own output rather than implying certainty.
+-- MeshGhost — Pokémon Emerald: which gObjectEvents candidate is real, by the save block's tile (dev tool, read-only,
+-- never shipped). Needs a working gSaveBlock1Ptr. Logs once, per candidate, slots 0-3's coordinates and their delta
+-- from the save block's tile, so a near-miss shows as a small steady number; a match must survive a walk and a re-run.
 
-local CANDIDATES = {
+local CANDIDATES = { -- romvariant_probe's six survivors on SPEEDCHOICE 1.2.2
     0x02024B7C, 0x020286F0, 0x02028738, 0x0202875C, 0x020287A4, 0x020373F4,
 }
 local OBJECTEVENT_SIZE = 0x24
-local MAP_OFFSET = 7
+local MAP_OFFSET = 7 -- an object's coordinates are the save block's tile plus this
 
 local SCRIPT_DIR = (function()
     local info = debug.getinfo(1, "S")
@@ -63,8 +45,7 @@ local function tick()
         px, py, wantX, wantY))
 
     for _, base in ipairs(CANDIDATES) do
-        -- Slot 0 is the player on every build measured so far; slots 1..3 are printed too because
-        -- one candidate in the earlier search had the player at index 1.
+        -- Slots 1-3 too: a candidate can hold the player past slot 0.
         local best
         for slot = 0, 3 do
             local a = base + slot * OBJECTEVENT_SIZE

@@ -1,12 +1,6 @@
--- Dev-only follow-up to avatar_scan_probe.lua + avatar_hexdump_probe.lua. The player's own
--- ObjectEvent entry was confirmed at 0x020375D4 on this Archipelago-patched ROM (struct fields
--- matched field-by-field against pokeemerald's real layout: isPlayer bit set, trackedByCamera
--- bit set, localId=0xFF=LOCALID_PLAYER, mapNum=9/mapGroup=0 matching the already-known
--- Littleroot Town location). This probe scans a wide window of OBJECT_EVENTS_COUNT-sized
--- (0x24-byte) slots around that known-good entry, decoding each one's active/isPlayer bits and
--- localId/mapNum/mapGroup, so the real 16-slot gObjectEvents array's start address (and
--- whatever sits immediately after it, where gPlayerAvatar lives in vanilla) can be read off
--- directly. Read-only, never writes memory. Prints once and exits.
+-- Read-only, prints once: decodes the 0x24-byte slots either side of the player's known ObjectEvent entry on an
+-- Archipelago ROM, so the start of the 16-slot gObjectEvents array, and gPlayerAvatar right after it, can be read
+-- off. Follows avatar_scan_probe.lua and avatar_hexdump_probe.lua.
 
 local KNOWN_ENTRY_ADDR = 0x020375D4
 local ENTRY_SIZE = 0x24

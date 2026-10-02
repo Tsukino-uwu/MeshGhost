@@ -1,26 +1,7 @@
--- MeshGhost -- Emerald: watch a MOVING NPC's step, frame by frame. PROBE, READ-ONLY.
---
--- Reads game memory and writes none; presses nothing. Safe to leave loaded while judging, unlike
--- anything that drives input.
---
--- WHY. The user, 2026-09-12, after the painted ghost still did not match the player: *"can we look
--- at how a moving npc works?"*. An NPC is the engine moving a character with its own step machine,
--- which is precisely what a ghost has to look like -- so the NPC is the reference, and this is the
--- instrument that reads it.
---
--- WHERE THE DECOMP POINTS, as a map, never evidence (CLAUDE.md: read the decompilation first; our
--- measurement makes it a fact). Per-frame step distances per movement speed are expected to come
--- from a fixed per-speed table (where to look: `NpcTakeStep`, src/event_object_movement.c:8298) --
--- the frame counts and pixel steps are what this probe measures, not something to copy here.
---
--- So the questions this probe answers on a live NPC are the ones the source cannot: WHEN the tile
--- coordinate flips relative to the pixels (they hand over on different frames, which is the whole
--- of this adapter's paint history), and what the sprite's own step counters read while it happens.
---
--- WHAT IT CANNOT SEE: which movement TYPE the NPC was given (wander, pace, follow), only the step
--- it is taking. And it reports the first moving non-player object it finds each frame -- with two
--- NPCs walking at once it will follow whichever comes first in the array, so read the slot column
--- rather than assuming it stayed on one character.
+-- Read-only, presses nothing: a moving NPC's step, frame by frame, beside the player's. An NPC is the engine moving
+-- a character with its own step machine, which is what a ghost has to look like. It logs when the tile coordinate
+-- flips against the pixels and what the sprite's step counters read. It cannot see the NPC's movement type, only
+-- the step, and it logs every moving non-player slot, so read the slot column.
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GPLAYERAVATAR_ADDR = 0x02037590
 local OBJECTEVENT_SIZE = 0x24
@@ -36,10 +17,8 @@ local function rs16(a) local ok, v = pcall(memory.read_s16_le, a) return (ok and
 local function objAddr(i) return GOBJECTEVENTS_ADDR + i * OBJECTEVENT_SIZE end
 local function sprAddr(i) return GSPRITES_ADDR + i * SPRITE_SIZE end
 
--- `data[0]` sits at 0x2E in struct Sprite -- the adapter reads the object-event id there, which is
--- what pins this offset. So the step counters `NpcTakeStep` uses, data[4] (speed) and data[5]
--- (timer), are 0x36 and 0x38. Reading them is how a live NPC states its own cadence rather than
--- having one inferred from its pixels.
+-- data[] starts at 0x2E in struct Sprite (the adapter reads the object-event id there); data[4] is the step speed
+-- and data[5] its timer.
 local function dataAt(spr, i) return rs16(sprAddr(spr) + 0x2e + i * 2) end
 
 local logfile
@@ -88,12 +67,7 @@ MESHGHOST_DEV_TICK = function()
             local key = slot
             local was = prev[key]
             local p1x, p1y = rs16(sprAddr(spr) + 0x20), rs16(sprAddr(spr) + 0x22)
-            -- MOVING HAS TO INCLUDE pos1, and the first version's omission is worth keeping as a
-            -- warning: it tested only the TILE and pos2, and a walking NPC holds pos2 at 0 the
-            -- whole way -- the engine moves an NPC by adding to the SPRITE's pos1, one pixel a
-            -- frame (`Step1`). So the probe logged one frame in sixteen, which looks exactly like
-            -- an NPC that teleports a tile at a time, and would have "confirmed" a cadence nobody
-            -- has. A filter applied before you look is a guess about the answer.
+            -- Moving includes pos1: an NPC walks by adding to its sprite's pos1 while pos2 stays 0.
             local moving = (was == nil) or was.x ~= x or was.y ~= y
                 or was.p2x ~= p2x or was.p2y ~= p2y or was.p1x ~= p1x or was.p1y ~= p1y
             prev[key] = { x = x, y = y, p2x = p2x, p2y = p2y, p1x = p1x, p1y = p1y }

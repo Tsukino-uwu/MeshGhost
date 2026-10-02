@@ -1,24 +1,10 @@
--- MeshGhost — Pokémon Emerald: WHO writes the ghost's OBJ tiles mid-frame (PROBE, never shipped)
---
--- WHY
--- The spawned ghost renders scrambled for ~one frame at the start of surfing, and every per-tick
--- instrument reads clean: the sprite struct, the hardware OAM, the tile bitmap and OBJ VRAM are
--- all correct at every frame BOUNDARY. So the corruption exists only BETWEEN ticks -- somebody
--- writes the ghost's tiles mid-frame and somebody else repairs them before the next tick. A
--- boundary probe cannot see that; a WRITE BREAKPOINT can, and it also names the writer: the
--- callback records the CPU's PC, and the .sym file turns a PC into a function name.
---
--- The ghost's post-swap range is deterministic in the replay (tiles 84.., measured three runs in
--- a row), so the addresses are fixed rather than chased.
---
--- COST. An execute/write breakpoint can push the emulator core onto a slow per-instruction path
--- (FLAGS.md, the fish-hook measurement) -- this is a diagnosis-only probe, loaded for one capture
--- and dropped, never left on.
---
--- HOW TO RUN: in the loader set before the adapter, during a scripted surf start. Writes
--- probes/vramwrite_<stamp>.log.
+-- Who writes the ghost's OBJ tiles mid-frame (probe, never shipped)? A corruption that exists only between ticks
+-- reads clean in every per-tick instrument; a write breakpoint sees it and records the CPU's PC, which the .sym
+-- turns into a function name. The range is fixed, as the ghost's tiles are deterministic in the replay. A write
+-- breakpoint can push the core onto a slow path, so load it for one capture and drop it: in the loader set before
+-- the adapter, during a scripted surf start. Writes probes/vramwrite_<stamp>.log.
 
-local BASE = 0x06010000 + 192 * 32          -- tile 84
+local BASE = 0x06010000 + 192 * 32          -- tile 192
 local SPAN = 16 * 32                       -- the whole 16-tile frame
 
 local BS = string.char(92)
@@ -29,9 +15,7 @@ local n = 0
 local function onWrite(addr, val, flags)
     if n >= 1500 then return end -- a budget: the interesting window is a handful of frames
     n = n + 1
-    -- PC landed in the BIOS (0x2A0 -- the CpuSet loop), which names the MECHANISM, not the
-    -- CALLER. The caller is in the link register: the BIOS returns through R14, which still
-    -- holds the game-code address just after the SWI that started the copy.
+    -- PC in the BIOS (0x2A0, the CpuSet loop) names the mechanism, not the caller, and LR is banked there too.
     local pc, lr = 0, 0
     pcall(function() pc = emu.getregister("R15") end)
     pcall(function() lr = emu.getregister("R14") end)

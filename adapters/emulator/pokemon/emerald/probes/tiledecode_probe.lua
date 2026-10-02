@@ -1,16 +1,6 @@
--- MeshGhost -- decode specific BG tiles and print them (PROBE, never shipped).
---
--- WHY. The drawn reflection's coverage mask is decoded from metatile entries plus VRAM tile
--- pixels, and it reported a covering strip HALF the width the screen shows. Either the tile really
--- is half transparent and the rest of the art sits in the layer that does not cover, or the decode
--- is wrong. Those predict the same mask and mean opposite things, so the tiles are printed raw.
---
--- Prints, for the metatile under a given grid coordinate: its attributes, its eight tilemap
--- entries, and an 8x8 opacity map of every tile they name -- read straight from VRAM at the BG
--- char base, which probes/bgread_probe.lua confirmed is readable.
--- Resolve this script's own directory instead of hardcoding one developer's
--- checkout. A tracked absolute path is unusable on anyone else's machine and is
--- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+-- MeshGhost — decodes BG tiles straight from VRAM and prints them (dev tool, read-only, vanilla only, never shipped).
+-- Once, after 20 frames: the metatile ids and behaviours in a strip round the player, then each listed metatile's
+-- attributes, eight tilemap entries and an 8x8 opacity map per tile, to tiledecode.log beside a screenshot.
 local MESHGHOST_DIR = (function()
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then
@@ -91,9 +81,9 @@ local function tick()
         end
         say(string.format("row %+d (gy=%d): %s", dy, py + dy, table.concat(ids, " ")))
     end
-    -- The metatiles the shore is actually made of, decoded pixel by pixel.
+    -- The metatiles of the shore under test.
     for _, id in ipairs({ 161, 184, 2, 1 }) do dumpMetatile(id) end
-    -- And the frame they were read from, so the two can be laid over each other.
+    -- The frame they were read from, to lay the two over each other.
     client.screenshot(MESHGHOST_DIR .. "/tiledecode.png")
     local f = io.open(MESHGHOST_DIR .. "/tiledecode.log", "w")
     if f then f:write(table.concat(out, string.char(10))) f:close() end

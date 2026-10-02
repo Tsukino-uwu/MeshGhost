@@ -1,13 +1,5 @@
--- MeshGhost -- ride, then STOP, on the bike (DEV TOOL, never shipped)
---
--- WHY. A ghost on the bike looks wrong the moment it stops: the user, 2026-08-20 -- it sits
--- *"tiled a bit to the side visually when idle"* and wears *"the animation/pose that is supposed
--- to happen while actively moving"*. The interesting frames are therefore the ones just after a
--- stop, and a stop is over in a few frames -- too short to catch by hand while also reading a log.
--- So the ride is scripted: a fixed distance, then a long still spell, repeatedly, with the anim
--- trace running underneath.
---
--- Lenient by design, like every probe here: fixed phases with a countdown, nothing to time.
+-- Rides a fixed distance on the bike, then stands still, in each direction, repeating (dev tool, never shipped):
+-- a ghost's stop is over in a few frames, too short to catch by hand while reading a log.
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
 local GPLAYERAVATAR_ADDR = 0x02037590
@@ -17,9 +9,7 @@ local PHASES = {
     { name = "STOP -- watch the ghost settle", frames = 150, keys = function() return {} end },
     { name = "ride left",   frames = 90,  keys = function() return { Left = true } end },
     { name = "STOP -- watch the ghost settle", frames = 150, keys = function() return {} end },
-    -- UP AND DOWN TOO, at the user's prompt 2026-08-20: the side-on frames of the Acro Bike hide
-    -- the difference between standing on it and rolling on it, so a left/right-only ride can pass
-    -- while the pose is still wrong in the two views that show it.
+    -- Up and down too: the side-on frames hide the difference between standing on the bike and rolling on it.
     { name = "ride up",     frames = 90,  keys = function() return { Up = true } end },
     { name = "STOP -- watch the ghost settle", frames = 150, keys = function() return {} end },
     { name = "ride down",   frames = 90,  keys = function() return { Down = true } end },

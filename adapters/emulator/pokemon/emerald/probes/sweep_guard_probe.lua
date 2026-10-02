@@ -1,34 +1,5 @@
--- MeshGhost — Emerald: does the orphan sweep's predicate ever fire where it should not?
--- READ-ONLY. Writes nothing to the game; a log file beside itself is its only output.
---
--- WHY
--- meshghost_emerald.lua's sweepOrphanGhosts() clears any object event that is "active, not the
--- player, localId == LOCALID_PLAYER", because only our own spawned ghosts can be in that state.
--- Until 2026-08-19 it ran unconditionally, once every 60 frames -- including before the object
--- array had been located (avatarAddrConfirmed false), outside the overworld, and on an
--- Archipelago-patched ROM where that same function would have read a RELOCATED gObjectEvents and
--- then written the VANILLA gSprites. That last combination is exactly the unmeasured write the
--- adapter's render-path split exists to avoid (BANDAGES.md).
---
--- The gate is cheap and obviously right, but "obviously right" is not a measurement. This probe
--- answers the question the gate is a fix for: OUTSIDE the overworld, and before detection
--- succeeds, does anything in the object array actually satisfy that predicate? If it never does,
--- the gate is defensive and should be described that way; if it does, the old code was writing
--- into live memory that had nothing to do with us.
---
--- WHAT IT REPORTS
---   * inOverworld(), from gMain.callback2, exactly as the adapter computes it;
---   * whether the player's own object event is findable at the vanilla base and at the
---     Archipelago-shifted one (the adapter's own detection predicate);
---   * per frame, how many of the 16 slots at the vanilla base match the sweep's predicate, with
---     the raw bytes of each match -- so a hit can be told from a coincidence.
--- A line is written whenever the count is non-zero or any of the three flags changes, plus a
--- heartbeat every 300 frames so a quiet run is distinguishable from a dead one.
---
--- HOW TO RUN
---   Point dev-scripts/bizhawk-dev-loader.target at this file. Sit at the title screen / the
---   continue screen for a while, then load a save and walk around; the interesting window is the
---   one BEFORE the overworld.
+-- MeshGhost — Emerald: does the orphan sweep's predicate ever match outside the overworld? (dev tool, read-only)
+-- Sit at the title or continue screen, then load a save and walk; the window before the overworld is the question.
 
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
@@ -38,8 +9,7 @@ local AVATAR_ADDR_ARCHIPELAGO_SHIFT = 0x284
 local OBJECTEVENT_SIZE = 0x24
 local MAP_GROUPS_COUNT = 34
 local GHOST_LOCAL_ID = 255
--- All of the above are the adapter's own constants, copied so this probe measures the same thing
--- the adapter does rather than a re-derivation of it.
+-- The adapter's own constants, copied so this measures what the adapter does rather than a re-derivation.
 
 local function scriptDir()
     local info = debug.getinfo(1, "S")
@@ -73,8 +43,7 @@ local function playerObjEventExistsAt(base)
     return false
 end
 
--- sweepOrphanGhosts()'s predicate, verbatim, with the "we are tracking it" half removed: this
--- probe has no ghosts of its own, so every match here is something the sweep would have cleared.
+-- The sweep's predicate without its tracked-ghost half: with no ghosts of its own, every match is one it would clear.
 local function sweepMatches(base)
     local hits = {}
     for i = 0, 15 do

@@ -1,29 +1,5 @@
--- MeshGhost — Pokémon Emerald: a battle's state, raw (DEV TOOL, READ-ONLY, never shipped) -- 2026-09-16
---
--- WHY THIS EXISTS. autoplay's Phase 1 ends at the first trainer battle (`agent_docs/phases/phase13.md`),
--- so `observe` has to say a battle is on, who is in it, what the game is asking, and where its cursors
--- are. `battle_probe.lua` only showed gMain.callback2 leaving the overworld. What each byte below
--- means is to be measured: this logs them raw whenever any changes, with the pad, so each reading can
--- be paired with a capture of the same frame.
---
--- ADDRESSES: a pokeemerald build whose ROM hashed identical to the vanilla ROM (SHA-1, 2026-09-16)
--- proves where each lives (the names below are the build's), not what its bytes mean. Vanilla only.
---
--- WHAT IT LOGS (battle_state_probe_<target>_<time>.log beside this file; gitignored):
---   ST    on any change of: gMain.callback2, gBattleTypeFlags, gBattlersCount, gBattlerPartyIndexes,
---         gBattlerPositions, gActionSelectionCursor, gMoveSelectionCursor, gBattleOutcome,
---         gBattleCommunication, gBattleControllerExecFlags, gBattlerControllerFuncs, gActiveBattler,
---         gChosenActionByBattler, gMultiUsePlayerCursor, gAbsentBattlerFlags, gBattlescriptCurrInstr and
---         all 0x28 bytes of gBattleScripting, gAnimScriptActive and gPauseCounterBattle -- all raw hex --
---         and the pad (a pad change alone logs a line)
---   PR    on any change of the first two text printers' 0x24 bytes each (sTextPrinters), raw
---   MON n on any change of that battler's 0x58 bytes named gBattleMons: raw hex, and +0x30 decoded
---         as a name (letters and digits only)
---   STR   on any change of the first 0x80 bytes named gDisplayedStringBattle: decoded up to FF, and raw
---   SUM   on any change of the pointer named sMonSummaryScreen and 12 bytes at its +0x40BC (2026-09-17)
---   TASK  on any change of the active tasks at gTasks: index, routine, first 24 data bytes (2026-09-17)
--- WHAT IT CANNOT SEE: text drawn by any path that does not fill that buffer; anything in the frames
--- between two logged changes; a patched ROM.
+-- MeshGhost — Emerald: a battle's state, raw, on every change with the pad, to pair with captures (dev tool, reads).
+-- Vanilla addresses only; it cannot see text drawn by a path that does not fill gDisplayedStringBattle.
 
 local BUS = "System Bus"
 local GMAIN_CB2 = 0x030022c4
@@ -33,23 +9,18 @@ local FIELDS = {
 	{ "outcome", 0x0202433a, 1 }, { "comm", 0x02024332, 8 }, { "execflags", 0x02024068, 4 },
 	{ "ctrlfuncs", 0x03005d60, 16 }, { "active", 0x02024064, 1 }, { "chosen", 0x0202421c, 4 },
 	{ "multicur", 0x03005d74, 1 }, { "absent", 0x02024210, 1 },
-	-- Added 2026-09-16 (later): the level-up box waited for A with nothing above changing.
+	-- gBattlescriptCurrInstr, gBattleScripting
 	{ "instr", 0x02024214, 4 }, { "scripting", 0x02024474, 0x28 },
-	-- Added 2026-09-17: `battle` saw nothing change for 180 frames after "used STRING SHOT!" and nudged. The build
-	-- names these gAnimScriptActive and gPauseCounterBattle.
+	-- gAnimScriptActive, gPauseCounterBattle
 	{ "anim", 0x020383fd, 1 }, { "pause", 0x0202432c, 2 },
-	-- Added 2026-09-17 (later): `battle` nudged twice in the rescue battle's intro, before "Wild ZIGZAGOON appeared!" and on
-	-- "Go! MUDKIP!", with nothing above in its signature changing. The build names these gBattleMainFunc and gIntroSlideFlags.
+	-- gBattleMainFunc, gIntroSlideFlags
 	{ "mainfunc", 0x03005d04, 4 }, { "slide", 0x020243fc, 2 },
-	-- Added 2026-09-17 (the learn-a-move question): `battle` nudged into "Delete a move to make room for BIDE?" and stopped
-	-- `stuck` in the evolution scene. The build names this gMoveToLearn.
+	-- gMoveToLearn
 	{ "movetolearn", 0x020244e2, 2 },
 }
--- Added 2026-09-17 (the learn-a-move question): the pointer the build names sMonSummaryScreen, and 12 bytes from +0x40BC of
--- what it points at (the build's layout names mode, curMonIndex, currPageIndex, newMove and firstMoveIndex there), logged as
--- SUM on any change; and every active task of the 16 at gTasks (40 bytes each), its routine and first 24 data bytes, as TASK.
+-- sMonSummaryScreen (logged with 12 bytes at its +0x40BC) and gTasks, 16 tasks of 40 bytes.
 local SUMMARY_PTR, TASKS = 0x0203cf1c, 0x03005e00
--- The first two windows' text printers (the build's sTextPrinters, 0x24 bytes each), logged as PR on any change.
+-- sTextPrinters: the first two, 0x24 bytes each.
 local PRINTERS, PRINTERS_LEN = 0x020201b0, 0x48
 local BATTLE_MONS, BATTLE_MON_SIZE = 0x02024084, 0x58
 local STRING_BATTLE = 0x02022e2c
@@ -116,7 +87,6 @@ MESHGHOST_DEV_TICK = function()
 	frames = frames + 1
 	local parts = { string.format("cb2=%08X", memory.read_u32_le(GMAIN_CB2, BUS)) }
 	for _, f in ipairs(FIELDS) do parts[#parts + 1] = f[1] .. "=" .. hex(f[2], f[3]) end
-	-- The pad is part of what counts as a change (2026-09-17): a press that changes nothing else is logged too.
 	local st = table.concat(parts, " ") .. " pad=" .. padString()
 	if st ~= lastSt then
 		log("ST " .. st)

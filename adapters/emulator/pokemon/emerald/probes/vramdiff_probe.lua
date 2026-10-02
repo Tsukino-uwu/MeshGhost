@@ -1,14 +1,6 @@
--- MeshGhost — Pokémon Emerald: WHICH OBJ tiles change, tick to tick (PROBE, never shipped)
---
--- WHY. Something writes into the spawned ghost's OBJ tiles mid-frame at the start of surfing
--- (write-watch: BIOS CpuSet/LZ77 PCs, data not in ROM => decompressed/RAM source), and the
--- per-address write-watch only covers the addresses it was pointed at. This inverts the
--- question: snapshot ALL of OBJ VRAM every tick and report which tiles changed. The engine's
--- own legitimate copies show up too -- the point is the FOOTPRINT, read alongside which ranges
--- the adapter and the engine actually own. A region that changes while nobody owns it is the
--- stomp, and the allocator can be taught to avoid it permanently.
---
--- COST. 32KB read + compare per tick, in Lua. Diagnosis-only; loaded for one capture, dropped.
+-- MeshGhost — Pokémon Emerald: which OBJ tiles change, tick to tick (dev tool, read-only, never shipped).
+-- Snapshots all of OBJ VRAM every tick and logs the runs of changed tiles (the first 300 lines), for when a write-watch
+-- covers only the addresses it was pointed at. Heavy: 32KB read and compared per tick, so load it for one capture.
 
 local BASE, SIZE = 0x06010000, 0x8000
 local BS = string.char(92)

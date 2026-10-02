@@ -1,8 +1,5 @@
--- Dev-only follow-up to avatar_scan_probe.lua: dumps a wide window of raw EWRAM around the two
--- candidate facingDirection addresses that probe found (0x020375EC, 0x020375F4) so the
--- gObjectEvents array boundary and gPlayerAvatar's real location can be spotted visually --
--- a repeating 0x24-byte stride is a recognizable pattern in a hex dump. Read-only, never writes
--- memory. Prints once and exits (no loop) -- reload to take another snapshot.
+-- Read-only, prints once (reload for another snapshot): raw EWRAM around avatar_scan_probe.lua's two candidates,
+-- where the repeating 0x24-byte object stride shows the gObjectEvents boundary and gPlayerAvatar.
 
 local DUMP_START = 0x02037200
 local DUMP_END = 0x02037800 -- 0x600 bytes, comfortably covers both candidates plus margin

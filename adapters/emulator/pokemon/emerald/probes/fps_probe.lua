@@ -1,10 +1,5 @@
--- MeshGhost -- is the EMULATOR keeping 60fps? (PROBE, never shipped)
---
--- WHY. os.clock inside the adapter measures the Lua process's own CPU, which said 0.44ms/frame
--- while the user still reported lag. That is not a contradiction: a Lua overlay's gui.* calls and
--- the emulator's own frame pacing are not in that number. client.get_approx_framerate() is, so it
--- is the instrument for the claim "the script makes it laggy" -- and unlike an impression it can
--- be compared before and after a flag is switched off.
+-- MeshGhost — is the emulator keeping 60fps? (dev tool, read-only, never shipped). client.get_approx_framerate()
+-- counts the overlay's gui calls and the frame pacing, which os.clock inside a script does not.
 local n, lo = 0, 999
 local function tick()
     n = n + 1

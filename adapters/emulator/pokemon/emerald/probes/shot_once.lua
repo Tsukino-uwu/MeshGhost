@@ -1,9 +1,5 @@
--- MeshGhost -- one screenshot, then nothing (DEV TOOL, never shipped).
--- client.screenshot() writes the emulator's video output: BG layers and engine-drawn sprites, and
--- never the Lua-overlay drawn tier (.claude/skills/play-game/references/screenshots.md).
--- Resolve this script's own directory instead of hardcoding one developer's
--- checkout. A tracked absolute path is unusable on anyone else's machine and is
--- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+-- MeshGhost -- one screenshot to dev-scripts/shots/emerald, then nothing (dev tool, never shipped).
+-- client.screenshot() writes the emulator's video output: BG layers and engine-drawn sprites, never the Lua-drawn tier.
 local MESHGHOST_DIR = (function()
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then

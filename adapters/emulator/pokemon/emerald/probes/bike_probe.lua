@@ -1,17 +1,6 @@
--- MeshGhost — Pokémon Emerald: a bike ride frame by frame (DEV TOOL, READ-ONLY, never shipped) -- 2026-09-16
---
--- WHY THIS EXISTS. autoplay's `walk` holds a direction across tiles and counts each tile as its step
--- begins (`emerald/MEASURED.md`, "A direction held across tiles"). On the Mach Bike a released ride kept
--- going -- one tile per speed tier (step_probe.lua, the same day) -- so a ride that must stop on a tile
--- has to let go early, by an amount only the bike's current speed says. `documentation.md` names the
--- avatar block's +0x0B as the Mach Bike's stable speed field; this logs the whole first 16 bytes of that
--- block beside each step, on either bike, so which byte tracks the speed is read, not assumed.
---
--- ADDRESSES: the same hash-matched build as step_probe.lua (SHA-1 compared 2026-09-16). Vanilla only.
--- WHAT IT LOGS (bike_probe_<target>_<time>.log beside this file; gitignored), on any change of: the
--- player object's coordinates, previous coordinates, byte 0 and +0x1C, the avatar block's first 16
--- bytes, or the pad -- one line each. WHAT IT CANNOT SEE: anything outside those bytes, such as where the
--- bike's acceleration counter lives if not in them.
+-- MeshGhost — Pokémon Emerald: a bike ride frame by frame (dev tool, read-only, vanilla only, never shipped).
+-- One line on any change of the player object's coordinates, previous coordinates, byte 0 and +0x1C, the avatar
+-- block's first 16 bytes, or the pad, so which byte tracks the bike's speed is read, not assumed.
 
 local BUS = "System Bus"
 local GPLAYERAVATAR, GOBJECTEVENTS, OBJ_SIZE = 0x02037590, 0x02037350, 0x24
@@ -29,7 +18,7 @@ local pending = {}
 local function flush()
 	if logf and #pending > 0 then
 		logf:write(table.concat(pending, "\n"), "\n")
-		logf:flush() -- on a timer, never per frame
+		logf:flush()
 		pending = {}
 	end
 end

@@ -1,31 +1,8 @@
--- MeshGhost — Pokémon Emerald: fishing recorder
---
--- READ-ONLY. Writes nothing, draws nothing.
---
--- WHY
--- Fishing is the one player state this adapter has never looked at. `phase8.md` files it as a
--- separate follow-up from surf/bike precisely because it is not a movement speed -- it is a
--- stationary action with its own graphics and its own multi-stage animation (cast, wait, bite,
--- reel). A ghost cannot be made to fish until it is known what fishing LOOKS like in memory.
---
--- WHAT IT RECORDS
--- A timeline, one line per change, of every field that could plausibly carry the animation:
---   * the player object event's graphicsId -- Emerald swaps the whole avatar graphic for special
---     states (sPlayerAvatarGfxIds), so a fishing pose is likely a different graphicsId entirely
---     rather than a different animation on the walking one. That distinction decides how a ghost
---     would reproduce it, so it is the single most valuable column here.
---   * movementActionId, facing/movement direction, and the held-movement bits.
---   * the sprite's animNum / animCmdIndex -- which frame of which animation is showing.
---   * gPlayerAvatar's flags byte, which already carries the dash bit the adapter reads and the
---     surf/bike bits phase8 wants (global.fieldmap.h:288-295).
---
--- Logging only on change is deliberate: a per-frame dump of a 200-frame fishing sequence is
--- unreadable, while the changes ARE the animation.
---
--- HOW TO RUN
---   Point dev-scripts/bizhawk-dev-loader.target at this file, then fish. Cast a few times,
---   including one that catches something and one that gets away, and face different directions.
---   Output goes to fishing_<timestamp>.log beside this script.
+-- Read-only fishing recorder: one line per change, through a fishing session, of every field that could carry the
+-- animation. The player object's graphicsId above all (a special state can swap the whole avatar graphic), then
+-- its movement action, facing and held-movement bits, the sprite's animNum/animCmdIndex, and gPlayerAvatar's flags.
+-- Only on change, because the changes are the animation. Fish a few times (a catch, one that gets away, other
+-- facings); the log is fishing_<timestamp>.log beside this script.
 
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GPLAYERAVATAR_ADDR = 0x02037590
@@ -49,9 +26,7 @@ local function log(msg)
 	console.log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flush every 20 lines: a bounded cost, and still a live log.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -147,9 +122,7 @@ MESHGHOST_DEV_TICK = function()
 		last = k
 	end
 
-	-- A graphicsId we have not seen before is the headline result: it means fishing is a whole
-	-- different avatar graphic rather than an animation on the walking one, which is what decides
-	-- how a ghost would ever reproduce it.
+	-- A new graphicsId is the headline: a whole avatar graphic, not an animation on the walking one.
 	if not seenGfx[s.gfx] then
 		seenGfx[s.gfx] = true
 		log(string.format("       *** new graphicsId seen: %d ***", s.gfx))

@@ -1,20 +1,7 @@
--- Dev-only diagnostic: draws a second ghost sprite at a fixed tile offset next to the real
--- player, driven by the EXACT SAME local-state read + smoothPosition() + animation code as
--- meshghost_emerald.lua's real remote-rendering path -- but entirely locally, no bridge/relay/
--- core, no networking at all. Never writes memory.
---
--- WHY: found live 2026-08-14 -- comparing the ghost against a real loopback session made it
--- hard to judge smoothness on its own, since loopback's ghost also trails behind by a real
--- network round trip (relay forward + core interp buffer) on top of whatever the local
--- smoothing code does. This probe removes that confound entirely: the shadow ghost is driven by
--- the same frame's local read, smoothed the same way, with zero network delay, always exactly
--- SHADOW_OFFSET_TILES tiles away -- so it moves in perfect parallel with the real, natively-
--- rendered player character. Any choppiness visible in the shadow but not the real character is
--- then attributable to this script's own smoothing/animation code, not lag.
---
--- All memory addresses, sprite decode, smoothPosition(), and animation logic below are exact
--- copies of the real logic in meshghost_emerald.lua (2026-08-14) -- see that file's header for
--- the full derivation/citation trail for every address and constant; not re-derived here.
+-- Draws a second ghost at a fixed tile offset beside the player, driven by the same local-state read,
+-- smoothPosition() and animation code as meshghost_emerald.lua's remote path, with no networking (dev tool, never
+-- writes memory). With no network delay it moves in parallel with the player, so choppiness in it and not in the
+-- player is the smoothing's or the animation's, not lag. Addresses and logic are copies of the adapter's.
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GPLAYERAVATAR_ADDR = 0x02037590
@@ -211,7 +198,7 @@ local function getLocalState()
     return { x = x, y = y, orientation = orientation, anim = anim }
 end
 
--- Exact copy of meshghost_emerald.lua's smoothPosition() -- this is the thing being evaluated.
+-- A copy of the adapter's smoothPosition(): the thing being evaluated.
 local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 local PLAUSIBLE_STEP_DURATION_MIN = 2
 local PLAUSIBLE_STEP_DURATION_MAX = 40
@@ -302,8 +289,7 @@ tryDetectAvatarAddrOffset()
 console.log(string.format("Shadow ghost will track %d tile(s) east, %d tile(s) south of you.",
     SHADOW_OFFSET_TILES_X, SHADOW_OFFSET_TILES_Y))
 
-local localGender = "male" -- cosmetic only for this probe; not worth the inOverworld()-gated
--- lazy resolution meshghost_emerald.lua uses, since gender doesn't affect what's being tested.
+local localGender = "male" -- cosmetic only: gender does not affect what is tested
 
 local lastFrameErrorLogged = 0
 local function runFrame()

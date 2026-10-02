@@ -1,24 +1,6 @@
--- MeshGhost — Pokémon Emerald: make the game draw every glyph byte (DEV TOOL, WRITES, never shipped)
--- -- 2026-09-16
---
--- WHY THIS EXISTS. autoplay decodes Emerald's text, and the encoding is to be learned from the game:
--- text drawn on screen against the bytes behind it (`agent_docs/phases/phase13.md`). Ordinary dialogue
--- covers the common letters; this makes the game's own text printer draw bytes 00-F7 in a real text
--- box, so each can be paired with the glyph a screenshot shows. The situation is made (the bytes); the
--- mechanism under test (the printer drawing them) runs untouched.
---
--- HOW. Armed at load. On the first entry to the routine named AddTextPrinter whose template names
--- window 0 and points at the buffer named gStringVar4 -- an ordinary message box starting to print --
--- it overwrites that buffer with a test page, before the printer has drawn anything:
---   per line: EF, then ten test bytes each followed by EF (EF is the cursor glyph, measured
---   2026-09-16 by text_probe.lua, used as a separator so a blank glyph still shows as "EF EF")
---   FE after line 1 of a box, FB after line 2 (both measured the same day in the nurse's dialogue:
---   FE starts line 2, FB waits with the arrow and clears), FF at the end.
--- The log (charset_probe_<time>.log, gitignored) lists box -> line -> byte range, and the page READ
--- BACK from memory after the write. Only once; reload to arm again.
---
--- ADDRESSES: the same hash-matched build as text_probe.lua (SHA-1 compared 2026-09-16), vanilla only.
--- The buffer is scratch space every message overwrites; nothing here touches a save.
+-- MeshGhost — Emerald: the game's own printer draws every byte 00-F7 in a real message box (dev tool, writes once).
+-- The first AddTextPrinter for window 0 on gStringVar4, a buffer every message rewrites, gets a test page: ten bytes a
+-- line between EF markers so a blank glyph still shows, FE or FB between lines. Logs the page read back; vanilla only.
 
 local BUS = "System Bus"
 local ADDTEXTPRINTER = 0x0800467c

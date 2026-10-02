@@ -1,35 +1,8 @@
--- Dev-only diagnostic to find gObjectEvents/gPlayerAvatar's new EWRAM location on an
--- Archipelago-patched ROM. Read-only, never writes memory.
---
--- WHY THIS EXISTS: playerScreenPos() (meshghost_emerald.lua) and this project's own facing
--- decode both depend on gObjectEvents (0x02037350 vanilla) and gPlayerAvatar (0x02037590
--- vanilla, immediately after gObjectEvents -- 16 * 0x24 = 0x240 bytes later, same
--- pokeemerald.map/.sym build cited in phase1_probe.lua's header). Both already confirmed
--- reading frozen garbage under Archipelago (agent_docs/verified.md, 2026-08-11, reproduced on a
--- second seed 2026-08-14). Unlike the sprite/palette ROM data (fixed content, found by
--- byte-searching the ROM FILE directly -- see meshghost_emerald.lua's
--- SPRITE_ADDR_ARCHIPELAGO_SHIFT), gObjectEvents/gPlayerAvatar are RUNTIME EWRAM structs with no
--- fixed content to search for in the ROM file -- so this uses the same live "known-direction
--- motion" methodology Phase 1 originally used to find these addresses on vanilla in the first
--- place (agent_docs/pitfalls.md's "memory probing methodology"), automated into a full-EWRAM
--- scan instead of checking one hand-picked address.
---
--- METHOD (v2 -- rewritten after v1's continuous background scan failed): the hypothesis under test
--- is that facingDirection (where to look: struct ObjectEvent, include/global.fieldmap.h; DIR_* in
--- constants/global.h) holds only 1 (down), 2 (up), 3 (left) or 4 (right). v1 tried a continuous
--- background scan keeping any
--- byte that never left the 1-4 range, then a stability-duration filter on top of that -- both
--- failed for the same underlying reason: EWRAM is mostly quiescent during any idle stretch, so
--- huge numbers of unrelated bytes look "stable" or "always in range" simultaneously, and
--- neither filter meaningfully narrows the ~22000-candidate pool. This version is scripted
--- instead of open-ended: it tells you exactly when to press each direction, takes one full
--- EWRAM snapshot during each hold, and keeps only addresses that hit the EXACT expected value
--- at EVERY one of the four steps, in order -- 1 during down, then 3 during left, then 2 during
--- up, then 4 during right. Since a candidate can't be 1 and 3 at once, surviving from one phase
--- to the next already requires a real value transition, not just a plausible snapshot.
---
--- HOW TO USE: just follow the on-screen prompts. Stand still (no tile movement) for the whole
--- test -- only change facing via brief directional taps when told to.
+-- Read-only: finds where gObjectEvents/gPlayerAvatar moved to in EWRAM on an Archipelago ROM. They are runtime
+-- structs with nothing to byte-search for in the ROM file, so this tests against known-direction motion: one
+-- full EWRAM snapshot per held direction, keeping only addresses whose low nibble reads facingDirection's value
+-- (1 down, 3 left, 2 up, 4 right) at every step in order, which needs a real transition to survive.
+-- Follow the prompts, and stand still for the whole test: change facing only with brief taps when told.
 
 local EWRAM_BASE = 0x02000000
 local EWRAM_SIZE = 0x00040000 -- 256KB
@@ -54,8 +27,7 @@ local function waitFrames(n)
     end
 end
 
--- Same wait, but prints a countdown once per second (assuming 60fps) so you can see it coming
--- instead of guessing at the timing.
+-- Prints a countdown once a second (at 60fps).
 local function waitFramesWithCountdown(n)
     local wholeSeconds = math.floor(n / 60)
     local leftoverFrames = n - (wholeSeconds * 60)
@@ -66,8 +38,7 @@ local function waitFramesWithCountdown(n)
     waitFrames(leftoverFrames)
 end
 
--- Captures every byte in EWRAM into a plain Lua array (0-indexed by offset), spread across
--- `frames` frames so this doesn't stall the emulator for a full 256K-read burst in one go.
+-- Spread across `frames` frames so a 256K-read burst does not stall the emulator.
 local function takeSnapshot(frames)
     local snap = {}
     local bytesPerFrame = math.ceil(EWRAM_SIZE / frames)
@@ -103,8 +74,7 @@ local PHASES = {
 console.log("Get ready. Do not touch any direction buttons yet.")
 waitFramesWithCountdown(COUNTDOWN_FRAMES)
 
--- survivors == nil means "phase 1, check all of EWRAM"; afterward it's the shrinking set of
--- offsets that matched every prior phase.
+-- nil: the first phase checks all of EWRAM.
 local survivors = nil
 
 for _, phase in ipairs(PHASES) do

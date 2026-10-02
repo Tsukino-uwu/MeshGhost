@@ -1,23 +1,7 @@
--- MeshGhost — Pokémon Emerald: list menus (the bag and its kind), raw (DEV TOOL, READ-ONLY, never shipped) -- 2026-09-17
---
--- WHY THIS EXISTS. autoplay reads the START menu and a YES/NO through the routine the build names
--- Menu_MoveCursor, but the bag's item list has its own cursor, scrolls, and switches pockets, and none of it
--- was readable. The decomp builds such lists through a generic list menu whose state lives in a task's data;
--- which bytes say what is listed and what is selected is to be measured. This logs them raw whenever any
--- changes, with the pad, so each reading can be paired with a capture of the same frame.
---
--- ADDRESSES: a pokeemerald build whose ROM hashed identical to the vanilla ROM (SHA-1, 2026-09-16)
--- proves where each lives (the names below are the build's), not what its bytes mean. Vanilla only.
---
--- WHAT IT LOGS (list_menu_probe_<target>_<time>.log beside this file; gitignored):
---   ST    on any change of: gMain.callback2, the 0x1C bytes named gBagPosition, the first 12 bytes named
---         sMenu, the 0x18 bytes named gMultiuseListMenuTemplate, and every active task's routine address --
---         all raw hex -- and the pad
---   LIST  on any change, per active task whose routine is the one named ListMenuDummyTask: its 32 data bytes
---         raw, then each of up to 64 entries its first word points at (8 bytes each: a name pointer and an
---         id), the name decoded (letters, digits and space; anything else as {XX})
--- WHAT IT CANNOT SEE: a list that does not go through that task; anything drawn but not in those entries
--- (a quantity printed beside a name); anything in the frames between two logged changes; a patched ROM.
+-- MeshGhost — Pokémon Emerald: list menus such as the bag, raw (dev tool, read-only, vanilla only, never shipped).
+-- On any change, with the pad: ST, gMain.callback2, gBagPosition, sMenu, gMultiuseListMenuTemplate and each active
+-- task's routine, raw; LIST, per task running ListMenuDummyTask, its 32 data bytes and up to 64 of the entries its
+-- first word points at, each a name pointer and an id, the name decoded. Names are the build's.
 
 local BUS = "System Bus"
 local GMAIN_CB2 = 0x030022c4
@@ -39,7 +23,7 @@ local function log(s) pending[#pending + 1] = string.format("f%d %s", emu.framec
 local function flush()
 	if logf and #pending > 0 then
 		logf:write(table.concat(pending, "\n"), "\n")
-		logf:flush() -- on a timer, never per frame
+		logf:flush()
 		pending = {}
 	end
 end

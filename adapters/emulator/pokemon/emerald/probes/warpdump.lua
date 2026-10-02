@@ -1,11 +1,10 @@
--- Where does the game think it is, and what is in the warp structs? (PROBE, never shipped)
+-- Where does the game think it is, and what is in the warp structs? (dev tool, read-only, never shipped)
 local done, n = false, 0
 local function tick()
     n = n + 1
     if done or n < 20 then return end
     done = true
     local sb1 = memory.read_u32_le(0x03005d8c)
-    -- struct SaveBlock1: struct Coords16 pos (0x00), struct WarpData location (0x04)
     console.log(string.format("warpdump: location group=%d num=%d warpId=%d pos=%d,%d",
         memory.read_u8(sb1 + 0x04), memory.read_u8(sb1 + 0x05),
         memory.read_s8(sb1 + 0x06),

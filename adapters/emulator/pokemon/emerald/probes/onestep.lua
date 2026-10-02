@@ -1,10 +1,5 @@
--- MeshGhost -- ONE tile at a time, on the bike (DEV TOOL, never shipped)
---
--- WHY. The user, 2026-08-20: *"when moving a single tile, its 'over animating', the characther is
--- not supposed to wiggle from just 1 step, only when constantly biking in 1 direction"*, and only
--- on the spawned tier. A sustained ride hides it -- the wiggle is a whole walk cycle spent on one
--- tile, so it only shows when the tile is the whole journey. Four single steps, one per facing,
--- with a long still spell after each.
+-- Steps one tile at a time on the bike, one per facing, with a long still spell after each: a sustained ride hides a
+-- walk cycle spent on a single tile.
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
 local GPLAYERAVATAR_ADDR = 0x02037590

@@ -1,39 +1,9 @@
--- MeshGhost — Pokémon Emerald: test-state kit (DEVELOPMENT TOOL, never shipped)
---
--- WHAT THIS IS FOR
--- The open Emerald item is surf / Mach Bike / Acro Bike / ledges (agent_docs/phases/phase8.md):
--- the ghost snaps badly on all of them because the adapter only classifies walking, running and
--- idle. Testing that needs a save that HAS a bike and can surf, which is an hour of play per
--- attempt on a fresh file. This puts the game into those states in one second.
---
--- WHY NOT CHEAT CODES. Tried first, 2026-08-18, and it failed in a way worth remembering:
--- BizHawk accepted Emerald GameShark codes without error, decoded them to nonsense (address
--- 0x0000000E), and marked them ACTIVE, writing garbage every frame. The popular Emerald codes are
--- GameShark v3 / CodeBreaker, both encrypted, and this build decrypts neither. Even the ones that
--- look decodable are not verifiable: `82005274 0YYY` is `gHeap + 0x5274`, an unnamed heap offset.
--- See agent_docs/pitfalls.md. Everything below instead writes the real save structure at offsets
--- that come from our own make-compare-verified pokeemerald build, so each one can be checked.
---
--- THIS IS A CHEAT, AND IT PERSISTS IF YOU SAVE.
--- MeshGhost itself never does any of this -- the adapter's writes are cosmetic object RAM only,
--- and that boundary is the point of the spawn ADR. This is a tester's tool, deliberately a
--- separate file, and it is never part of a release. But be clear-eyed: unlike the adapter's live
--- RAM writes, these land in SaveBlock1, so **saving the game afterwards makes them permanent**.
--- Use a save file you do not mind changing.
---
--- ADDRESSES: gSaveBlock1Ptr 0x03005D8C and gSaveBlock2Ptr 0x03005D90 from our build's map; the
--- save-block offsets, flag and item ids in the code below were looked up in pokeemerald
--- (include/global.h, include/constants) and count as measured only once the read-back shows them.
--- **A bag quantity is expected to be XOR-encrypted with SaveBlock2's encryptionKey** (where to
--- look: item.c's SetBagItemQuantity) -- the read-back is what tests it.
---
--- HOW TO RUN
---   Edit WANTED below, then point dev-scripts/bizhawk-dev-loader.target at this file. It counts
---   down, applies once, reads everything back independently, and stops.
+-- Puts a save into test states in one second: bikes, a rod, badges, HMs, Master Balls, Rare Candies and a Repel
+-- kept running (dev tool, never shipped). A cheat that writes SaveBlock1, so saving the game afterwards keeps it:
+-- use a save you do not mind changing. Edit WANTED and load it through the dev loader; it counts down, applies
+-- once, reads everything back independently, and stops.
 
--- ---------------------------------------------------------------------------------------------
--- What to give. Set to false to skip.
--- ---------------------------------------------------------------------------------------------
+-- What to give; false skips an entry.
 local WANTED = {
 	mach_bike = true,     -- ITEM_MACH_BIKE  259 (0x103)
 	acro_bike = true,     -- ITEM_ACRO_BIKE  272 (0x110)
@@ -41,17 +11,14 @@ local WANTED = {
 	badges = true,        -- all 8, so HM moves are usable outside battle
 	hms = true,           -- HM01-HM08, the TM/HM pocket
 	master_balls = 5,     -- a count, or false. For catching something that can actually Surf.
-	rare_candies = 99,    -- levels, so a caught Pokemon can hold its own. 99 is the stack
-	                      -- cap; Wailmer evolves into Wailord at 40.
+	rare_candies = 99,    -- levels, so a caught Pokemon can hold its own; 99 is the stack cap
 	permanent_repel = true, -- keep VAR_REPEL_STEP_COUNT topped up, so wild encounters stay off
 }
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GSAVEBLOCK2PTR_ADDR = 0x03005d90
 local SB2_ENCRYPTIONKEY = 0xac
--- Pocket offsets into SaveBlock1 (looked up in include/global.h:1006-1010) and their sizes
--- (include/constants/global.h). Each pocket is taken to be its own ItemSlot array; an item put in
--- the wrong one would not appear.
+-- Each pocket is its own ItemSlot array; an item put in the wrong one would not appear.
 local SB1_BAG_ITEMS = 0x560
 local SB1_BAG_KEYITEMS = 0x5d8
 local SB1_BAG_POKEBALLS = 0x650
@@ -63,12 +30,8 @@ local SB1_FLAGS = 0x1270
 local BAG_KEYITEMS_COUNT = 30
 local ITEM_SLOT_SIZE = 4
 
--- Vars live in their own SaveBlock1 array (where to look: include/global.h:1021), indexed from
--- VARS_START. The hypothesis this kit runs on: VAR_REPEL_STEP_COUNT is the counter the Repel ITEM
--- sets, the repel effect lasts while it is non-zero, and the game decrements it one per step. So "permanent repel" is not a flag
--- to set once -- it is this counter kept topped up, which is why this one is maintained every
--- frame while everything else here is applied once. Keeping it high also avoids the "use another
--- Repel?" prompt entirely, since that fires exactly when it hits zero.
+-- Vars are a SaveBlock1 array indexed from VARS_START. The repel counter is kept topped up every frame while
+-- everything else is applied once.
 local SB1_VARS = 0x139c
 local VARS_START = 0x4000
 local VAR_REPEL_STEP_COUNT = 0x4021
@@ -83,7 +46,6 @@ local KEY_ITEMS = {
 	{ key = "super_rod", id = 264, name = "Super Rod" },
 }
 
--- ITEM_HM01..ITEM_HM08 = 339..346: Cut, Fly, Surf, Strength, Flash, Rock Smash, Waterfall, Dive.
 local HM_ITEMS = {
 	{ id = 339, name = "HM01 Cut" }, { id = 340, name = "HM02 Fly" },
 	{ id = 341, name = "HM03 Surf" }, { id = 342, name = "HM04 Strength" },
@@ -111,9 +73,7 @@ local function log(msg)
 	console.log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flush every 20 lines: a bounded cost, and still a live log.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -134,9 +94,7 @@ local function inOverworld()
 		or cb == CB2_OVERWORLD_ARCHIPELAGO_ADDR or cb == CB2_OVERWORLD_ARCHIPELAGO_ADDR + 1
 end
 
--- Both save blocks are reached through pointers the game keeps in IWRAM, so this works on a
--- relocated (Archipelago) ROM too -- the pointer moves the data, not the pointer's own address.
--- Still checked rather than assumed: a pointer that is not in EWRAM means no save is loaded yet.
+-- Through the game's IWRAM pointers, so a relocated save block is still found; one outside EWRAM means no save yet.
 local function saveBlocks()
 	local sb1, sb2 = u32(GSAVEBLOCK1PTR_ADDR), u32(GSAVEBLOCK2PTR_ADDR)
 	local function plausible(p) return p >= 0x02000000 and p < 0x02040000 end
@@ -173,12 +131,7 @@ local function giveItem(sb1, key, pocket, pocketCount, itemId, name, quantity)
 	end
 	local addr = slotAddr(sb1, pocket, slot)
 	w16(addr, itemId)
-	-- The quantity is XOR-encrypted with SaveBlock2's key (item.c's SetBagItemQuantity). A plain
-	-- 1 here shows up as a nonsense count and the item can behave as if absent.
-	-- The game stores quantity as a u16, so its XOR against the 32-bit encryptionKey is truncated
-	-- to the key's low half. Write and read must both use that half or the count comes back as a
-	-- 32-bit-looking number (seen live 2026-08-18: 3500146689 = 0xD0A00001, i.e. a correct 1 with
-	-- the key's high half still attached by a wrong decode).
+	-- The quantity is stored XOR the low half of SaveBlock2's key; writing and reading must both use that half.
 	w16(addr + 2, quantity ~ (key & 0xffff))
 	log(string.format("  %-16s -> slot %d (id %d) x%d", name, slot, itemId, quantity))
 end
@@ -199,8 +152,6 @@ local function setBadges(sb1)
 	end
 	log("  badges     -> all 8 set")
 end
-
--- ---------------------------------------------------------------------------------------------
 
 log("=== MeshGhost Emerald test-state kit (WRITES SAVE DATA -- persists if you save) ===")
 if not memory.usememorydomain("System Bus") then
@@ -246,8 +197,7 @@ local function apply()
 			"Repel", REPEL_TOPUP))
 	end
 
-	-- Read back through the same decode the GAME uses, not the values just written: an echo of
-	-- our own write proves the write landed, not that the game will agree with it.
+	-- Read back through the game's own decode, not the values just written.
 	log("verifying, by reading the bag back and decrypting quantities the way item.c does:")
 	for _, pocket in ipairs({
 		{ name = "key items", at = SB1_BAG_KEYITEMS, count = BAG_KEYITEMS_COUNT },
@@ -279,8 +229,7 @@ end
 
 MESHGHOST_DEV_TICK = function()
 	if done then
-		-- Everything else was a one-shot write. Repel is a countdown the game spends, so it is the
-		-- one thing that has to be maintained rather than set.
+		-- Repel is a countdown the game spends, so it is maintained rather than set.
 		if WANTED.permanent_repel and inOverworld() then
 			local sb1 = saveBlocks()
 			if sb1 then topUpRepel(sb1) end

@@ -1,13 +1,5 @@
--- MeshGhost -- get OFF whatever you are riding (DEV TOOL, never shipped)
---
--- WHY A WHOLE PROBE FOR ONE BUTTON. `use_acro` presses SELECT once and assumes it worked, and three
--- times in one session it silently did not -- the run carried on, the log looked plausible, and the
--- reading was of a state nobody was ever in. The user, watching: *"you never got off the bike"*.
---
--- So this one does not assume: it presses, waits long enough for the mount or dismount animation to
--- finish, LOOKS at the player's graphicsId, and presses again if it is still on a bike -- the shape
--- `use_mach.lua` already uses, and the one that has actually worked. On foot is Brendan 0 / May 89
--- (verified.md's graphicsId table).
+-- Gets off whatever the player is riding, and confirms it (dev tool, never shipped): presses SELECT, waits out the
+-- dismount animation, reads graphicsId, and presses again while still on a bike. On foot is Brendan 0 / May 89.
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350

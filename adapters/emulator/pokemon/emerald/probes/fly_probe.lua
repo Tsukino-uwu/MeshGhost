@@ -1,36 +1,8 @@
--- MeshGhost — Pokémon Emerald: what a FLY actually does, frame by frame (DEV TOOL, never shipped)
---
--- WHY
--- The boat/Fly work shipped 2026-08-26 detects a fly by scanning gTasks for Task_FlyOut /
--- Task_FlyIn and reading the bird sprite the task owns. On the first live run the user reported
--- *"sprites are glitchy, and the ghosts are not following the player at all during fly"* — which
--- is exactly what a detection that never fires looks like, and also exactly what a detection that
--- fires on the wrong thing looks like. Those two need separating before anything is changed.
---
--- SO THIS READS THE GAME, NOT THE ADAPTER. It never touches flyRide.* or any adapter state: it
--- does its own task scan and its own sprite walk, so "the adapter thinks X" and "the game is doing
--- X" stay two different statements. Logging the value we just wrote back to ourselves is the one
--- shape this repo has been burned by most (CLAUDE.md).
---
--- WHAT IT ANSWERS, in order
---   1. Is a fly task running at all, and at WHAT ADDRESS? Every active task's function pointer is
---      dumped, so a wrong constant shows up as "a task is running and it is not the one we look
---      for" rather than as silence.
---   2. What does the PLAYER's own object/sprite do across the sequence — invisible bit, graphicsId,
---      map coords, sprite screen position, coordOffsetEnabled.
---   3. Is there a bird, and what is in its data slots (the arc parameter, the passenger, done).
---   4. What is the GHOST doing at the same instant — the same fields, side by side.
---
--- Both halves on one line is the point: a ghost that does not follow is either not being told to
--- fly, or being told and not moving, and only the pair distinguishes them.
---
--- DRIVING IT
--- The user's savestates make this self-testable (their slots, offered for this):
---   slot 5 — same-town fly       slot 6 — different-town fly      press A once to fly
--- Set MESHGHOST_FLY_SLOT to pick one (default 5). It drives input, so it must be the ONLY
--- input-driving script in the loader's target list.
---
--- Lenient by construction: fixed phases with a countdown, never a window to hit.
+-- What a fly does, frame by frame, on the flyer and on a watcher at once (dev tool, never shipped). It reads the
+-- game, never the adapter, and each line has the active tasks, the player, any bird, and each ghost's same fields:
+-- a ghost that does not follow is either not told to fly or told and not moving, and only the pair tells which.
+-- Driven, it loads savestate MESHGHOST_FLY_SLOT (default 5: a same-town fly; 6: a different town), taps A and logs
+-- LOG_FRAMES; it must be the only input-driving script loaded.
 
 local SLOT = tonumber(MESHGHOST_FLY_SLOT or os.getenv("MESHGHOST_FLY_SLOT") or "") or 5
 local SETTLE_FRAMES = 60      -- let the adapter settle before yanking the state
@@ -45,10 +17,7 @@ local SPRITE_SIZE = 0x44
 local GTASKS_ADDR = 0x03005e00
 local TASK_SIZE = 0x28
 local GHOST_LOCAL_ID = 255
--- gSaveBlock1Ptr, for the map the LOCAL player is standing in. Two instances only ever exchange
--- ghosts while their area ids match, so "was there even a ghost to watch" is a question about
--- this pair of bytes before it is a question about anything in the fly code -- and the first
--- paired run failed on exactly that: the watcher held one ghost all run and it was its own.
+-- gSaveBlock1Ptr, for the local map: two instances exchange ghosts only while their area ids match.
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local function localArea()
     local b = memory.read_u32_le(GSAVEBLOCK1PTR_ADDR)
@@ -56,16 +25,14 @@ local function localArea()
     return string.format("%d:%d", memory.read_s8(b + 0x04), memory.read_s8(b + 0x05))
 end
 
--- Beside this script, never an absolute path: this repo is public (CLAUDE.md).
+-- Beside this script, never an absolute path: the repo is public.
 local BS = string.char(92)
 local DIR = debug.getinfo(1, "S").source:sub(2)
     :match("^(.*)[/" .. BS .. "][^/" .. BS .. "]*$") or "."
--- Separate files per role, so a driven run and an observed run never overwrite each other --
--- they are the two halves of one measurement and are read side by side.
+-- One file per role: a driven run and an observed run are the two halves of one measurement.
 local out = io.open(DIR .. (MESHGHOST_FLY_OBSERVE and "/fly_probe_watch.log"
     or "/fly_probe.log"), "w")
--- Buffered, flushed in batches. A per-line flush was measured at 63-83ms on this emulator --
--- four to five frames, on the emulator's own thread (adapters/emulator/CLAUDE.md).
+-- Buffered and flushed in batches: a per-line flush costs frames on the emulator's own thread.
 if out then out:setvbuf("full", 1 << 16) end
 local nLines = 0
 local function log(s)
@@ -82,9 +49,7 @@ local function r32(a) return memory.read_u32_le(a) end
 local function objAddr(i) return GOBJECTEVENTS_ADDR + i * OBJECTEVENT_SIZE end
 local function sprAddr(i) return GSPRITES_ADDR + i * SPRITE_SIZE end
 
--- One character's whole state in one field: the object's flags that matter here, its graphic, its
--- map coords, and the SPRITE's screen position -- which is the half that moves during a fly while
--- the map coords stand still.
+-- One character's state in one field; the sprite's screen position moves during a fly while the map coords stand.
 local function describe(tag, objId)
     if objId == nil or objId >= 16 then return tag .. "=none" end
     local a = objAddr(objId)
@@ -105,20 +70,14 @@ local function describe(tag, objId)
         (r8(d + 0x3e) >> 1) & 1,        -- coordOffsetEnabled
         (r8(d + 0x3e) >> 2) & 1,        -- invisible
         r8(d + 0x2a), r8(d + 0x2b))
-        -- WHICH TILES IT IS ACTUALLY DRAWN FROM, and the shape it is drawn with. A "broken
-        -- sprite" is by definition a thing no struct field can show: graphicsId, animation number
-        -- and position can all agree while the picture is wrong, because the picture lives in the
-        -- tile range OAM points at and in the shape/size bits that say how to read it. This is the
-        -- half that was missing when every earlier field came back clean and the user still saw a
-        -- broken character after a cross-map fly.
+        -- The tiles and shape it is drawn from: a broken sprite can have every struct field right.
         .. string.format(" | oam=%04X %04X %04X tile=%d pal=%d shape=%d size=%d sub=%02X",
             r16(d + 0x00), r16(d + 0x02), r16(d + 0x04),
             r16(d + 0x04) & 0x3ff, (r16(d + 0x04) >> 12) & 0x0f,
             (r16(d + 0x00) >> 14) & 0x03, (r16(d + 0x02) >> 14) & 0x03, r8(d + 0x42))
 end
 
--- Every ACTIVE task, with its function pointer. The point is the pointer: a fly that is running
--- under an address we do not recognise is a different bug from a fly that is not running.
+-- Every active task with its function pointer: a fly running under an address we do not know is a different bug.
 local function tasks()
     local parts = {}
     for t = 0, 15 do
@@ -131,9 +90,7 @@ local function tasks()
     return table.concat(parts, " ; ")
 end
 
--- Any sprite that is NOT an object-event sprite and is running something -- the bird is one of
--- these. Reported by callback so a wrong constant is visible as an address rather than as an
--- absence, which is the same reason the task dump prints pointers.
+-- Any non-object sprite running a callback (the bird is one), by callback, so a wrong constant shows as an address.
 local function loose(skip)
     local parts = {}
     for s = 0, 63 do
@@ -150,11 +107,7 @@ local function loose(skip)
     return table.concat(parts, " ; ")
 end
 
--- A GHOST WEARS LOCALID_PLAYER, AND SO DOES THE PLAYER. That is deliberate in the adapter (it is
--- what makes a ghost non-interactable, using the engine's own check), and it means "localId 255"
--- alone finds the player first and reports it as the ghost -- which is exactly what the first run
--- of this probe did, printing two identical halves and hiding the thing it was written to see.
--- The player's own object id is the discriminator, and it comes from gPlayerAvatar.
+-- A ghost wears LOCALID_PLAYER like the player, so the player's own object id from gPlayerAvatar tells them apart.
 local function ghostObjIds(playerObjId)
     local ids = {}
     for i = 0, 15 do
@@ -167,20 +120,15 @@ local function ghostObjIds(playerObjId)
     return ids
 end
 
--- OBSERVER MODE: log, drive nothing. The instance that WATCHES a flying peer is the one the
--- remaining bugs live on, and it must not load a state or touch the controller while the other
--- instance is being driven -- two scripts pressing A at each other proves nothing. Set
--- MESHGHOST_FLY_OBSERVE on the watching instance and drive the other one.
+-- Observer mode, for the instance watching a flying peer: log only, never a state load or the controller (two
+-- scripts pressing A at each other prove nothing). Set MESHGHOST_FLY_OBSERVE there and drive the other instance.
 local OBSERVE = MESHGHOST_FLY_OBSERVE or os.getenv("MESHGHOST_FLY_OBSERVE")
 
 local phase, n, logged = OBSERVE and "log" or "settle", 0, 0
 
--- SCREENSHOTS, KEYED ON THE BIRD. Every struct field agreed through five fly bugs while the
--- screen was wrong, so the screen itself is now part of the record: whenever any sprite is
--- running the fly-swoop callback, and for six seconds after the last one, a frame is captured
--- every fourth frame. A screenshot sees the spawned and hardware tiers (real sprites); it cannot
--- see the painted overlay -- known, and fine, because the shipped watcher draws peers spawned.
--- client.screenshot reads the emulated frame, so a backgrounded window captures the same.
+-- Screenshots every fourth frame while any sprite runs the fly-swoop callback and for six seconds after: struct
+-- fields can agree while the screen is wrong. They see real sprites, never the painted overlay, and a backgrounded
+-- window captures the same.
 local shotUntil, shots = nil, 0
 local SHOT_CAP = 150
 local function birdOnScreen()
@@ -204,14 +152,9 @@ end
 local function tick()
     n = n + 1
     if OBSERVE then
-        -- Never stops, and never touches the controller. The window that matters is whenever the
-        -- OTHER instance flies, which this one cannot predict.
-        --
-        -- It may still be PLACED once, though, which is a different thing from being driven: a
-        -- watcher has to be standing somewhere sensible to watch from, and after a relaunch it is
-        -- sitting on a title screen. MESHGHOST_FLY_OBSERVE_LOAD_SLOT loads one state, once, and
-        -- then never again -- deliberately not re-applied on a script reload, because a slot that
-        -- reloads on every re-attach is the trap `status.md` records for the square-drive probe.
+        -- Never stops or touches the controller: the other instance's fly cannot be predicted. It may be placed
+        -- once (after a relaunch it sits on a title screen): MESHGHOST_FLY_OBSERVE_LOAD_SLOT loads one state, once,
+        -- and never again on a script reload.
         local slot = tonumber(MESHGHOST_FLY_OBSERVE_LOAD_SLOT
             or os.getenv("MESHGHOST_FLY_OBSERVE_LOAD_SLOT") or "")
         if slot and n == SETTLE_FRAMES then
@@ -234,7 +177,7 @@ local function tick()
         return
     end
     if phase == "tap" then
-        -- Tapped, not held: the game reads a NEW press.
+        -- Tapped, not held: the game reads a new press.
         joypad.set({ A = (n % 20) < 10 })
         if n >= TAP_FRAMES then
             console.log("fly_probe: logging " .. LOG_FRAMES .. " frames.")
@@ -253,7 +196,6 @@ local function tick()
         parts[#parts + 1] = describe("GHOST" .. gObj, gObj)
         skip[r8(objAddr(gObj) + 0x04)] = true
     end
-    -- `loose` takes two ids to skip; with several ghosts, pass the set instead.
     log(string.format("f=%d area=%s | %s | TASKS %s | LOOSE %s",
         emu.framecount(), localArea(),
         table.concat(parts, " | "),

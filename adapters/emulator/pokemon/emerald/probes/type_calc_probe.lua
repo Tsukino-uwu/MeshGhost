@@ -1,30 +1,5 @@
--- MeshGhost — Pokémon Emerald: what a move's type does to its damage (DEV TOOL, READ-ONLY, never shipped) -- 2026-09-17
---
--- WHY THIS EXISTS. autoplay's `battle` chooses a move by power times accuracy alone. A policy that weighs types needs
--- the game's own type table and what the battle does with it (the user, 2026-09-17: the game's table is what gets
--- measured, a Gen III type chart only the map). The decomp says the table is the ROM block the build names
--- gTypeEffectiveness, and that a move's damage word (gBattleMoveDamage) is multiplied by it inside the battle script
--- command named Cmd_typecalc, between Cmd_damagecalc and Cmd_adjustnormaldamage. That is where to look; this logs
--- what the game actually does there.
---
--- ADDRESSES: a pokeemerald build whose ROM hashed identical to the vanilla ROM (SHA-1, 2026-09-16) proves where each
--- lives (the names below are the build's), not what its bytes mean. Vanilla only.
---
--- WHAT IT LOGS (type_calc_probe_<target>_<time>.log beside this file; gitignored):
---   TYPE i   once at load: the 7-byte type name at index i of the block named gTypeNames (autoplay reads move types
---            from it), for i 0-17
---   TABLE    once at load: the 0x150 bytes named gTypeEffectiveness as triples, raw and with the names above
---   TC       entry to Cmd_typecalc: gCurrentMove and its name, the move's type byte (+2 of its 12-byte entry in the
---            block named gBattleMoves), gBattlerAttacker and gBattlerTarget, gBattleMoveDamage (s32), gMoveResultFlags,
---            and for both battlers: species, the bytes +0x20 (ability) and +0x21/+0x22 (types) of its gBattleMons
---            entry, and +6/+7 of that species' 28-byte entry in the block named gSpeciesInfo
---   ADJ      entry to Cmd_adjustnormaldamage: gBattleMoveDamage and gMoveResultFlags
---   STR      on any change of the first 0x80 bytes named gDisplayedStringBattle, decoded (letters, digits, space)
--- WHAT IT CANNOT SEE: damage computed by any other command (typecalc2, a fixed-damage move), anything between the two
--- hooks other than their words, a patched ROM.
---
--- COST: two execute hooks (autoplay's driver already runs eight, and any number costs the same half of top speed:
--- `emerald/MEASURED.md`, "What the driver and its hooks cost"), and one 0x80-byte read a frame.
+-- MeshGhost — Pokémon Emerald: what a move's type does to its damage (dev tool, read-only, vanilla, never shipped).
+-- Hooks Cmd_typecalc and Cmd_adjustnormaldamage for the damage word and both battlers; the type tables once at load.
 
 local BUS = "System Bus"
 local CMD_TYPECALC, CMD_ADJUSTNORMALDAMAGE = 0x08047038, 0x080478f4

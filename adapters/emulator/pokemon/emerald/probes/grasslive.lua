@@ -1,7 +1,7 @@
--- What the ENGINE's grass sprites are doing (PROBE, never shipped).
--- The player and any spawned ghost standing in grass each own a real grass sprite. Reading them is
--- the reference the painted copy has to match: where it sits, which frame it is on, and -- the one
--- a screenshot cannot answer -- what subpriority it has relative to the character.
+-- MeshGhost — Pokémon Emerald: the engine's grass sprites (dev tool, read-only, never shipped).
+-- Logs to the console on any change, so every frame mid-step: each in-use sprite drawn from the tall or long grass
+-- template (position, frame, palette, priority, subpriority, invisible bit), the player's sprite, the tile's
+-- behaviour, and where the drawn tier puts the grass. How many grass sprites there are matters as much as where.
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GSPRITES_ADDR = 0x02020630
 local TALL = 0x0850caa0
@@ -15,9 +15,6 @@ local function tick()
         local d = GSPRITES_ADDR + i * 0x44
         if (memory.read_u8(d + 0x3e) & 0x01) ~= 0 then
             local img = memory.read_u32_le(d + 0x0c)
-            -- Everything in use, not just a guessed match: the first version compared against the
-            -- template's images pointer and found nothing, which proves the comparison wrong or
-            -- the state absent -- and those are different problems.
             if memory.read_u32_le(d + 0x0c) == memory.read_u32_le(TALL + 0x0c)
                 or memory.read_u32_le(d + 0x0c) == memory.read_u32_le(LONG + 0x0c) then
                 out[#out + 1] = string.format(
@@ -32,14 +29,11 @@ local function tick()
             end
         end
     end
-    -- The player's own sprite, as the thing the grass is drawn against.
     local ps = GSPRITES_ADDR + memory.read_u8(GPLAYERAVATAR_ADDR + 0x04) * 0x44
     out[#out + 1] = string.format("PLAYER pos=%d,%d sub=%d prio=%d",
         memory.read_s16_le(ps + 0x20), memory.read_s16_le(ps + 0x22),
         memory.read_u8(ps + 0x43), memory.read_u16_le(ps + 0x04) >> 10 & 0x03)
-    -- MY formula for the same tile, so the two can be compared rather than eyeballed. The drawn
-    -- tier puts grass at the tile's top-left in screen space; the engine's sprite reports its own
-    -- anchor, whose top-left is that minus the sprite's 8px half-size.
+    -- The drawn tier puts grass at the tile's top-left on screen; the engine's sprite reports its centre, 8px in.
     local sb1 = memory.read_u32_le(0x03005d8c)
     local objId = memory.read_u8(GPLAYERAVATAR_ADDR + 0x05)
     local o = 0x02037350 + objId * 0x24
@@ -50,8 +44,6 @@ local function tick()
     local tileLeft = ((gx - memory.read_s16_le(sb1 + 0x00)) << 4) + dx
     local tileTop = ((gy - memory.read_s16_le(sb1 + 0x02)) << 4) + dy
     -- The behaviour under the player, so "no grass sprite" can be told apart from "no grass".
-    -- A probe that reports nothing is a finding only once it can prove it would have reported
-    -- something (_template/probes.md).
     local w = memory.read_s32_le(0x03005dc0)
     local mp = memory.read_u32_le(0x03005dc0 + 0x08)
     local beh = -1
@@ -69,10 +61,6 @@ local function tick()
     out[#out + 1] = string.format("behaviour=%d (2=tall 3=long)", beh)
     out[#out + 1] = string.format("MINE tile(%d,%d) topleft=%d,%d anchorWouldBe=%d,%d",
         gx, gy, tileLeft, tileTop, tileLeft + 8, tileTop + 8)
-    -- Per frame while the player is moving between tiles, which is the case in question. The
-    -- count matters as much as the positions: if the engine has TWO grass sprites mid-step and the
-    -- painted copy draws two as well, the fault is elsewhere; if it has one somewhere the copy is
-    -- not putting one, that is the answer.
     local line = table.concat(out, "  |  ")
     if line ~= last then last = line console.log("grasslive: " .. line) end
 end

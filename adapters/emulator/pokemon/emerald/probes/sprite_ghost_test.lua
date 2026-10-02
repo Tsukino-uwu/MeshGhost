@@ -1,23 +1,7 @@
--- Phase 5.5 Step 2: draw the decoded Brendan sprite frame on screen via gui.drawPixel, at a
--- hardcoded offset next to the local player -- same "no network yet" shape as Phase 2's very
--- first ghost test, proving the decode-then-draw path works on screen before wiring it into
--- real remote rendering. Never writes memory.
---
--- Reuses, unchanged: the 4bpp/BGR555 decode from sprite_probe.lua (confirmed correct,
--- 2026-08-11, see agent_docs/verified.md) and the player screen-position formula from
--- phase2_ghost.lua (gSaveBlock1Ptr/gPlayerAvatar/gSprites/gSpriteCoordOffsetX/Y -- see that
--- script's header for full address citations, not re-derived here).
---
--- gui.drawPixel(x, y, color) signature/behavior source: TASEmulators/BizHawk
--- Assets/Lua/_docs_luacats/gui.d.lua -- color type is `dotnetcolor | integer | string`
--- (classes.d.lua), an integer color is documented as 0xAARRGGBB, and confirmed against the
--- actual conversion in src/BizHawk.Client.Common/lua/NLuaTableHelper.cs
--- (`Color.FromArgb((int)l)` -- .NET's Color.FromArgb(int) is alpha in the high byte, i.e.
--- 0xAARRGGBB, not 0xRRGGBBAA).
---
--- Decoding happens once at script start (the ROM data never changes at runtime) and is cached
--- as a flat list of {x, y, color} draw calls, skipping palette index 0 (transparent) -- redrawn
--- every frame from that cache, not re-decoded every frame.
+-- Phase 5.5 step 2, no network: draws the decoded Brendan frame with gui.drawPixel at a fixed offset from the
+-- player, using sprite_probe.lua's decode and phase2_ghost.lua's screen position. The frame is decoded once (ROM
+-- data never changes) into {x, y, color} draws, skipping palette index 0; gui.drawPixel takes 0xAARRGGBB. Never
+-- writes memory.
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GPLAYERAVATAR_ADDR = 0x02037590
@@ -31,8 +15,7 @@ local GOBJECTEVENTPAL_BRENDAN_ADDR = 0x084987f8
 local FRAME_WIDTH_TILES = 2
 local FRAME_HEIGHT_TILES = 4
 
--- Hardcoded screen-pixel offset from the local player's own screen position, same idea as
--- Phase 2's GHOST_OFFSET_X/Y -- arbitrary, just needs to be visibly separate from the player.
+-- Arbitrary: just visibly apart from the player.
 local GHOST_OFFSET_X = 24
 local GHOST_OFFSET_Y = -16
 
@@ -56,8 +39,7 @@ local function decodePalette(addr)
     return pal
 end
 
--- decodeFrameDrawList decodes one frame and returns a flat list of {x, y, color} pixels
--- relative to the frame's own top-left corner, skipping palette index 0 (transparent).
+-- One frame as a flat list of {x, y, color} from its top-left corner, skipping palette index 0 (transparent).
 local function decodeFrameDrawList(picAddr, palAddr)
     local palette = decodePalette(palAddr)
     local widthPx = FRAME_WIDTH_TILES * 8
@@ -93,8 +75,7 @@ local ghostPixels = decodeFrameDrawList(GOBJECTEVENTPIC_BRENDANNORMAL_ADDR, GOBJ
 console.log(string.format("Decoded %d opaque pixels to draw each frame.", #ghostPixels))
 
 while true do
-    -- Unconditional gui.clearGraphics() every frame -- BizHawk's overlay does not auto-clear
-    -- on its own (confirmed live in Phase 3, see agent_docs/verified.md).
+    -- Every frame: BizHawk's overlay does not clear on its own.
     gui.clearGraphics()
 
     local base = memory.read_u32_le(GSAVEBLOCK1PTR_ADDR)

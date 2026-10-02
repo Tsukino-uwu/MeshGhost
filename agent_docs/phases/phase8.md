@@ -1350,3 +1350,17 @@ now gone were reworded. Found and not changed (code, not comments): `SPRITECB_UN
 `GDUMMYSPRITETEMPLATE` are unused, `onX`/`onY`/`seen` in the grass block are computed and never read, `FLAGS.md` has no
 row for `MESHGHOST_EMERALD_SEAM_TRACE`, and `pitfalls/by-lesson.md` says the side-hop lock should come off when the peer
 stops side hopping where the code releases it when the ghost stands on its target.
+
+## 2026-10-02 — A5: the probes' comments trimmed
+
+The 120 files in `probes/` went from 4,416 whole-line comments to 890; `luac -l -l` listings without line numbers
+are identical for all 118 Lua files, and the two Python tools are untouched (their docstrings are the usage text they
+print). History no record held is in `pitfalls/by-lesson.md`, "The stories behind the code" (76 bullets); game facts
+and one probe cost went to `MEASURED.md`'s 2026-10-02 entries (41). Quoted decomp text (a macro's definition, a struct
+layout) was not carried into the records. Comments that contradicted the code were fixed, among them: `npc_step_probe`
+said it follows only the first moving NPC (it logs every moving slot), `movement_course` gave 4-tile straights (10),
+`vramwrite_probe` named tile 84 (it writes from 192), and `phase1_probe` said it prints every 15 frames (only on
+change). Found and not changed (a printed string is code): `playersprite_probe` still prints that the player's entry
+should be near the screen centre. The docs that pointed into probe headers (the README's `phase5_5_sprite` note,
+`PROBES.md` for `testkit` and `cmd_drive`, `pitfalls/by-lesson.md` for `oaminject_probe`, and
+`_template/PROTOCOL.md` for `phase3_loopback`) now point where the text went.

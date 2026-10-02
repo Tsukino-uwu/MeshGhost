@@ -1,60 +1,13 @@
--- MeshGhost — Pokémon Emerald: spawn test 1 (FIRST WRITE TO GAME RAM ON THIS ADAPTER)
---
--- WHAT THIS DOES
--- Creates one extra character in the overworld, two tiles to the LEFT of the player, by writing
--- a synthetic object event and its sprite, then asks the engine to walk it one tile. Emerald's
--- own engine draws, animates and moves it; this script contains no drawing code and no
--- animation code. It is the Emerald equivalent of Crystal's spawn_test series.
---
--- WRITES. Gated by the spawn ADR (agent_docs/architecture.md, 2026-08-18, extending the
--- 2026-08-17 Crystal ADR). Live RAM only -- no save is written, nothing is persisted, and a
--- reset undoes all of it. Every precondition below must hold or the script refuses to write.
---
--- WHY IT IS BUILT THIS WAY (each point cost a live test on Crystal, or a decomp read here)
---
---   * The OBJECT EVENT is synthesised from scratch, not copied from an NPC. Where to look for the
---     write set: InitObjectEventStateFromTemplate (event_object_movement.c:1287), which appears to
---     zero the struct and set a short field list -- a map for what to write, tested by the spawn
---     itself -- and copying a live NPC would drag along its localId, movement range and trainer
---     data.
---
---   * The SPRITE is copied from the PLAYER's sprite, then patched. A sprite holds four ROM
---     pointers (anims, images, affineAnims, template) that cannot be synthesised from Lua, only
---     copied -- and copying the PLAYER's means the ghost looks like the player, in the correct
---     gender, using a palette that is already loaded on every map by construction (the player's
---     graphics are resident everywhere). Same reasoning as Crystal's "borrow the player's
---     sprite" step, arrived at there the hard way.
---
---   * The sprite's CALLBACK is replaced with MovementType_None. The decomp suggests the sprite
---     callback is the movement-type driver, so the player's callback (MovementType_Player) would
---     hand our ghost to the input system, and an NPC's would give it that NPC's autonomous
---     behaviour. The hypothesis (where to look: movement_type_empty_callback,
---     event_object_movement.c:2563): MovementType_None has NO autonomous movement yet still plays
---     out held movements we request -- the shape a ghost needs, and what this spawn tests.
---
---   * The sprite's x/y are COMPUTED, never copied (where to look for the placement:
---     GetMapCoordsFromSpritePos, event_object_movement.c:4793, and TrySetupObjectEventSprite;
---     the ghost landing on its tile is what tests it). Copying a template's screen position is what put Crystal's first ghost off the
---     bottom of the screen while the engine drove it perfectly.
---
---   * Movement is a HELD MOVEMENT, not a coordinate write (where to look: ObjectEventSetHeldMovement,
---     event_object_movement.c:4870); the hypothesis is that the engine then plays out the whole
---     tile -- animation, sub-tile sliding and the coordinate update -- and the step phase tests it.
---
--- ADDRESSES: our own make-compare-verified pokeemerald build. Field offsets were looked up in
--- include/global.fieldmap.h and include/sprite.h, never recalled.
---
--- HOW TO RUN
---   Attached via dev-scripts/bizhawk-dev-loader.lua, or opened directly in the Lua Console.
---   Be in the overworld, standing still, with at least one tile of clear ground to your left.
---   The script counts down out loud before it writes; there is no moment to hit.
+-- MeshGhost — Pokémon Emerald: spawn one real character (dev tool, writes game RAM, vanilla only, never shipped).
+-- An object event and a sprite two tiles left of the player, walked a tile left and down by the engine, then turned
+-- through all four facings and re-spawned whenever a map load or a cull clears it. Live RAM only: no save is touched
+-- and a reset undoes it. Stand still in the overworld with clear ground to your left; it counts down before writing.
 
 local OBJECT_EVENTS_COUNT = 16
 local OBJECTEVENT_SIZE = 0x24
 local MAX_SPRITES = 64
 local SPRITE_SIZE = 0x44
-local MAP_OFFSET = 7 -- object event coords are map coords + MAP_OFFSET (confirmed live: player
-                     -- at pos (2,1) had currentCoords (9,8))
+local MAP_OFFSET = 7 -- object event coords are map coords + MAP_OFFSET
 
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GPLAYERAVATAR_ADDR = 0x02037590
@@ -64,27 +17,14 @@ local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
 local CB2_OVERWORLD_ARCHIPELAGO_ADDR = 0x080867f1
 
--- pokeemerald.sym: gFieldCamera 03005dd0 (struct CameraObject, x at +0x10, y at +0x14),
--- gTotalCameraPixelOffsetY 03005de8, gTotalCameraPixelOffsetX 03005dec.
 local GFIELDCAMERA_X_ADDR = 0x03005de0
 local GFIELDCAMERA_Y_ADDR = 0x03005de4
 local GTOTALCAMERAPIXELOFFSETY_ADDR = 0x03005de8
 local GTOTALCAMERAPIXELOFFSETX_ADDR = 0x03005dec
 
--- pokeemerald.sym: MovementType_None 0808f3e0. +1 selects Thumb, which is how every callback
--- pointer in the live dump reads (MovementType_Player showed as 0x0808A999 for 0808a998).
+-- Plays the held movements it is given and starts none of its own; +1 selects Thumb, as every live callback reads.
 local MOVEMENTTYPE_NONE_CB = 0x0808f3e0 + 1
 
--- Sprite tile allocation. A sprite whose images are a frame list (not a sheet) owns a range of
--- OBJ VRAM tiles, and the engine appears to copy the current animation frame into THAT range
--- whenever the frame changes (where to look: RequestSpriteFrameImageCopy, sprite.c:802). So a
--- sprite copied from the player would point at the PLAYER's tiles and display whatever frame the
--- player is in -- which matches what was seen live: a ghost that mirrored the player's facing. Giving the ghost its own tile range makes the
--- engine fill it with the ghost's own frames, for free and with no drawing code.
---   sSpriteTileAllocBitmap  02021b3c, 0x80 bytes = TOTAL_OBJ_TILE_COUNT (1024) bits
---   gReservedSpriteTileCount 02021b3a (u16) -- allocation starts above the reserved region
---   gObjectEventGraphicsInfoPointers 08505620 -- [graphicsId] -> ObjectEventGraphicsInfo*,
---     whose `size` (u16 at +0x06) is the byte size of one frame; TILE_SIZE_4BPP is 32.
 local SSPRITETILEALLOCBITMAP_ADDR = 0x02021b3c
 local GRESERVEDSPRITETILECOUNT_ADDR = 0x02021b3a
 local GOBJECTEVENTGRAPHICSINFOPOINTERS_ADDR = 0x08505620
@@ -96,10 +36,7 @@ local DIR_SOUTH = 1
 local MOVEMENT_ACTION_WALK_NORMAL_DOWN = 0x08
 local MOVEMENT_ACTION_WALK_NORMAL_LEFT = 0x0a
 
--- Facing without stepping. The decomp suggests a separate east facing animation (where to look:
--- sFaceDirectionAnimNums, event_object_movement.c:715) -- so all four directions should be
--- reachable the same way, and
--- the cycle phase below tests exactly that rather than reasoning about it.
+-- Facing without stepping.
 local FACE_ACTIONS = {
 	{ name = "DOWN",  action = 0x00 },
 	{ name = "UP",    action = 0x01 },
@@ -110,9 +47,7 @@ local FACE_ACTIONS = {
 local AVATAR_ADDR_ARCHIPELAGO_SHIFT = 0x284
 local MAP_GROUPS_COUNT = 34
 
--- Where the ghost goes, relative to the player. Two tiles to the left: far enough that it is
--- never confused with the player's own sprite, which is the standing preference for any test
--- ghost, and it keeps the ghost inside the cull window so this test is not measuring culling.
+-- Two tiles left: never mistaken for the player's own sprite, and inside the cull window.
 local GHOST_DX = -2
 local GHOST_DY = 0
 
@@ -131,9 +66,7 @@ local function log(msg)
 	console.log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Every 20 lines: a bounded cost, and the log stays live.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -205,10 +138,7 @@ local function describeSpr(i)
 		i, u8(a + 0x3e) & 0x01, s16(a + 0x20), s16(a + 0x22), s16(a + 0x24), s16(a + 0x26),
 		u8(a + 0x2a), u8(a + 0x2b), s16(a + 0x2e), s16(a + 0x32), u8(a + 0x43), u32(a + 0x1c),
 		(u8(a + 0x3e) >> 2) & 0x01, u8(a + 0x3f) & 0x01,
-		-- attr1 bit 12 read as the hardware hFlip with affine off (where to look: OamData,
-		-- include/sprite.h; SetSpriteOamFlipBits, sprite.c:1246; the east animation,
-		-- object_event_anims.h:196) -- the hypothesis this dump tests is that this bit is the whole
-		-- difference between east and west.
+		-- attr1 bit 12 is the hardware hFlip while affine is off.
 		mem16(a + 0x02), (mem16(a + 0x02) >> 9) & 0x1f, (mem16(a + 0x02) >> 12) & 0x01,
 		mem16(a + 0x00), (mem16(a + 0x00) >> 8) & 0x03)
 end
@@ -225,8 +155,7 @@ local function findFreeObjectSlot()
 end
 
 local function findFreeSpriteSlot()
-	-- Scan downward: the engine's own CreateSprite takes the lowest free index, so taking a high
-	-- one keeps our ghost out of the way of whatever the game allocates next.
+	-- From the top: the engine takes the lowest free index, so a high one stays out of its way.
 	for i = MAX_SPRITES - 1, 0, -1 do
 		if (u8(sprAddr(i) + 0x3e) & 0x01) == 0 then return i end
 	end
@@ -234,8 +163,7 @@ local function findFreeSpriteSlot()
 end
 
 local function findFreeLocalId()
-	-- Local ids identify an object event within its map. Picking one no live object uses avoids
-	-- colliding with a real NPC's identity (and with whatever script is attached to it).
+	-- One no live object uses, so the ghost never takes a real NPC's identity or its script.
 	local used = {}
 	for i = 0, OBJECT_EVENTS_COUNT - 1 do
 		if (u8(objAddr(i) + 0x00) & 0x01) == 1 then used[u8(objAddr(i) + 0x08)] = true end
@@ -246,10 +174,7 @@ local function findFreeLocalId()
 	return nil
 end
 
--- Sprite placement (where to look: GetMapCoordsFromSpritePos, event_object_movement.c:4793, and
--- TrySetupObjectEventSprite). The moving-camera term is taken to be zero while the player stands
--- still (where to look: GetObjectEventMovingCameraOffset), which is the only moment this script
--- spawns -- the ghost landing on its tile is what tests it.
+-- Computed, never copied from a template's screen position; right only while the camera is at rest.
 local function spriteScreenPos(mapX, mapY, centerToCornerVecY)
 	local sb1 = u32(GSAVEBLOCK1PTR_ADDR)
 	local camX = 0
@@ -280,10 +205,7 @@ local function setTileAllocated(n, on)
 	w8(a, v)
 end
 
--- Our own tile allocator (the game's counterpart to compare against: AllocSpriteTiles,
--- sprite.c:702): scan from the reserved count for a run of free tiles, then mark them. Returns the starting tile, or nil when VRAM has no run that big
--- -- which is a real failure mode on a busy map, not a theoretical one, so it is reported rather
--- than assumed away.
+-- The first run of free tiles above the reserved count, marked taken; nil when none is long enough, as on a busy map.
 local function allocSpriteTiles(tileCount)
 	local i = mem16(GRESERVEDSPRITETILECOUNT_ADDR)
 	while true do
@@ -324,10 +246,8 @@ local function spawnGhost()
 	local pObj = objAddr(playerObjId)
 	local playerSprId = u8(pObj + 0x04)
 
-	-- Self-check before writing a single byte: the player's object event and the sprite it names
-	-- must agree with each other. sprite.data[0] (sObjEventId) holding the player's own object
-	-- event index proves gSprites is where we think it is -- the one thing an address shift could
-	-- silently break, and the one that would corrupt a live sprite if wrong.
+	-- Before any write: the player's sprite's data[0] must name the player's object event, or gSprites is elsewhere
+	-- and a write would corrupt a live sprite.
 	if s16(sprAddr(playerSprId) + 0x2e) ~= playerObjId then
 		log(string.format("REFUSING TO WRITE: cross-link check failed -- gSprites[%d].data[0]=%d, "
 			.. "expected the player's object event id %d. gSprites is not where this script thinks.",
@@ -356,8 +276,8 @@ local function spawnGhost()
 		objId, sprId, localId, gx, gy, s16(pObj + 0x10), s16(pObj + 0x12), graphicsId, elevation))
 
 	-- --- the object event -------------------------------------------------------------------
-	-- ClearObjectEvent zeroes the struct; then exactly the fields InitObjectEventStateFromTemplate
-	-- sets, with movementType forced to NONE so nothing drives the ghost but us.
+	-- Zeroed, then the fields a template spawn sets, movementType NONE: copying an NPC would bring its localId,
+	-- movement range and trainer data.
 	local a = objAddr(objId)
 	for off = 0, OBJECTEVENT_SIZE - 1 do w8(a + off, 0) end
 	w8(a + 0x00, 0x05)              -- active (bit0) | triggerGroundEffectsOnMove (bit2)
@@ -375,14 +295,11 @@ local function spawnGhost()
 	w8(a + 0x04, sprId)
 
 	-- --- the sprite -------------------------------------------------------------------------
-	-- Copy the player's sprite wholesale for its four ROM pointers, OAM shape and palette, then
-	-- patch the fields that must differ.
+	-- The player's sprite, copied for its ROM pointers, OAM shape and palette, then patched where it must differ.
 	local src, dst = sprAddr(playerSprId), sprAddr(sprId)
 	for off = 0, SPRITE_SIZE - 1 do w8(dst + off, u8(src + off)) end
 
-	-- Give the ghost its own VRAM tiles instead of the player's. Without this the ghost shows the
-	-- player's current animation frame, because both sprites name the same tiles -- confirmed live
-	-- 2026-08-18, and it looked exactly like the ghost copying the player's facing.
+	-- Its own OBJ tiles, which the engine fills with its frames; on the player's it shows the player's current frame.
 	local tileCount = graphicsFrameTileCount(graphicsId)
 	if not tileCount then
 		log(string.format("REFUSING TO WRITE: no graphics info for graphicsId %d.", graphicsId))
@@ -394,8 +311,7 @@ local function spawnGhost()
 		return false
 	end
 	ghostTileStart, ghostTileCount = tileStart, tileCount
-	-- OamData attr2 (u16 at +0x04): tileNum:10, priority:2, paletteNum:4. Only the tile number
-	-- changes; priority and palette stay as copied from the player.
+	-- attr2 (+0x04) is tileNum:10, priority:2, paletteNum:4; only the tile number changes.
 	local attr2 = mem16(dst + 0x04)
 	w16(dst + 0x04, (attr2 & 0xfc00) | (tileStart & 0x03ff))
 	log(string.format("  allocated %d OBJ tiles at %d for the ghost (player uses %d)",
@@ -421,19 +337,14 @@ local function spawnGhost()
 	return true
 end
 
--- Despawn. The ghost now owns a real tile allocation, so despawning MUST return it -- otherwise
--- every re-spawn leaks a run of OBJ VRAM and a long session eventually cannot spawn at all.
--- What this still does not do is follow the game's own removal path (where to look:
--- RemoveObjectEventInternal, event_object_movement.c:1399), which appears to free tiles by the
--- sprite's own image size -- getting that wrong would free somebody else's VRAM. Freeing exactly
--- the range we allocated is both simpler and safer.
+-- Frees exactly the tile range it allocated: a leak per re-spawn would leave a long session nothing to spawn with.
 local function despawnGhost()
 	if not ghostObjId then return end
 	w8(objAddr(ghostObjId) + 0x00, 0)                        -- active = 0 (clears the flag byte)
 	local d = sprAddr(ghostSprId)
 	w8(d + 0x3e, u8(d + 0x3e) & ~0x01)                       -- inUse = 0
 	w8(d + 0x3f, u8(d + 0x3f))                               -- (flags byte 2 left as-is)
-	w8(d + 0x3e, u8(d + 0x3e) | 0x04)                        -- invisible = 1, belt and braces
+	w8(d + 0x3e, u8(d + 0x3e) | 0x04)                        -- invisible = 1
 	if ghostTileStart then
 		freeSpriteTiles(ghostTileStart, ghostTileCount)
 	end
@@ -443,11 +354,7 @@ local function despawnGhost()
 	ghostTileStart, ghostTileCount = nil, nil
 end
 
--- Liveness by IDENTITY, never by slot state. "The slot is still active" and "my ghost is still
--- there" are different claims: a map load clears the array and the next map's own NPCs take the
--- same slots, which would answer "active?" perfectly plausibly. Crystal produced exactly that
--- false positive and lost a whole run to it. Checking localId and map as well is what makes this
--- an answer about OUR object.
+-- By identity, never slot state: after a map load the next map's NPCs take the same slots and read active.
 local function ghostAlive()
 	if not ghostObjId then return false end
 	local a = objAddr(ghostObjId)
@@ -460,8 +367,7 @@ local function ghostAlive()
 end
 
 local function requestStep(action)
-	-- Where to look: ObjectEventSetHeldMovement (event_object_movement.c:4870). The hypothesis:
-	-- these writes are enough, and the engine plays out the rest of the tile.
+	-- A held movement, not a coordinate write: the engine plays out the tile, animation and all.
 	local a = objAddr(ghostObjId)
 	w8(a + 0x1c, action)
 	local b0 = u8(a + 0x00)
@@ -471,7 +377,7 @@ local function requestStep(action)
 end
 
 -- ---------------------------------------------------------------------------------------------
--- Phases. A countdown, never a window to hit: the run asks for endurance, not timing.
+-- Phases: a countdown, never a window to hit.
 -- ---------------------------------------------------------------------------------------------
 
 open_log()
@@ -519,9 +425,7 @@ local function tick()
 
 	phaseFrames = phaseFrames + 1
 
-	-- The engine clears every object event on a map load (RemoveAllObjectEventsExceptPlayer), and
-	-- culls anything that leaves the window around the player -- so a ghost is expected to die,
-	-- repeatedly, and re-spawning is normal operation rather than error handling.
+	-- A map load or a cull clears the ghost; re-spawning is normal operation, not error handling.
 	if (phase == "observe" or phase == "walk" or phase == "cycle") and not ghostAlive() then
 		log(string.format("[%6d] ghost is gone (map load or cull). Re-spawning.", frames))
 		ghostObjId, ghostSprId, ghostLocalId = nil, nil, nil
@@ -556,9 +460,7 @@ local function tick()
 		end
 
 	elseif phase == "observe" then
-		-- Read back what the ENGINE owns, not what we wrote: the sprite position it maintains as
-		-- the camera moves, and whether the object is still active at all. An echo of our own
-		-- write would prove only that the write landed.
+		-- What the engine maintains, never an echo of our own write, which would prove only that it landed.
 		if phaseFrames % 60 == 0 then
 			log(string.format("[%6d] %s", frames, describeObj(ghostObjId)))
 			log(string.format("         %s", describeSpr(ghostSprId)))
@@ -589,9 +491,7 @@ local function tick()
 		end
 
 	elseif phase == "cycle" then
-		-- One deliberate turn every 3 seconds, named in the log BEFORE it happens, looping
-		-- forever: the run asks for endurance, not timing, and every direction gets many
-		-- chances rather than one moment to catch.
+		-- A turn every 3 seconds, named in the log before it happens, looping so each direction comes round often.
 		if phaseFrames % 180 == 1 then
 			local step = (phaseFrames // 180) % #FACE_ACTIONS + 1
 			local f = FACE_ACTIONS[step]
@@ -601,11 +501,7 @@ local function tick()
 		if phaseFrames % 180 == 60 then -- read back a second later, once the turn has played out
 			log(string.format("         %s", describeObj(ghostObjId)))
 			log(string.format("         %s", describeSpr(ghostSprId)))
-			-- The player's own sprite, same frame, as the control. The player renders every
-			-- direction correctly by definition, so any field that differs between these two
-			-- lines while the ghost renders wrong is the cause -- and any field that matches
-			-- rules itself out. Comparing against the thing that works beats reasoning about
-			-- the thing that does not.
+			-- The player's own sprite on the same frame, as the control: a field that differs is the suspect.
 			local pObjId = playerObjectEventId()
 			log(string.format("  PLAYER %s", describeObj(pObjId)))
 			log(string.format("  PLAYER %s", describeSpr(u8(objAddr(pObjId) + 0x04))))
@@ -615,8 +511,7 @@ end
 
 MESHGHOST_DEV_TICK = tick
 MESHGHOST_DEV_UNLOAD = function()
-	-- Leaving a ghost behind on a script swap would stack a second one on the next load, and
-	-- nothing in the game would ever clean it up.
+	-- A ghost left behind on a script swap stacks a second on the next load, and nothing in the game removes it.
 	pcall(despawnGhost)
 	if logfile then pcall(function() logfile:flush() end)
 		logfile:close() logfile = nil end

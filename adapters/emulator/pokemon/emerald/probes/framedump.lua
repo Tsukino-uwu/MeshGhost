@@ -1,17 +1,8 @@
--- MeshGhost -- render a graphic's animation frames to PPM, straight from ROM (DEV TOOL)
---
--- WHY. The drawn ghost's hat vanishes at Mach top speed (user, 2026-08-20). The painter decodes
--- frames from ROM through the graphic's own anim table; this does the same decode independently
--- and writes each frame of the fast animation as a PPM image -- if the hat is missing HERE, the
--- decode or the anim-table walk is wrong; if it is present here, the painter clips it at paint
--- time and the hunt moves there. Palette read from the live OBJ palettes like the painter does.
---
--- Graphics info table 0x08505620, struct offsets as measured for this adapter (verified.md):
--- size +0x06, width +0x08, height +0x0A, paletteSlot +0x0C (low nibble), anims +0x18, images +0x1C.
-local GFXTABLE = 0x08505620
+-- Renders a graphic's animation frames to PPM from ROM with the live OBJ palette, independently of the painter: a
+-- part missing here means the decode or the anim-table walk is wrong; present here, the painter clips it.
+local GFXTABLE = 0x08505620 -- gObjectEventGraphicsInfoPointers
 local GFX = 1              -- Brendan on the Mach Bike
-local ANIMS = { 12, 13, 14, 15 } -- the FAST family, all four directions: anim 13 is what a full-speed
-                               -- ride resolves live, and its images (1,5,6) were never dumped
+local ANIMS = { 12, 13, 14, 15 } -- the fast family, all four directions
 local OBJ_PAL = 0x05000200 -- OBJ palette RAM
 
 local function r8(a) return memory.read_u8(a) end
@@ -27,9 +18,7 @@ local function tick()
     local w, h = r16(info + 0x08), r16(info + 0x0a)
     local palSlot = r8(info + 0x0c) % 16
     local anims, images = r32(info + 0x18), r32(info + 0x1c)
-    -- Output beside this probe, like every other probe artifact -- never a personal path
-    -- (CLAUDE.md's public-repo rule). Override with MESHGHOST_FRAMEDUMP_DIR when a session wants
-    -- them in a scratchpad instead.
+    -- Beside this probe, never a personal path, unless MESHGHOST_FRAMEDUMP_DIR names a scratch folder.
     local BSLASH = string.char(92)
     local dir = (MESHGHOST_FRAMEDUMP_DIR or os.getenv("MESHGHOST_FRAMEDUMP_DIR")
         or (debug.getinfo(1, "S").source:sub(2):match("^(.*)[/" .. BSLASH .. "][^/" .. BSLASH .. "]*$") or ".")) .. "/"

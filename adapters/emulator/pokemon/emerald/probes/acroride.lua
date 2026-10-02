@@ -1,25 +1,7 @@
--- MeshGhost -- ride the ACRO BIKE three tiles left, three tiles right (DEV TOOL, never shipped)
---
--- WHY. User, 2026-08-20: *"the ghosts are hopping when just riding the bike normally left/right,
--- right now? thats not intended to happen"* -- and the request that came with it, *"do a test where
--- you just move 3 tiles left/right"*. Plain riding is the one Acro case with no wheelie and no hop
--- in it, so anything the ghost does off the ground during this run is ours, not the peer's.
---
--- WHAT IT ANSWERS, in one file, because the two halves have to be read on the SAME frame: what the
--- PLAYER's object reports while riding (its movement action, and whether its sprite leaves the
--- ground) beside what the GHOST's object is doing at that instant. A hop shows up as the sprite's
--- pos2 y going negative -- that is the vertical offset the jump/hop step functions write, and it is
--- how "it looks like it hopped" becomes a number rather than an impression.
---
--- It drives the pad itself (.claude/skills/play-game/SKILL.md): a person cannot hold a steady three-tile
--- shuttle and watch two ghosts at once, and every leg here has to be identical to the last for a
--- difference between them to mean anything.
---
--- ONE PROBE HOLDS THE PAD. `joypad.set` replaces the whole pad state every frame, so a second
--- script writing an empty table cancels this one's press -- that trap cost two live runs on
--- 2026-08-20 (verified.md). Do not load this alongside another input probe.
---
--- Addresses copied from meshghost_emerald.lua, never from memory.
+-- MeshGhost probe (dev tool, never shipped): rides the Acro Bike three tiles left, three right, logging the player's
+-- and the ghost's movement action and sprite pos2 on the same frame. Plain riding has no hop, so a ghost hop is ours.
+-- joypad.set replaces the whole pad each frame, so never load this beside another probe that presses buttons.
+-- Addresses as in meshghost_emerald.lua.
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GSPRITES_ADDR = 0x02020630
@@ -29,7 +11,7 @@ local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local ITEM_ACRO_BIKE = 272
-local ACRO_BIKE_GFX = { [63] = true, [91] = true }   -- Brendan / May, verified.md's graphicsId table
+local ACRO_BIKE_GFX = { [63] = true, [91] = true }   -- Brendan / May
 local GHOST_LOCAL_ID = 255
 
 local TILES_PER_LEG = 3
@@ -69,12 +51,8 @@ local function controllable()
     return r8(GPLAYERAVATAR_ADDR + 0x06) == 0
 end
 
--- Left first, then right, repeating: the same shuttle the user described.
 local legs = { { key = "Left", dx = -1 }, { key = "Right", dx = 1 } }
 local which, startX, frames, laps, phase, n = 1, nil, 0, 0, "mount", 0
--- The peer's action is only interesting when it CHANGES, but the ghost leaving the ground is
--- interesting on the frame it happens, so both are logged: a per-change line, and a per-frame line
--- whenever either sprite is off the ground.
 local lastPlayerAct, lastGhostAct = nil, nil
 
 local function sample(tag)
@@ -103,7 +81,7 @@ end
 local function tick()
     if not controllable() then return end
 
-    -- Mount the bike the game's own way (probes/use_acro.lua): register it to SELECT and tap.
+    -- Mount the game's own way: register the bike to SELECT and tap it.
     if phase == "mount" then
         local p = playerObj()
         if ACRO_BIKE_GFX[r8(p + 0x05)] then

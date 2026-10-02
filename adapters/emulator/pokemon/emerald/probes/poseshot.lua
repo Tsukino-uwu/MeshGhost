@@ -1,12 +1,6 @@
--- MeshGhost -- the idle bike pose, ridden into and then held (DEV TOOL, never shipped)
---
--- WHY. The user, 2026-08-20: *"face up/down when checking the pose, left/right won't show it
--- properly"*. The side-on frames of the Acro Bike hide the difference between standing still on it
--- and rolling along on it; the front and back views do not. So the ride is driven to face each of
--- them, held still long enough to settle, and shot.
--- Resolve this script's own directory instead of hardcoding one developer's
--- checkout. A tracked absolute path is unusable on anyone else's machine and is
--- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+-- MeshGhost — the idle bike pose, facing up (dev tool, presses the pad, vanilla only, never shipped).
+-- Start on the bike in the overworld: it rides up for about a second, lets go, and once the pose has settled saves
+-- dev-scripts/shots/emerald/pose-north.png. Facing up or down shows the idle pose; the side-on frames hide it.
 local MESHGHOST_DIR = (function()
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then

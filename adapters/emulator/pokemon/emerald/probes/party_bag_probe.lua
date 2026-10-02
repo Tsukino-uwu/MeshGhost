@@ -1,32 +1,7 @@
--- MeshGhost — Pokémon Emerald: the party, the bag, money and badge flags, raw (DEV TOOL, READ-ONLY,
--- never shipped) -- 2026-09-16
---
--- WHY THIS EXISTS. autoplay's Phase 1 wants `observe` to say what this SAVE has -- its party, bag and
--- badges (`agent_docs/phases/phase13.md`; the play-game skill's "check what this save has"). What each
--- byte means is to be measured: this logs them raw whenever any of them changes, so a dump can be read
--- against captures of the party menu, the summary pages, the bag and the trainer card.
---
--- ADDRESSES: a pokeemerald build whose ROM hashed identical to the vanilla ROM this runs on (SHA-1
--- compared 2026-09-16) proves where each lives, not what its bytes mean. Vanilla only. The decomp's
--- struct layouts said where to look inside them; every candidate below is printed NEXT TO its raw
--- bytes, so a wrong guess shows as a decode that disagrees with the screen.
---
--- WHAT IT LOGS (party_bag_probe_<target>_<time>.log beside this file; gitignored), on change only:
---   KEY    the save pointers and SaveBlock2 +0xAC (the word the decomp names encryptionKey)
---   MON n  each of the 6 slots named gPlayerParty (0x64 bytes): raw hex in three parts (+0x00 32
---          bytes, +0x20 48 bytes, +0x50 20 bytes); the +0x08 name decoded; the 48 bytes XORed per
---          word with (+0x00 ^ +0x04) and split into four 12-byte blocks, raw; the u16 sum of those
---          decrypted words beside +0x1C; each block's words read as a species id and as move ids
---          against the ROM's name tables (candidates only); whether SaveBlock1's copy at +0x238
---          matches the live slot
---   POCKET every non-empty slot of the five SaveBlock1 pockets and the PC's: id, quantity raw and XOR
---          the key's low half, and the ROM item-table entry at 44 bytes per id (its name, then
---          +0x0E..+0x1B raw)
---   MONEY  SaveBlock1 +0x490 raw and XOR the key; +0x494 raw and XOR the key's low half; +0x496
---   FLAGS  SaveBlock1 +0x1270's bytes 0x100-0x11F (flag ids 0x800-0x8FF if a flag is a bit per id)
--- WHAT IT CANNOT SEE: which block is which (the dump does not assume an order); anything the game
--- computes rather than stores (stats shown on a page it has not drawn, a menu's own copies); flags
--- outside the logged range; a patched ROM.
+-- MeshGhost — Pokémon Emerald: the party, the bag, money and badge flags, raw (dev tool, read-only, vanilla only,
+-- never shipped). On any change: KEY, the save pointers and the encryption key; MON, each party slot raw, its name
+-- and its 48 encrypted bytes decrypted into four unordered blocks with candidate names; POCKET, each non-empty bag
+-- and PC slot with its item-table entry; MONEY; FLAGS, the badge flag bytes. Each decode sits beside its raw bytes.
 
 local BUS = "System Bus"
 local SB1PTR, SB2PTR = 0x03005d8c, 0x03005d90
@@ -53,7 +28,7 @@ local function log(s) pending[#pending + 1] = string.format("f%d %s", emu.framec
 local function flush()
 	if logf and #pending > 0 then
 		logf:write(table.concat(pending, "\n"), "\n")
-		logf:flush() -- on a change or a timer, never per frame
+		logf:flush()
 		pending = {}
 	end
 end
@@ -68,7 +43,7 @@ local function hexOf(b, from, to)
 	return table.concat(out)
 end
 
--- Letters, digits and the space only (emerald/MEASURED.md, the encoding entry); everything else raw.
+-- Letters, digits and the space only; everything else raw.
 local function decode(b, from, to)
 	local out = {}
 	for i = from, to do

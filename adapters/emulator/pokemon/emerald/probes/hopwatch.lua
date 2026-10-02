@@ -1,21 +1,8 @@
--- MeshGhost -- catch a ghost hopping when the player is not (DEV TOOL, never shipped)
---
--- WHY. User, 2026-08-20: the ghosts hop while riding the Acro Bike normally left/right, which is
--- not what the player is doing. A driven three-tile shuttle (probes/acroride.lua) produced none of
--- it -- the player reported only RIDE_WATER_CURRENT (0x2B/0x2C) and both objects stayed flat on the
--- ground -- so whatever produces the hop is in how the bike is really ridden, not in riding as
--- such. This is the passive half: it drives nothing and waits for the real thing to happen.
---
--- WHAT COUNTS AS A HOP, as a number rather than an impression: the sprite's pos2 y is the vertical
--- offset the jump/hop step functions write, so a ghost off the ground has pos2 y < 0. The line
--- carries the PLAYER's own pos2 y on the same frame, which is what makes it a disagreement rather
--- than an observation -- a hop both of them do is the peer's, a hop only the ghost does is ours.
---
--- It logs the frame a hop STARTS and the frame it ends, not every frame in between: a per-frame
--- write with the game running is a probe heavy enough to change what it measures (pitfalls.md,
--- 2026-08-16), and the interesting facts are the action ids at the two edges.
---
--- Addresses copied from meshghost_emerald.lua, never from memory.
+-- MeshGhost — Pokémon Emerald: catch a ghost hopping when the player is not (dev tool, read-only, never shipped).
+-- Per ghost it logs the frame a hop starts and ends (its sprite's pos2 y below 0) beside the player's own pos2 y, a
+-- facing disagreement and a tile step against the player's last direction: a hop only the ghost does is ours. Edges
+-- only, so a disagreement's length is the number: a few frames is the interpolation delay, a second is a defect.
+-- Addresses as in meshghost_emerald.lua.
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GSPRITES_ADDR = 0x02020630
@@ -43,8 +30,6 @@ local function playerObj()
     return GOBJECTEVENTS_ADDR + r8(GPLAYERAVATAR_ADDR + 0x05) * OBJECTEVENT_SIZE
 end
 
--- Every ghost, not the first: a COMPARE_TIERS session has one spawned ghost, but a room can carry
--- several and the one that hops is the one worth naming.
 local function ghosts()
     local out = {}
     for i = 0, 15 do
@@ -58,13 +43,6 @@ end
 
 local frame, airborne, hops = 0, {}, 0
 local lastPlayerX, playerStepSign = nil, nil
--- The second half, added after the first run answered its own question: every ghost hop in that
--- capture was a hop the PLAYER had just done, so nothing invents hops. What the user saw next is
--- narrower (2026-08-20): *"when i was going right, the spawned ghost was still facing left, and
--- hopping backwards"*, and *"the drawn ghost was fine, only the spawned one"*. Same data in, one
--- tier wrong, so this measures the spawned object's own facing against the player's -- edge
--- triggered, so a disagreement costs two lines and its LENGTH is the number that matters. A few
--- frames is the interpolation delay; a second is a defect.
 local facingSince, backwardSince = {}, {}
 
 local function describe(a)
@@ -83,8 +61,7 @@ local function tick()
     local pDesc, pY = describe(p)
     local pFace = r8(p + 0x18) & 0x0f
     local pX = rs16(p + 0x10)
-    -- The player's own last direction of travel, remembered across tiles: "backwards" only means
-    -- anything relative to the way the peer is actually going.
+    -- Kept across tiles: "backwards" only means anything against the way the player last went.
     if lastPlayerX and pX ~= lastPlayerX then playerStepSign = pX > lastPlayerX and 1 or -1 end
     lastPlayerX = pX
 
@@ -93,7 +70,6 @@ local function tick()
         local gFace = r8(g.addr + 0x18) & 0x0f
         local gX = rs16(g.addr + 0x10)
 
-        -- FACING: two lines per disagreement, carrying how long it lasted.
         if gFace ~= pFace then
             facingSince[g.id] = facingSince[g.id] or frame
         elseif facingSince[g.id] then
@@ -106,7 +82,6 @@ local function tick()
             facingSince[g.id] = nil
         end
 
-        -- BACKWARDS: a ghost tile step whose direction is the opposite of the way the peer last went.
         local lastX = backwardSince[g.id]
         if lastX and gX ~= lastX then
             local sign = gX > lastX and 1 or -1

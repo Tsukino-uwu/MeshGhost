@@ -1,17 +1,6 @@
--- MeshGhost — Emerald: which of two save-block pointer candidates is gSaveBlock1Ptr? (PROBE)
---
--- READ-ONLY. Reads game memory, writes none, presses nothing, draws nothing.
---
--- THE QUESTION. `saveblock_find_probe.lua` left EX SPEEDCHOICE with two IWRAM slots that both hold
--- the player's save block and both tracked it through six steps -- 0x03004CAC and 0x03005158,
--- pointing at the SAME struct. For reading a tile either would do, but the adapter also reads
--- gSaveBlock2Ptr (the player's gender lives there), and in vanilla the two sit ADJACENT:
--- gSaveBlock1Ptr 0x03005D8C, gSaveBlock2Ptr 0x03005D90. So the candidate with a second, DIFFERENT
--- EWRAM pointer immediately after it is the one in the real pair.
---
--- It prints the words either side of both candidates rather than just the verdict, because "the
--- next word is also a pointer" is weak on its own -- IWRAM is full of pointers - and a person
--- reading the dump can see whether the neighbourhood looks like the vanilla one.
+-- Read-only: which of two save-block pointer candidates is gSaveBlock1Ptr? Both point at the same struct, but in
+-- vanilla gSaveBlock2Ptr (the gender lives there) sits at +4, so the candidate followed by a different EWRAM
+-- pointer is the real pair. It prints the words either side rather than a verdict, as IWRAM is full of pointers.
 
 local CANDIDATES = { 0x03004CAC, 0x03005158 }
 
@@ -43,8 +32,7 @@ local function tick()
             local v = memory.read_u32_le(a)
             local tag = ""
             if v >= 0x02000000 and v < 0x02040000 then
-                -- a pointer into EWRAM: say what the first two halfwords there look like, which is
-                -- how SaveBlock1 (x,y) and SaveBlock2 (name bytes) tell themselves apart
+                -- a pointer into EWRAM: its first two halfwords tell SaveBlock1 (x,y) from SaveBlock2 (name bytes)
                 tag = string.format("  -> EWRAM, first words %04X %04X",
                     memory.read_u16_le(v), memory.read_u16_le(v + 2))
             end

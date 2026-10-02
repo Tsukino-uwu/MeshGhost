@@ -1,39 +1,7 @@
--- MeshGhost — Pokémon Emerald: object-event / sprite slot probe
---
--- READ-ONLY DIAGNOSTIC. Writes nothing, sends nothing, draws nothing.
--- Emerald's shipped adapter draws its ghost with gui.drawPixel over a hand-rolled ROM sprite
--- decode. The goal this probe serves is replacing that with a real spawned object event, the way
--- adapters/emulator/pokemon/crystal does -- so the engine owns palettes, occlusion, priority and
--- animation. Spawning needs writes; writes are ADR-gated (agent_docs/architecture.md). This is
--- the evidence step that comes first, and it deliberately performs no writes at all.
---
--- WHAT HAS TO BE OBSERVED RATHER THAN ASSUMED
---   1. How many of the 16 object-event slots and 64 sprite slots are genuinely free during
---      ordinary play, indoors and out. Both are shared with every NPC the map already has.
---   2. What a live NPC's pair of records actually looks like, field by field, next to the
---      PLAYER's -- because a spawn is going to be built by copying one of them. The pointer
---      fields (anims/images/template/callback) are the interesting part: they cannot be
---      synthesised from Lua, only copied, so the probe prints them.
---   3. What the engine does on its own: it spawns NPCs as the camera scrolls toward them
---      (TrySpawnObjectEvents) and culls them again once they leave the window
---      (RemoveObjectEventsOutsideView). Both events are logged as they happen, since a ghost has
---      to survive -- or be re-spawned past -- exactly this.
---   4. What a map transition does to both arrays.
---
--- ADDRESSES, all from our own make-compare-verified pokeemerald build (agent_docs/verified.md,
--- agent_docs/environment.md); symbol sizes quoted from pokeemerald.sym:
---   gObjectEvents  0x02037350, size 0x240 = OBJECT_EVENTS_COUNT(16) * sizeof(ObjectEvent)(0x24)
---   gSprites       0x02020630, MAX_SPRITES(64) * sizeof(struct Sprite)(0x44)
---   gPlayerAvatar  0x02037590, size 0x24
--- Field offsets were looked up in include/global.fieldmap.h (struct ObjectEvent) and
--- include/sprite.h (struct Sprite), never recalled; this probe's readings are what test them.
---
--- HOW TO RUN
---   1. Open BizHawk, load the Emerald ROM (vanilla or Archipelago-patched -- the probe reports
---      which it detected), and be in the overworld with a real save loaded.
---   2. Lua Console -> Script -> Open, pick this file.
---   3. Walk a while outdoors so NPCs scroll in and out of view, then enter and leave a building.
---      Output also goes to object_slot_probe_<timestamp>.log beside this script.
+-- Read-only: how many of the 16 object-event and 64 sprite slots are free in real play (the map's NPCs share them),
+-- what a live NPC's two records look like beside the player's (pointer fields can only be copied, not built in
+-- Lua), and what spawning, culling and map transitions do to both arrays. Walk outdoors so NPCs scroll in and out,
+-- then enter and leave a building; the log is object_slot_probe_<timestamp>.log beside this script.
 
 local OBJECT_EVENTS_COUNT = 16
 local OBJECTEVENT_SIZE = 0x24
@@ -48,9 +16,7 @@ local CB2_OVERWORLD_ADDR = 0x08085e5c
 local CB2_OVERWORLD_ARCHIPELAGO_ADDR = 0x080867f1
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 
--- The one known Archipelago relocation of gObjectEvents/gPlayerAvatar, established live
--- 2026-08-14 (verified.md, "Archipelago-relocated gObjectEvents"). Detection below mirrors the
--- shipped adapter's playerObjEventExistsAt() exactly, including its mapGroup plausibility term.
+-- Detection mirrors the shipped adapter's playerObjEventExistsAt(), mapGroup term included.
 local AVATAR_ADDR_ARCHIPELAGO_SHIFT = 0x284
 local MAP_GROUPS_COUNT = 34
 
@@ -70,11 +36,8 @@ local function open_log()
 	return nil
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console is a GUI append on the emulator's own thread, so it gets the opening lines and then one in twenty;
+-- the file gets every line.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -86,9 +49,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flush every 20 lines: a bounded cost, and still a live log.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -121,10 +82,7 @@ local function u32(addr)
 	return nil
 end
 
--- ROM-variant detection, same two candidates and same test as the shipped adapter. Retried every
--- frame rather than latched once, for the timing reason recorded in the adapter's own comment:
--- a script loaded during the intro sees no player object event at EITHER address and would
--- otherwise lock in the wrong answer for the session.
+-- Retried every frame, not latched once: a script loaded during the intro sees no player object at either address.
 local addrOffset = 0
 local addrConfirmed = false
 
@@ -157,8 +115,7 @@ local function inOverworld()
 		or cb == CB2_OVERWORLD_ARCHIPELAGO_ADDR or cb == CB2_OVERWORLD_ARCHIPELAGO_ADDR + 1
 end
 
--- struct ObjectEvent, include/global.fieldmap.h. Bitfields are read as their containing byte and
--- masked here, so every number below traces to a /*0xNN*/ comment plus a bit position.
+-- Bitfields are read as their containing byte and masked.
 local function objectEvent(i)
 	local a = GOBJECTEVENTS_ADDR + addrOffset + i * OBJECTEVENT_SIZE
 	local b0, b1, b2 = u8(a + 0x00) or 0, u8(a + 0x01) or 0, u8(a + 0x02) or 0
@@ -195,7 +152,6 @@ local function objectEvent(i)
 	}
 end
 
--- struct Sprite, include/sprite.h.
 local function sprite(i)
 	local a = GSPRITES_ADDR + i * SPRITE_SIZE
 	local f3e = u8(a + 0x3e) or 0
@@ -216,8 +172,7 @@ local function sprite(i)
 		coordOffsetEnabled = (f3e >> 1) & 0x01,
 		invisible = (f3e >> 2) & 0x01,
 		subpriority = u8(a + 0x43),
-		-- OamData is a packed bitfield; priority/paletteNum live in the second word's high byte.
-		-- Printed raw so nothing here depends on decoding it correctly today.
+		-- OamData is a packed bitfield, printed raw so nothing depends on decoding it.
 		oamRaw0 = oam0, oamRaw1 = oam4,
 	}
 end
@@ -294,8 +249,7 @@ if not memory.usememorydomain("System Bus") then
 	return
 end
 
--- A heartbeat so a quiet room reads as quiet rather than as a broken probe -- the exact failure
--- that made Crystal's first object-slot run look like it had crashed (phases/phase9.md, step 5).
+-- A heartbeat, so a quiet room reads as quiet rather than as a broken probe.
 local HEARTBEAT_FRAMES = 600
 
 local frames = 0
@@ -327,16 +281,12 @@ local function tick()
 	local sb1 = u32(GSAVEBLOCK1PTR_ADDR) or 0
 	local mapKey, posKey = "?", "?"
 	if sb1 ~= 0 then
-		-- SaveBlock1: pos.x/pos.y at +0x00/+0x02, location.mapGroup/mapNum at +0x04/+0x05 --
-		-- the same offsets the shipped adapter's getLocalState() reads. pos is what
-		-- RemoveObjectEventIfOutsideView() measures its cull window from, so it is logged too.
+		-- pos is what the engine's cull window is measured from, so it is logged too.
 		mapKey = string.format("%d/%d", u8(sb1 + 0x04) or -1, u8(sb1 + 0x05) or -1)
 		posKey = string.format("(%d,%d)", s16(sb1 + 0x00) or -1, s16(sb1 + 0x02) or -1)
 	end
 
-	-- Per-slot arrival/departure edges. This is what shows the engine spawning an NPC as it
-	-- scrolls into range and culling it as it leaves -- the two lifecycle events a spawned ghost
-	-- has to survive, and the reason a snapshot alone would not be enough.
+	-- Per-slot edges show the engine spawning an NPC as it scrolls into range and culling it as it leaves.
 	for i = 0, OBJECT_EVENTS_COUNT - 1 do
 		local o = objectEvent(i)
 		local was = lastActive[i]
@@ -373,8 +323,7 @@ local function tick()
 	end
 end
 
--- Runs either way: under dev-scripts/bizhawk-dev-loader.lua (which owns the frame loop and can
--- swap scripts without relaunching the emulator), or opened directly in the Lua Console.
+-- Runs under dev-scripts/bizhawk-dev-loader.lua or opened directly in the Lua Console.
 MESHGHOST_DEV_TICK = tick
 MESHGHOST_DEV_UNLOAD = function()
 	if logfile then
@@ -385,8 +334,7 @@ MESHGHOST_DEV_UNLOAD = function()
 end
 
 if not MESHGHOST_DEV_LOADER then
-	-- while-true, never event.onframeend: a registered callback outlives its script, so stopping
-	-- the script would leave it running and every reload would stack another. See pitfalls.md.
+	-- while-true, never event.onframeend: a registered callback outlives its script and stacks on every reload.
 	while true do
 		local ok, err = pcall(tick)
 		if not ok then

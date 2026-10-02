@@ -1,14 +1,7 @@
--- MeshGhost — Pokémon Emerald: what a step looks like frame by frame (DEV TOOL, READ-ONLY, never shipped)
--- -- 2026-09-16
---
--- WHY THIS EXISTS. autoplay's walk has to end on the game's own state -- "the step is done", "the step
--- was refused" -- never on a frame count (`_template/probes.md`, "A driven leg is MEASURED, not timed").
--- Which bytes say so is not measured. This logs, on every frame where any of them changes, the player
--- object's first 3 bytes and its +0x10..+0x1F, the avatar block's first 4 bytes, and the pad as the
--- script host reads it, so a walked tile, a turn and a walk into a wall can each be read afterwards.
---
--- ADDRESSES: the same hash-matched build as map_probe.lua (SHA-1 compared 2026-09-16). Vanilla only.
--- Log: step_probe_<target>_<time>.log beside this file (gitignored), flushed on a timer.
+-- Read-only, never shipped: a step frame by frame, for a walk that ends on the game's own state, never a frame
+-- count. On every frame any of them changes it logs the player object's first 3 bytes and +0x10..+0x1F, the
+-- avatar block's first 4 bytes and the pad, so a walked tile, a turn and a wall bump can be read afterwards.
+-- Vanilla only; the log is step_probe_<target>_<time>.log beside this file, flushed on a timer.
 
 local BUS = "System Bus"
 local GPLAYERAVATAR, GOBJECTEVENTS, OBJ_SIZE = 0x02037590, 0x02037350, 0x24

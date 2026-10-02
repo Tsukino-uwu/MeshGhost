@@ -1,24 +1,7 @@
--- MeshGhost — Emerald: WHY is the painted tier clipping everything away? (PROBE)
---
--- READ-ONLY. Reads game memory, writes none, presses nothing, draws nothing.
---
--- THE QUESTION. On the Archipelago-patched instance the painted tier reports
--- `passes/frame 1.0  runs/frame 128  spans/frame 0` -- 128 runs go into the painter and nothing
--- comes out, with no error anywhere. Every run is being clipped, and the clip that can do that is
--- the occlusion mask, which decides what scenery covers a ghost. Somewhere in
---
---     gBackupMapLayout (0x03005dc0) -> metatile id
---     gMapHeader       (0x02037318) -> tileset -> attributes -> "does this metatile cover?"
---
--- a read is wrong on this build, and nil is deliberately treated as "covers everywhere" so that an
--- undecodable metatile never becomes a reason to paint over scenery. The first guess -- that the
--- map layout itself was unreadable -- was WRONG: the adapter's own readability check passed. So
--- this walks the chain and prints every link instead of guessing at the next one.
---
--- WHAT IT CANNOT SEE: whether a value is CORRECT, only whether it is plausible. A pointer into ROM
--- that is merely the wrong pointer looks exactly like the right one from here. Run it on vanilla
--- and on the patched build and DIFF the two -- that is the comparison that carries the answer, and
--- it is why every line prints the raw value rather than a verdict.
+-- Read-only: walks the painted tier's occlusion chain (gBackupMapLayout -> metatile id -> gMapHeader -> tileset ->
+-- attributes) and prints every link raw, for a build where every run is clipped away with no error. It shows
+-- plausibility, not correctness: a wrong ROM pointer looks like a right one, so diff a vanilla run against the
+-- patched build's.
 
 local SAMPLES = 1
 local done = false
@@ -76,8 +59,7 @@ local function tick()
     if sb1 ~= 0 and map ~= 0 and width > 0 then
         local px, py = memory.read_s16_le(sb1), memory.read_s16_le(sb1 + 2)
         say(string.format("  player tile (saveblock)    : (%d,%d)", px, py))
-        -- MAP_OFFSET is 7 in this game's layout arithmetic; print a small window either way so a
-        -- reader can see whether ANY of these look like plausible behaviour bytes.
+        -- MAP_OFFSET is 7; a small window shows whether any of these look like plausible behaviour bytes.
         for dy = 0, 1 do
             local row = {}
             for dx = -1, 1 do

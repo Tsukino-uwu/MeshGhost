@@ -1,31 +1,6 @@
--- MeshGhost — Emerald test-kit granter (DEVELOPMENT TOOL, never shipped)
---
--- WRITES THE SAVE BLOCK. Read this line twice.
---
--- `CLAUDE.md`: *nothing that ships writes a save or game state, ever* — and the exception, which
--- this is: **dev-only test tooling MAY cheat, a probe and never an adapter**, because a test save
--- is expendable (user, 2026-08-18). Cheating to reach a state is explicitly permitted as of
--- 2026-08-19, see `.claude/skills/play-game/SKILL.md`. So: this is a probe, it is never loaded by the adapter,
--- it is not packaged, and it should be pointed at a save nobody minds losing.
---
--- WHY IT EXISTS
--- Emerald's ghost work needs the states a fresh save cannot reach: surfing, both bikes, fishing,
--- Fly. A peer's own state (`graphicsId`) is a known open item and none of it can be watched until
--- somebody can actually do those things. Requested 2026-08-19: every HM and badge, Master Balls,
--- the Super Rod, the Go-Goggles, and Repel kept running.
---
--- EVERY ADDRESS AND ID BELOW HAS A PLACE IT WAS LOOKED UP. Nothing here is from memory
--- (`CLAUDE.md`'s hard rule), and pokeemerald is where to look, never evidence
--- (`agent_docs/licensing.md`). Where each value in the code points: SaveBlock1/SaveBlock2 and
--- ItemSlot offsets -- include/global.h; bag quantities being stored encrypted with the save's
--- encryptionKey -- src/item.c:26-34 (the kit's own read-back is what tests it); badge flags --
--- include/constants/flags.h; item ids -- include/constants/items.h; which pocket each item goes in
--- -- src/data/items.h; the repel counter var -- include/constants/vars.h. The values themselves
--- sit in the code below; each counts as measured only where the kit's read-back or the screen
--- shows it.
---
--- The two save-block POINTERS are the adapter's own, already measured and in use:
--- gSaveBlock1Ptr 0x03005d8c, gSaveBlock2Ptr 0x03005d90.
+-- Grants a test kit by writing SaveBlock1, which an in-game save then keeps: 8 badges, HM01-08, both bikes, the
+-- Super Rod, the Go-Goggles, 20 Master Balls, and a Repel kept running (dev tool: a probe, never loaded by the
+-- adapter or packaged). Point it at a save nobody minds changing.
 
 local SAVEBLOCK1PTR = 0x03005d8c
 local SAVEBLOCK2PTR = 0x03005d90
@@ -52,18 +27,14 @@ local KEY_ITEMS = {
 local BALLS = { { 1, 20 } }               -- MASTER BALL
 local TMHM = {}
 for i = 0, 7 do TMHM[#TMHM + 1] = { 339 + i, 1 } end  -- HM01..HM08
--- Nothing is granted into the general Items pocket: Repel is handled by its step counter below,
--- and no other consumable is needed to reach a surf/bike/fish/Fly state. An id here would have to
--- be cited like every other, and an uncited "probably right" number is how a wrong one ships.
+-- Nothing goes in the Items pocket: Repel is its step counter, below.
 
 local log = console.log
 
 local function sb1() return memory.read_u32_le(SAVEBLOCK1PTR) end
 local function sb2() return memory.read_u32_le(SAVEBLOCK2PTR) end
 
--- Hypothesis from src/item.c:31-34: the bag stores quantity XOR the save's encryption key.
--- Only the low 16 bits
--- of the key matter for a u16 field.
+-- The bag stores quantity XOR the save's encryption key, whose low 16 bits are all a u16 field uses.
 local function encKey16()
     local base = sb2()
     if base == 0 then return nil end
@@ -107,9 +78,7 @@ MESHGHOST_DEV_TICK = function()
         if frames % 30 == 0 and sb1() ~= 0 then granted = grant() end
         return
     end
-    -- Repel: the counter is steps remaining and the game decrements it as you walk, so "keep it
-    -- enabled" means topping it up rather than setting it once. Checked twice a second, written
-    -- only when it has actually run down, so this is not a write every frame.
+    -- The repel counter is steps left and the game counts it down, so it is topped up when low, not set once.
     if frames % 30 == 0 then
         local base = sb1()
         if base ~= 0 then

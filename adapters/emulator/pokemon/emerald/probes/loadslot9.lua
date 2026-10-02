@@ -1,6 +1,5 @@
--- MeshGhost -- return to the user's checkpoint (DEV TOOL, never shipped).
--- Slot 9 is the USER's savestate, in a safe town spot. Loading it is how a scripted ride that
--- drifted or got blocked is undone; a savestate is not an in-game save, so this costs nothing.
+-- MeshGhost — Pokémon Emerald: load savestate slot 9, the checkpoint (dev tool, loads a savestate, never shipped).
+-- Slot 9 holds a safe town spot; loading it undoes a scripted ride that drifted or got blocked.
 local done, n = false, 0
 local function tick()
     n = n + 1

@@ -1,50 +1,5 @@
--- MeshGhost — Emerald: park ONE hardware sprite above gOamLimit and see whether the PPU draws it.
--- WRITES. Live RAM only -- one 8-byte OAM shadow entry per frame, and nothing else, ever. It never
--- touches a save, the map, an object event, a sprite struct, VRAM or a palette. Listed in this
--- folder's README writes table for that reason.
---
--- WHY THIS IS STAGE 1, and what it is allowed to prove
--- oamshadow_probe.lua established, over 2250 live overworld frames, that gOamLimit is 64 and that
--- gMain.oamBuffer[64..127] is empty and never written by the engine (verified.md 2026-08-21). What
--- it could NOT establish is the claim the whole hardware-sprite tier rests on: that LoadOam pushes
--- all 128 entries to hardware, so an entry parked up there is actually DRAWN. A frame-boundary
--- compare of shadow against hardware is one frame out of phase by construction and cannot answer it.
---
--- The only thing that answers it is a body on screen. So this probe is deliberately the smallest
--- possible version of the tier: ONE entry, at index 64, borrowing the PLAYER's own tile number and
--- palette slot out of the player's live OAM entry. No tile allocation, no VRAM copy, no palette
--- load -- every one of those is a separate way to fail, and none of them is the question being asked
--- here. If a second copy of the player appears two tiles above the player, the tier is real.
---
--- WHAT TO LOOK FOR, in order of what it tells us
---   1. A SECOND COPY OF THE PLAYER, two tiles above the player, moving with them. That alone is the
---      whole feasibility answer.
---   2. Walk it up behind a house or a ledge so the copy passes BEHIND scenery. The painted tier
---      cannot do that at all -- it is the drawn tier's registered blocking defect (BANDAGES.md) --
---      and it is the reason to prefer hardware sprites over painting, not just the speed.
---   3. Open the START menu, and a text box. The copy should be hidden by both, again for free.
---   4. Walk into a cave or through a door fade. The copy should dim with everything else, because
---      the PPU reads the live palette; the painted tier has to measure and re-apply that by hand.
---
--- IT WILL TRAIL BY ONE FRAME while walking, and that is expected, not a defect. This probe writes at
--- the Lua frame boundary, while the engine's LoadOam runs at the next VBlank -- so what is displayed
--- is one frame behind the player. Stage 3 moves the write onto the BuildOamBuffer execute hook,
--- which is the same point in the pipeline the engine's own sprites are finalised at, and that skew
--- goes away. Judge position and occlusion here; do not judge smoothness.
---
--- IT WILL ALSO LOSE OVERLAP TIES to the player and to NPCs, because hardware draws the lower OAM
--- index on top and ours is index 64 while the engine's are 0..63. Also expected, also recorded in
--- plans.md Phase 8.1 as something the tier does not get.
---
--- HOW TO RUN
---   Point dev-scripts/bizhawk-dev-loader.target at this file and walk around. It releases its entry
---   on unload, so swapping the loader back to the adapter removes the copy; if the emulator is ever
---   killed mid-run instead, a map load clears it (ResetOamRange), and nothing survives a reset.
-
--- Addresses: all from the adapter, which takes them from our own make-compare-verified pokeemerald
--- build (agent_docs/environment.md). The oamBuffer offset of 0x038 and the dummy encoding are
--- verified.md 2026-08-21. OAM geometry and the 8-byte stride are GBA hardware, not facts about
--- Emerald.
+-- MeshGhost — Emerald: park hardware sprites above gOamLimit and let the PPU draw them (dev tool, writes shadow OAM).
+-- A copy of the player two tiles up, borrowing its tile and palette; released on unload, and a map load clears any.
 local GMAIN_ADDR = 0x030022c0
 local OAMBUF_ADDR = GMAIN_ADDR + 0x038
 local GOAMLIMIT_ADDR = 0x02021b38
@@ -55,41 +10,26 @@ local GSPRITES_ADDR = 0x02020630
 local SPRITE_SIZE = 0x44
 local ENTRY_SIZE = 8
 
--- Index 64 is the first slot above the overworld's gOamLimit. The tier's real window is 64..119,
--- leaving 120..127 as margin because Emerald parks its own wireless status indicator at 125.
+-- The first slot above the overworld's gOamLimit; 120..127 stay free, as Emerald parks its wireless indicator at 125.
+-- From 64 up, a copy also loses overlap ties to the engine's own 0..63.
 local SLOT = 64
 local SLOT_ADDR = OAMBUF_ADDR + SLOT * ENTRY_SIZE
 
--- Two tiles above the player, in pixels. User's call, 2026-08-21: high enough to be unmistakably a
--- separate body rather than a smear on the player, close enough to share the same scenery.
 local OFFSET_Y_PX = -32
 
--- gDummyOamData, the engine's own "hidden" encoding: y=160, x=304, 8x8, priority 3. Releasing with
--- the engine's own value rather than a zeroed entry means the slot is left indistinguishable from
--- one the engine never used.
+-- gDummyOamData, the engine's own hidden entry: releasing with it leaves a slot like one the engine never used.
 local DUMMY_A0, DUMMY_A1, DUMMY_A2 = 0x00a0, 0x0130, 0x0c00
 
 local REPORT_FRAMES = 60
 
--- SUBTRACTION SWITCHES, added 2026-08-21 after the user reported constant lag and the ride harness
--- confirmed it: 50.8 avg against a 58.1 control, reproduced twice, from a probe that does about ten
--- reads and three writes a frame. That is not a cost anyone would have predicted, so it gets
--- isolated by removing one part at a time rather than guessed at a third time.
---
--- Set them EXPLICITLY on every run. The dev loader shares one Lua environment, so an unset global
--- keeps the previous run's value and the measurement silently compares the wrong pair
--- (agent_docs/environment.md).
+-- Subtraction switches. Set them explicitly every run: the dev loader shares one Lua environment, so an unset global
+-- keeps the previous run's value.
 local NO_WRITE = MESHGHOST_OAMINJECT_NO_WRITE and true or false   -- scan and log, write nothing
 local NO_SCAN = MESHGHOST_OAMINJECT_NO_SCAN and true or false     -- write a fixed entry, never scan
 local QUIET = MESHGHOST_OAMINJECT_QUIET and true or false         -- no per-second log line
 
--- HOW MANY copies to inject, 1..56. The tier's window is oamBuffer[64..119]; 120..127 is left as
--- margin because Emerald parks its own wireless status indicator at 125.
---
--- This exists to measure a SLOPE, not a number. At one ghost every tier looks free, including the
--- painted one -- the difference between them only appears with load, and the painted tier's cost is
--- per visible pixel while this one's is per entry. Set it EXPLICITLY every run for the same
--- shared-Lua-environment reason as the switches above.
+-- How many copies, 1..56 (oamBuffer[64..119]), set explicitly every run too: at one ghost every tier looks free, so
+-- this measures a slope.
 local COUNT = tonumber(MESHGHOST_OAMINJECT_COUNT) or 1
 if COUNT < 1 then COUNT = 1 end
 if COUNT > 56 then COUNT = 56 end
@@ -104,16 +44,7 @@ end
 
 local logfile = io.open(scriptDir() .. "/oaminject_probe.log", "w")
 
--- TO THE FILE, NOT THE CONSOLE -- and this probe is the evidence for the rule rather than an
--- application of it. Measured 2026-08-21 on the ride harness: with a line going to console.log
--- once a second, the same route ran 50.7 avg / 25 worst; with that line going only to the file,
--- 58.1 / 37 -- the bare-emulator control exactly. Writes on, scan on, hardware sprite on screen, in
--- both runs. So ~33 console lines over 33 seconds cost 7.4 fps while the whole feature cost nothing
--- measurable. BizHawk's Lua Console is a GUI text append into a window that already holds a
--- session's backlog, so its cost grows with the backlog and is nothing like a print.
---
--- say() is for the handful of orientation lines at load. log() is the per-frame path and must never
--- reach the console.
+-- say() is for the few lines at load; log() is the per-frame path and never reaches the console, a GUI append.
 local function log(msg)
     if logfile then logfile:write(msg, string.char(10)) logfile:flush() end
 end
@@ -127,26 +58,14 @@ local function r16(a) return memory.read_u16_le(a) end
 local function r32(a) return memory.read_u32_le(a) end
 local function w16(a, v) memory.write_u16_le(a, v) end
 
--- The +1 is the Thumb bit; gMain.callback2 holds the Thumb form of the pointer, measured live as
--- 0x08085e5d (verified.md 2026-08-21). This doubles as the VANILLA GATE: an Archipelago build
--- relocates CB2_Overworld, so there this never matches and the probe writes nothing at all.
+-- The +1 is the Thumb bit. Also the vanilla gate: Archipelago relocates CB2_Overworld, so there nothing is written.
 local function inOverworld()
     local cb2 = r32(GMAIN_CALLBACK2_ADDR)
     return cb2 == CB2_OVERWORLD_ADDR or cb2 == CB2_OVERWORLD_ADDR + 1
 end
 
--- WHERE THE PLAYER IS ON SCREEN, asked of the hardware rather than reconstructed.
---
--- gPlayerAvatar's spriteId indexes gSprites, and a Sprite begins with its OamData -- so the player's
--- own tile number is one read away. But the sprite struct's coordinates are the engine's, not the
--- screen's: the final top-left in screen pixels only exists in the OAM entry the engine BUILT from
--- that struct. So find that entry by its tile number and copy it whole. That is the same identify-by-
--- tile-range move oamEntryFor() makes in the adapter (meshghost_emerald.lua:4247), for the same
--- reason: a sprite's index in OAM is not stable, but the tiles it points at are.
---
--- Reading it from the SHADOW buffer rather than hardware is deliberate -- it is the buffer we are
--- writing into, so the copy and the player it is offset from come from the same frame and cannot
--- disagree with each other.
+-- The player's screen position exists only in the OAM entry the engine built, so find it by the tile number its sprite
+-- names (an OAM index is not stable, its tiles are), in the shadow buffer written into, so both come from one frame.
 local function playerEntry()
     local spriteId = r8(GPLAYERAVATAR_ADDR + 0x04)
     if spriteId > 63 then return nil end
@@ -166,11 +85,8 @@ local written = false
 local frame, framesDrawn, framesNoPlayer = 0, 0, 0
 local lastLine = nil
 
--- Never write +6. CopyMatricesToOamBuffer owns affineParam on all 128 entries; +0/+2/+4 are the
--- three halfwords the engine's per-frame path leaves alone above the limit.
--- Release EVERY slot the run has ever used, not just the ones live this frame. Nothing in the
--- engine's per-frame path clears 64..127, so a slot left behind is a body frozen on screen until the
--- next map load -- the same leak class the adapter documents for sockets, ghosts and its log handle.
+-- Never write +6: CopyMatricesToOamBuffer owns affineParam on all 128 entries.
+-- Release every slot used: nothing per frame clears 64..127, so one left behind stays on screen until a map load.
 local function release()
     if not written then return end
     for i = 0, COUNT - 1 do
@@ -191,36 +107,30 @@ local function tick()
 
     local a0, a1, a2, idx, tile
     if NO_SCAN then
-        -- A fixed entry in the middle of the screen. Costs the writes and nothing else, so it
-        -- prices the scan by its absence.
+        -- A fixed entry mid-screen: the writes and nothing else, which prices the scan by its absence.
         a0, a1, a2, idx, tile = 0x8038, 0x8070, 0x0800, -1, 0
     else
         a0, a1, a2, idx, tile = playerEntry()
     end
     if not a0 then
-        -- The player's sprite is not in the built list this frame -- a transition, a fade, or the
-        -- engine hiding its own player at a door. Nobody for a copy to stand above, so hide.
+        -- No player entry this frame (a transition, a fade, a door), so nobody to stand above: hide.
         framesNoPlayer = framesNoPlayer + 1
         release()
         return
     end
 
-    -- attr0's low byte is y and wraps at 256; attr1's low 9 bits are x. Copying the player's entry
-    -- whole and patching only y keeps shape, size, flip, priority, palette and tile exactly as the
-    -- engine set them -- which is the point: anything wrong on screen is then OUR placement, not a
-    -- field we reconstructed badly.
+    -- attr0's low byte is y (wrapping at 256), attr1's low 9 bits x. Only y is patched, so anything wrong on screen is
+    -- our placement, not a field rebuilt badly.
     local y = ((a0 & 0xff) + OFFSET_Y_PX) & 0xff
+    -- Written at the Lua frame boundary while LoadOam runs at the next VBlank, so a copy trails by one frame: judge
+    -- position and occlusion here, not smoothness.
     if not NO_WRITE then
         if COUNT == 1 then
             w16(SLOT_ADDR + 0, (a0 & 0xff00) | y)
             w16(SLOT_ADDR + 2, a1)
             w16(SLOT_ADDR + 4, a2)
         else
-            -- SPREAD OVER THE SCREEN, not stacked. Eight per row, two tiles apart, rows three tiles
-            -- apart, centred on the player -- which is what a crowd of peers standing around
-            -- actually looks like. Stacking them all on the same scanline would instead measure the
-            -- GBA's per-scanline OBJ cycle budget, which is a different question and would flatter
-            -- or damn the tier for the wrong reason. Worth measuring separately, later.
+            -- Spread like a crowd round the player: stacked on one scanline they would measure the scanline OBJ budget.
             local px, py = a1 & 0x1ff, a0 & 0xff
             for i = 0, COUNT - 1 do
                 local a = SLOT_ADDR + i * ENTRY_SIZE

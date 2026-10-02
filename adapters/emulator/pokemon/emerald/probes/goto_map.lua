@@ -1,70 +1,20 @@
--- MeshGhost -- warp the player to any map (DEV TOOL, never shipped)
---
--- WHY. Testing the Acro Bike means being where the Acro Bike is, and walking there costs the user
--- time for nothing (.claude/skills/play-game/SKILL.md, "Drive it yourself before asking"). Cheating to
--- reach a state is explicitly allowed; cheating is never in an adapter.
---
--- HOW, and it is the game's own map load rather than a coordinate poke alone. Writing the
--- player's position by itself would move them WITHOUT loading the destination map -- the tiles,
--- objects and connections would still be the old map's. The route is four writes:
---   1. sWarpDestination AND gSaveBlock1Ptr->location -- where to go (struct WarpData: s8 mapGroup,
---      s8 mapNum, s8 warpId, pad, s16 x, s16 y).
---   2. gSaveBlock1Ptr->pos -- WHERE ON THAT MAP TO STAND. See below; this is not optional.
---   3. gMain.callback2 = CB2_LoadMap, which loads the map named by location.
---   4. gFieldCallback = FieldCB_DefaultWarpExit -- the ordinary arrive-from-a-warp fade-in, so it
---      looks like every other door in the game rather than a hard cut.
---
--- THE PLAYER'S POSITION IS OURS TO SET, and believing otherwise trapped the user twice on
--- 2026-08-21: after a CB2_LoadMap trip the player keeps the coordinates they had on the map they
--- left, and warpId does not place them (observed that day, below). Where the decomp points for
--- why (unmeasured): `WarpIntoMap` / `SetPlayerCoordsFromWarp` do not appear on CB2_LoadMap's path
--- in src/overworld.c.
---
--- That is invisible when the destination is BIGGER than the old coordinates, which is why this
--- probe looked correct across many warps to Mauville (40x20). Warping out of Route 126 at
--- (45,68) into Mossdeep City (80x40) put the player outside the map, in the border fill -- open
--- water with no land in it, and MAPGRID_UNDEFINED all round, so they could not move in any
--- direction. It reads exactly like a hang.
---
--- So give MESHGHOST_WARP_X / _Y for any destination smaller than where you are coming from. Take
--- them from the map's own data rather than inventing them -- a warp event's x/y in
--- data/maps/<Map>/map.json is a tile the game itself puts the player on. Without them this warns
--- and keeps the old coordinates, which is only safe for a big destination.
---
--- THE AVATAR STATE IS EXPECTED TO LOOK AFTER ITSELF, and is the one thing not to hand-fix: the
--- decomp suggests the map load re-derives it from the tile landed on (where to look:
--- GetAdjustedInitialTransitionFlags, src/overworld.c), so a SURFING player warped onto a floor
--- tile should arrive on foot with no blob to clean up -- a hypothesis until a warp shows it.
---
--- ADDRESSES. gFieldCallback 03005DAC, CB2_LoadMap 08085FCC and FieldCB_DefaultWarpExit 080AF398
--- are named in pokeemerald.map; gMain.callback2 030022C4 is copied from the adapter.
--- sWarpDestination is a STATIC and so has no symbol; its address is DERIVED, not measured: the
--- map file puts gLastUsedWarp at 020322DC, and the declaration order at overworld.c:193-194 points
--- one 8-byte struct WarpData later -> 020322E4. A warp landing where asked is what tests it.
---   MAP_MAUVILLE_CITY = (2 | (0 << 8)) -- mapNum 2, mapGroup 0 (constants/map_groups.h:13)
---
--- Thumb entry points need the low bit set, which is why each callback is written +1.
---
--- SAFETY. It checkpoints to savestate slot 8 first (slots 2+ are the agent's, 1 and 9 are the
--- user's), so the trip is free to undo. It fires ONCE and only from the overworld.
+-- MeshGhost — warp the player to any map through the game's own map load (dev tool, writes live RAM, never shipped).
+-- Destination from MESHGHOST_WARP_GROUP/_NUM/_ID and MESHGHOST_WARP_X/_Y: CB2_LoadMap does not place the player, so
+-- without X/Y a smaller map leaves them in its border. Checkpoints to slot 8 first; fires once, from the overworld.
+-- Thumb entry points need the low bit set, so each callback is written +1.
 
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
 local GFIELDCALLBACK_ADDR = 0x03005dac
 local CB2_LOADMAP_ADDR = 0x08085fcc
 local FIELDCB_DEFAULTWARPEXIT_ADDR = 0x080af398
-local SWARPDESTINATION_ADDR = 0x020322e4
+local SWARPDESTINATION_ADDR = 0x020322e4 -- a static, derived as gLastUsedWarp + 8 by declaration order
 
--- Destination, as globals so a one-line script listed BEFORE this one in the loader's control
--- file can change it without editing this file -- the same pattern MESHGHOST_FORCE_GHOST_GFX uses,
--- and the reason it works mid-session is that the loader loads its targets in order.
--- Map ids are (mapNum | (mapGroup << 8)) per include/constants/map_groups.h, so the two are
--- written separately here. Defaults to Mauville City (mapNum 2, group 0).
+-- Globals, so a script the loader runs before this one can set the destination; Mauville City by default.
 local MAUVILLE_GROUP = MESHGHOST_WARP_GROUP or 0
 local MAUVILLE_NUM = MESHGHOST_WARP_NUM or 2
 local WARP_ID = MESHGHOST_WARP_ID or 0
--- Where to stand once there. nil keeps the coordinates from the map being left, which strands the
--- player outside anything smaller -- see the header.
+-- nil keeps the coordinates from the map being left, which strands the player outside a smaller map.
 local DEST_X = MESHGHOST_WARP_X
 local DEST_Y = MESHGHOST_WARP_Y
 
@@ -84,24 +34,19 @@ local function tick()
     savestate.saveslot(8)
     console.log("gotomap: checkpointed to slot 8 (loadslot 8 to come back)")
 
-    -- BOTH the pending destination and the live location, because the first attempt wrote only
-    -- sWarpDestination and arrived back where it started: read afterwards, that struct held the
-    -- CURRENT map, so something replaced the write between setting it and CB2_LoadMap running.
-    -- ApplyCurrentWarp copies sWarpDestination over location, so writing both means whichever
-    -- survives says Mauville.
+    -- Both the pending destination and the live location: the pending one alone was replaced before the load.
     local function writeWarp(addr)
         memory.write_u8(addr + 0, MAUVILLE_GROUP)
         memory.write_u8(addr + 1, MAUVILLE_NUM)
         memory.write_u8(addr + 2, WARP_ID)
-        memory.write_u16_le(addr + 4, 0xffff) -- x = -1, unused when warpId is valid
+        memory.write_u16_le(addr + 4, 0xffff) -- x = -1
         memory.write_u16_le(addr + 6, 0xffff) -- y = -1
     end
     writeWarp(SWARPDESTINATION_ADDR)
-    -- struct SaveBlock1: struct Coords16 pos at 0x00, struct WarpData location at 0x04.
     local sb1 = memory.read_u32_le(0x03005d8c)
     writeWarp(sb1 + 0x04)
 
-    -- AND THE POSITION, because nothing on CB2_LoadMap's path will set it (see the header).
+    -- And the position, which nothing on CB2_LoadMap's path sets.
     if DEST_X and DEST_Y then
         memory.write_u16_le(sb1 + 0x00, DEST_X)
         memory.write_u16_le(sb1 + 0x02, DEST_Y)

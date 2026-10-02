@@ -1,25 +1,5 @@
--- MeshGhost — Pokémon Emerald: every text printer and window, whole, on every change (DEV TOOL, READ-ONLY, never
--- shipped) -- 2026-09-17
---
--- WHY THIS EXISTS. autoplay's `battle` answered `stuck` after a restore to a trainer's challenge whose last box had
--- finished printing: the driver takes up only a message whose printer is still active (`agent_docs/phases/
--- phase13.md`, 2026-09-17). What a FINISHED message leaves behind -- in its printer, its window and the text before
--- the printer's pointer -- is to be measured, and what a menu or a cleared box leaves, so the two are told apart.
--- `text_probe.lua` logs a printer only when its +0x1B or +0x1C byte changes, which a restore to the same values hides.
---
--- ADDRESSES: a pokeemerald build whose ROM hashed identical to the vanilla ROM (SHA-1, 2026-09-16) proves where the
--- blocks named sTextPrinters (0x24 bytes per window id) and gWindows (12 per id) live, not what their bytes mean.
---
--- WHAT IT LOGS (printer_state_probe_<target>_<time>.log beside this file; gitignored), each on change:
---   PR w   printer w's 0x24 bytes raw, for w 0-7, and the bytes BEFORE its first word (the printer's pointer): back
---          to the previous FF, at most 256 bytes, decoded as letters where they are letters
---   WIN    window slots 0-7, 12 bytes each, raw
---   TILES  per window with a background: its base block and the tile ids in its first and last cells
---   PIX    per window with a background: how many different bytes its pixel buffer's first 16 rows hold
---   BG0    per screen row, the first and last column with a non-zero BG0 tile (textbox_probe.lua's method)
---   CB2    gMain.callback2
--- WHAT IT CANNOT SEE: windows 8-31 and their printers, anything in the frames between changes, a patched ROM.
--- COST: about 0x180 bytes read a frame and a 30x20 tile scan every 4 frames; no hooks.
+-- MeshGhost — Emerald: text printers and windows 0-7 whole, on every change, to tell a finished message from a stale
+-- printer, which text_probe.lua misses after a restore to the same values (dev tool, read-only, no hooks, vanilla).
 
 local BUS = "System Bus"
 local STEXTPRINTERS, PRINTER_SIZE, GWINDOWS, WINDOW_SIZE, GMAIN_CB2 = 0x020201b0, 0x24, 0x02020004, 12, 0x030022c4
@@ -77,7 +57,7 @@ local function before(ptr)
 	local b = memory.read_bytes_as_array(ptr - 256, 256, BUS)
 	local from = 1
 	local found = false
-	-- The byte just before the pointer is the printer's last one taken; the FF before THAT starts the string.
+	-- The byte just before the pointer is the printer's last one taken; the FF before that starts the string.
 	for i = 255, 1, -1 do
 		if b[i] == 0xFF then
 			from, found = i + 1, true
@@ -118,9 +98,8 @@ MESHGHOST_DEV_TICK = function()
 	for s = 0, IDS - 1 do slots[#slots + 1] = s .. ":" .. hex(wb, s * WINDOW_SIZE + 1, s * WINDOW_SIZE + WINDOW_SIZE) end
 	local ws = table.concat(slots, " ")
 	onChange("win", ws, "WIN " .. ws)
-	-- Added the same day: for each window that has a background, the tile ids in its first and last cells on that
-	-- background (low 10 bits), beside its base block (+6, u16) -- whether a window is put on the screen, not only
-	-- whether something is drawn in its top row (the START menu's frame drew into window 0's top row).
+	-- Each window's first and last cells on its background (low 10 bits) beside its base block (+6, u16): whether the
+	-- window is put on the screen, not only whether something drew into its top row.
 	local tiles = {}
 	for s = 0, IDS - 1 do
 		local o = s * WINDOW_SIZE
@@ -135,9 +114,8 @@ MESHGHOST_DEV_TICK = function()
 	end
 	local ts = table.concat(tiles, " ")
 	onChange("tiles", ts, "TILES " .. ts)
-	-- Added later the same day: an empty box read as put with a stale printer on the way back from the naming screen.
-	-- For each window with a background, its pixel buffer (+8, 4 bits a pixel, width * 8 pixels a row): how many
-	-- different byte values its first 16 pixel rows hold, and the most common one.
+	-- A put window can be blank: how many byte values its pixel buffer's first 16 rows hold (+8, 4 bits a pixel,
+	-- width * 8 pixels a row), and the commonest.
 	local pix = {}
 	for s = 0, IDS - 1 do
 		local o = s * WINDOW_SIZE

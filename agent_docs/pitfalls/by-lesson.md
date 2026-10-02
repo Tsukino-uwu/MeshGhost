@@ -387,7 +387,8 @@ reasonable person would guess, and it is not a fixed threshold at all.
 **The rule, stated so it cannot be read as being about bursts.** Nothing on a per-frame or
 per-second path calls `console.log`, in a probe or in an adapter. Split the two: a `say()` for the
 handful of orientation lines at load, and a `log()` that only ever writes the file. That is what
-`probes/oaminject_probe.lua` does now, and its header carries these numbers as the reason.
+`probes/oaminject_probe.lua` does now; the numbers are in Emerald's `VERIFIED.md`, "2026-08-21 — Emerald: a hardware
+sprite is DRAWN from Lua".
 
 **And the quality bar this serves, in the user's words (2026-08-21):** *"there can't be any fps
 drops like this in a shipped/release of the game, not allowed to pass quality wise by me. we have to
@@ -9737,3 +9738,214 @@ is the file the comment sat in at `f64560cc`.
 ### adapters/emulator/pokemon/crystal/probes/ap_mapobj_probe.lua
 
 - The last dump flooded the Lua Console with three full tables. Detail goes to the file; the console gets headlines only.
+
+### adapters/emulator/pokemon/emerald/probes/acro_check.lua
+
+- WHY. `use_acro` registers ITEM_ACRO_BIKE to SELECT and presses it, and twice in a row the player stayed on foot with no menu on screen. "The press did nothing" has three different causes -- the item is not in the bag, the registration did not take, or the pad is not reaching the game -- and guessing between them is what this project has a rule against. So: read all three.
+
+### adapters/emulator/pokemon/emerald/probes/acro_hop.lua
+
+- HELD, not tapped: the user, 2026-08-20 -- *"you need to hold for the jumping"*. Tapping B produced a pop-wheelie and nothing else, which is why the first capture caught action 0x6A and no hop at all.
+
+### adapters/emulator/pokemon/emerald/probes/apspawn_gate_probe.lua
+
+- Same test the adapter uses: the player's own object event has the player bit set, local id 0xff and a map group in range. Whichever base passes is the one this build uses. The bits are the adapter's own, copied field for field rather than remembered: the player flag is bit 0 of +0x02 (NOT of +0x00, which is where a first guess put it and why this probe logged nothing for its first run), local id 0xff at +0x08, map group in range at +0x0a.
+- The loader ticks whatever a script leaves in MESHGHOST_DEV_TICK; a script that registers its own event handler instead is loaded, runs once, and is never called again (it says so in the loader log, which is where this was caught).
+
+### adapters/emulator/pokemon/emerald/probes/avatar_scan_probe.lua
+
+- METHOD (v2 -- rewritten after v1's continuous background scan failed): the hypothesis under test is that facingDirection (where to look: struct ObjectEvent, include/global.fieldmap.h; DIR_* in constants/global.h) holds only 1 (down), 2 (up), 3 (left) or 4 (right). v1 tried a continuous background scan keeping any byte that never left the 1-4 range, then a stability-duration filter on top of that -- both failed for the same underlying reason: EWRAM is mostly quiescent during any idle stretch, so huge numbers of unrelated bytes look "stable" or "always in range" simultaneously, and neither filter meaningfully narrows the ~22000-candidate pool. This version is scripted instead of open-ended: it tells you exactly when to press each direction, takes one full EWRAM snapshot during each hold, and keeps only addresses that hit the EXACT expected value at EVERY one of the four steps, in order -- 1 during down, then 3 during left, then 2 during up, then 4 during right. Since a candidate can't be 1 and 3 at once, surviving from one phase to the next already requires a real value transition, not just a plausible snapshot.
+
+### adapters/emulator/pokemon/emerald/probes/bikeclimb_probe.lua
+
+- So the ride does what a player does (user, 2026-08-20): back off 3 tiles, then hold Up all the way, arriving at the mud already at top speed. Repeating, so the climb can be watched more than once without anyone touching the pad.
+
+### adapters/emulator/pokemon/emerald/probes/bikeloop_probe.lua
+
+- ROUTE (user, 2026-08-20): 3 tiles up, 3 left, 3 down, 3 right, looping, from wherever it starts. Short sides on purpose: they keep the ride inside a safe town patch with no tall grass and no trainer sightlines. Note the cost -- a Mach Bike likely accelerates over distance (unmeasured; where to look: src/bike.c:75-80), so three tiles may never reach top speed. The animation cases show at any speed; the top-speed catch-up case may not reproduce here, and the log reports the speeds actually reached rather than assuming a held key produced them.
+- SAFE BY CONSTRUCTION, because guards alone were not enough: an earlier abort test asked only whether CB2_Overworld was the active callback, and that stays true while a trainer's approach script runs -- so it kept holding a direction into an encounter. This one also tests preventStep, and never sends a direction outside the overworld at all (in a battle a direction moves the cursor onto POKeMON, which is how a scripted ride ends up swapping the user's party).
+- ADDRESSES: copied from meshghost_emerald.lua, never from memory -- two written from recall earlier today were both wrong.
+
+### adapters/emulator/pokemon/emerald/probes/facing_flip.lua
+
+- Emerald turns without stepping when a direction is tapped briefly -- the engine's own "turn in place" -- so this reproduces a facing TRANSITION over and over without the player ever leaving the tile. Written for the draw-order mask, where the user reported the fault only during the transition itself: *"standing idle looks fine but the small transition from facing left to right has some green in it"*. A fault that lives in three frames needs to be made to happen on a schedule before any instrument can catch it.
+
+### adapters/emulator/pokemon/emerald/probes/fishing_probe.lua
+
+- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads exactly like "nothing happened").
+
+### adapters/emulator/pokemon/emerald/probes/fly_probe.lua
+
+- gSaveBlock1Ptr, for the map the LOCAL player is standing in. Two instances only ever exchange ghosts while their area ids match, so "was there even a ghost to watch" is a question about this pair of bytes before it is a question about anything in the fly code -- and the first paired run failed on exactly that: the watcher held one ghost all run and it was its own.
+- WHICH TILES IT IS ACTUALLY DRAWN FROM, and the shape it is drawn with. A "broken sprite" is by definition a thing no struct field can show: graphicsId, animation number and position can all agree while the picture is wrong, because the picture lives in the tile range OAM points at and in the shape/size bits that say how to read it. This is the half that was missing when every earlier field came back clean and the user still saw a broken character after a cross-map fly.
+- A GHOST WEARS LOCALID_PLAYER, AND SO DOES THE PLAYER. That is deliberate in the adapter (it is what makes a ghost non-interactable, using the engine's own check), and it means "localId 255" alone finds the player first and reports it as the ghost -- which is exactly what the first run of this probe did, printing two identical halves and hiding the thing it was written to see. The player's own object id is the discriminator, and it comes from gPlayerAvatar.
+
+### adapters/emulator/pokemon/emerald/probes/fpsride.lua
+
+- RUNNING, not walking: holding B is how a player actually crosses a map, it is the case the report is about, and it moves twice as many tiles per second past the ghost logic. BIASED LEFT (user, 2026-08-20: *"go a bit more to the left as well"*): the left legs are longer than the right ones, so the route drifts westward across the map instead of shuttling over the same few tiles. New ground is the point -- frame cost follows what is on screen, and a stretch with more NPCs or more scenery is exactly where a drop would hide. LONGER BOTH WAYS (user, 2026-08-20: *"a longer distance both left/right combined"*). The first version shuttled over the same handful of tiles, and a biased one drifted west without ever coming back -- neither crosses much map. Equal long legs walk a real stretch of route in each direction, which is what the report is about.
+
+### adapters/emulator/pokemon/emerald/probes/grant_test_kit.lua
+
+- Emerald's ghost work needs the states a fresh save cannot reach: surfing, both bikes, fishing, Fly. A peer's own state (`graphicsId`) is a known open item and none of it can be watched until somebody can actually do those things. Requested 2026-08-19: every HM and badge, Master Balls, the Super Rod, the Go-Goggles, and Repel kept running.
+
+### adapters/emulator/pokemon/emerald/probes/machsquare.lua
+
+- WHY. The Mach Bike accelerates over distance, so a long leg is always at top speed and says nothing about the speeds below it. The user, 2026-08-20: *"especially when not going at top speeds, so like slowly going around in 1 by 1 square, 2 by 2 square etc, as going 3-4 by 3-4 squares would always be at top speed"*. So the side length is the variable, and it climbs.
+
+### adapters/emulator/pokemon/emerald/probes/movement_course.lua
+
+- WHY. Walking and running were confirmed 1:1 against the player on 2026-09-13; the bikes were then reported teleporting, sliding and facing the wrong way. The user's ask: *"make a probe where you go in straight lines / squares, or a mix just to test/compare movement. we know walking & running works 1:1 now for comparison"*. A fault that only appears on one gait needs the SAME course on every gait, or the comparison is between two different journeys.
+- Each phase is announced to the console and the log, so a per-frame trace (the adapter's MESHGHOST_EMERALD_MOVE_TRACE) can be cut into phases afterwards and one gait laid against another. The stops matter as much as the movement: a fault at the END of motion showed up on every gait this session, and a course with no stops in it would have hidden it.
+- THE STRAIGHT IS LONG ON PURPOSE. The user, watching the acro bike: *"need to go a bit further in 1 direction for the teleporting"* -- and a fault whose severity grows with the LENGTH of an action is something that REPEATS or ACCUMULATES rather than a constant offset (Crystal's own rule: *"1 tile looks good/perfect... 4-5+ tiles and it starts to look really jittery"*). Four tiles hid it; ten gives it room to build. Both lengths are knobs so a suspicion about length is one edit.
+
+### adapters/emulator/pokemon/emerald/probes/npc_step_probe.lua
+
+- WHY. The user, 2026-09-12, after the painted ghost still did not match the player: *"can we look at how a moving npc works?"*. An NPC is the engine moving a character with its own step machine, which is precisely what a ghost has to look like -- so the NPC is the reference, and this is the instrument that reads it.
+
+### adapters/emulator/pokemon/emerald/probes/occlusion_probe.lua
+
+- THE QUESTION. On the Archipelago-patched instance the painted tier reports `passes/frame 1.0  runs/frame 128  spans/frame 0` -- 128 runs go into the painter and nothing comes out, with no error anywhere. Every run is being clipped, and the clip that can do that is the occlusion mask, which decides what scenery covers a ghost. Somewhere in gBackupMapLayout (0x03005dc0) -> metatile id gMapHeader (0x02037318) -> tileset -> attributes -> "does this metatile cover?" a read is wrong on this build, and nil is deliberately treated as "covers everywhere" so that an undecodable metatile never becomes a reason to paint over scenery. The first guess -- that the map layout itself was unreadable -- was WRONG: the adapter's own readability check passed. So this walks the chain and prints every link instead of guessing at the next one.
+
+### adapters/emulator/pokemon/emerald/probes/phase2_ghost.lua
+
+- Path made relative to this script's own location -- a portability fix (2026-08-11, ahead of publishing this repo publicly) to a hardcoded absolute path from Phase 2's original session that only ever worked on that one machine. Uses the same io.popen("cd") approach phase3_loopback.lua's scriptDir() later established (see that script's header for why debug.getinfo does NOT work here); this is the one deviation from this file's otherwise frozen-historical-record status, since a hardcoded personal path is a real bug for anyone else running this script, not just a stylistic inconsistency.
+
+### adapters/emulator/pokemon/emerald/probes/phase5_5_sprite.lua
+
+- FROZEN, 2026-08-14: this file is no longer the shipped/maintained adapter -- it's kept only as a historical snapshot under its original development-phase name, byte-identical to adapters/emulator/pokemon/emerald/meshghost_emerald.lua only at the moment of that split. That file is the real, actively-maintained one -- what .github/workflows/release.yml ships and what any future Emerald fix/feature belongs in -- and has since diverged substantially (Archipelago address auto-detection, gender-read timing, the sub-tile smoothing rewrite, the loopback ghost offset, and more, none ported back here). Do not edit this file; edit that one. Anything below this point is Phase 5.5 content only, predating all of that.
+- Sub-tile position smoothing. getLocalState() above returns pos.x/y as read straight from gSaveBlock1Ptr -- a whole-tile coordinate that only changes once per completed tile-step, not a continuous pixel position. Found live 2026-08-11: sending that raw value made a remote's ghost look choppy/teleport-y on the other client's screen, and didn't improve at a shorter -interp -- the interpolation buffer isn't the bottleneck, the source data's own update granularity is (confirmed by the fact that a shorter buffer didn't help; if the buffer were the cause, shortening it would have). Fix: track locally, in the adapter, when pos.x/y last changed and linearly blend from the previous committed tile to the new one. The blend window is MEASURED, not a hardcoded guess: found live 2026-08-11 that assuming a fixed 8-frame tile duration (borrowed from a single ANIMCMD_FRAME's hold time in sAnim_GoSouth -- the duration of one pose within the walk cycle, not necessarily how long a whole tile of *movement* takes) made the ghost visibly pause after each step instead of moving continuously -- the real per-tile duration is evidently longer. Rather than guess a second specific number and risk being wrong again, the adapter measures the real gap between the last two committed tile-changes and uses that as the estimate for the current step -- this self-corrects to whatever the real cadence is (walk/run/bike, all different speeds) without needing a cited frame-count constant at all. One-step-stale by construction (a speed change is only fully reflected starting the step after it changes), which is an acceptable tradeoff for a cosmetic ghost. No new memory address needed either way.
+
+### adapters/emulator/pokemon/emerald/probes/posediff.lua
+
+- WHY. Idle on the Acro Bike facing up or down, the user sees the spawned ghost wearing the pose it should only have while rolling along, 2026-08-20 -- and every struct field says otherwise: the anim trace has player and ghost both on animation 5/1, holding it unchanged for 180 frames. When the measurements deny what is on the screen, the measurements are the suspect (`CLAUDE.md`), and the one thing not yet measured is the layer below the fields: the tiles.
+- SHAPE AND SIZE, which decide how many tiles the hardware reads and in what arrangement. Identical animation state with different pixels has to be explained by something below the animation, and the obvious candidate is a ghost still being drawn as the 32-wide bike it just got off. Shape is bits 14-15 of OAM attribute 0, size the same bits of attribute 1; together they name the sprite's dimensions. Subsprite mode lives at +0x42. AND WHERE EACH IS DRAWN. Mounting looks steady on the player and the painted copy and shaky on the spawned one, so the question is a position one: pos1 is the sprite's own coordinate, pos2 the per-frame offset the engine adds during a step, and centerToCorner the shift that comes from the graphic's own dimensions -- which is exactly what changes when a 16-wide walker becomes a 32-wide bike.
+
+### adapters/emulator/pokemon/emerald/probes/surfblob_probe.lua
+
+- Both of those are guessable and neither is worth guessing (`_template/probes.md`, and the two earlier blob attempts that put it a tile low and dark navy). The game has a live blob on screen the moment anybody surfs, so this reads that one instead: one line per direction change, carrying what the engine chose for that facing.
+
+### adapters/emulator/pokemon/emerald/probes/testkit.lua
+
+- The quantity is XOR-encrypted with SaveBlock2's key (item.c's SetBagItemQuantity). A plain 1 here shows up as a nonsense count and the item can behave as if absent. The game stores quantity as a u16, so its XOR against the 32-bit encryptionKey is truncated to the key's low half. Write and read must both use that half or the count comes back as a 32-bit-looking number (seen live 2026-08-18: 3500146689 = 0xD0A00001, i.e. a correct 1 with the key's high half still attached by a wrong decode).
+
+### adapters/emulator/pokemon/emerald/probes/vramwrite_probe.lua
+
+- PC landed in the BIOS (0x2A0 -- the CpuSet loop), which names the MECHANISM, not the CALLER. The caller is in the link register: the BIOS returns through R14, which still holds the game-code address just after the SWI that started the copy.
+
+### adapters/emulator/pokemon/emerald/probes/dive_probe.lua
+
+- a literal backslash, BUILT rather than escaped: this emulator build's Lua rejects the escaped form, and it cost ripple_probe.lua a load failure the same way (2026-08-21, dev-loader log).
+- The EMULATOR's frame number, not a private counter: the screenshot filenames, the adapter's swap lines and these lines must all be laid on ONE timeline, or a garbled shot cannot be matched to what the sprite held that frame -- which is exactly the correlation that failed before this change.
+- A REFLECTION IS NOT A CLASH. UpdateObjectReflectionSprite (08154 0A8) copies the character's own tileNum every frame -- sharing the tiles IS how a reflection works -- so every ghost reported one and the signal was pure noise until this excluded it.
+- IS THE GHOST DRAWING THE PIXELS IT IS SUPPOSED TO BE DRAWING? "It looks grey" is a claim about VRAM, and VRAM can be checked against the ROM directly -- which beats every pixel heuristic tried before it (a grey-pixel count over the whole screen turned out to be measuring the dialogue box). For each ghost: resolve the frame its own sprite says it is showing, and compare the first tiles of its OBJ VRAM range against the ROM image that frame names. A mismatch means it is drawing something nobody loaded. Reads are the budget here: 8 words of ROM against 8 of VRAM per ghost per frame, and a line only when the verdict CHANGES.
+- The whole frame, not its first tile: a 32x32 graphic owns 16 tiles and the first version checked 8 words -- one tile -- so garbage in the other fifteen read as "ok".  Size from the sprite's own shape/size bits.
+- TRUE OVERLAP, both directions. The first version required the entry's STARTING tile to fall in the ghost's range, which is blind to a big sprite that starts below it and spans across -- exactly the shape of a 64x64 Pokemon picture. Sizes from the shape/size bits (GBATEK's OBJ size table), 1D mapping.
+- EVERY LIVE ENTRY IN THE ADAPTER'S OAM RANGE (64..127), per change. The dismount leaves static garbage entries and a missing body; which SLOTS hold what is the whole question.
+
+### adapters/emulator/pokemon/emerald/probes/fishing_watch.lua
+
+- callback2 is part of the key, not just the output. Without it, entering a menu or a battle changed nothing this probe considered "a change", so a whole run logged one line and the silence was misread as "the game did nothing" (pitfalls.md). A probe's change-detection decides what it can see, so it has to include every transition worth noticing.
+
+### adapters/emulator/pokemon/emerald/probes/goto_map.lua
+
+- BOTH the pending destination and the live location, because the first attempt wrote only sWarpDestination and arrived back where it started: read afterwards, that struct held the CURRENT map, so something replaced the write between setting it and CB2_LoadMap running. ApplyCurrentWarp copies sWarpDestination over location, so writing both means whichever survives says Mauville.
+
+### adapters/emulator/pokemon/emerald/probes/grasslive.lua
+
+- Everything in use, not just a guessed match: the first version compared against the template's images pointer and found nothing, which proves the comparison wrong or the state absent -- and those are different problems.
+
+### adapters/emulator/pokemon/emerald/probes/input_test.lua
+
+- WHY. `use_acro` registered the Acro Bike (measured: registeredItem = 272, and it is in the bag) and pressed SELECT twice, and the player stayed on foot with no menu on screen. That leaves two candidates -- the press is not landing at all, or the game is refusing the bike here -- and a press of START tells them apart: START opens the menu anywhere the overworld accepts input.
+
+### adapters/emulator/pokemon/emerald/probes/noclip.lua
+
+- AND NPCs, WHICH ARE A SECOND CHECK ENTIRELY (2026-09-12, the user: *"i want it to affect npc's as well, i keep walking into one"*). The decomp suggests object collision is a separate path that is skipped between objects at different non-zero elevations (where to look: `DoesObjectCollideWithObjectAt`, event_object_movement.c:4724, and `AreElevationsCompatible`, :7789). That is the hypothesis this tool runs on -- the engine's own mechanism, not a patched check -- and walking through an NPC with it loaded is what tests it.
+
+### adapters/emulator/pokemon/emerald/probes/objevents_pick_probe.lua
+
+- Slot 0 is the player on every build measured so far; slots 1..3 are printed too because one candidate in the earlier search had the player at index 1.
+
+### adapters/emulator/pokemon/emerald/probes/objevents_walk_probe.lua
+
+- THE USER'S CONSTRAINT IS RESPECTED (2026-09-11): from this savestate straight lines are clear in every direction, but MIXING directions can walk into an NPC or a house. So each axis is walked out and walked straight back before the other is tried, and the probe never turns a corner.
+
+### adapters/emulator/pokemon/emerald/probes/saveblock_find_probe.lua
+
+- The user's constraint is respected (2026-09-11): straight lines only, out and back on one axis, never turning a corner.
+
+### adapters/emulator/pokemon/emerald/probes/square_drive.lua
+
+- PORTED FROM CRYSTAL'S `probes/square_drive.lua`, which was written for the user's own test case and carries the reasoning this one inherits: one lap exercises all four directions, all four turns, and the corner case where a step is immediately followed by a turn. Cross-checking the sibling adapter before writing a probe is the standing rule for two games in one series (adapters/_template/probes.md).
+- OPTIONS (globals, set by a script listed ahead of this one): MESHGHOST_SQUARE_SIDE tiles per side, default 4 (the user's ask, 2026-09-12) MESHGHOST_SQUARE_DIRS the order of sides, default Up -> Left -> Down -> Right MESHGHOST_SQUARE_PAUSE true to stand still without unloading MESHGHOST_SQUARE_RUN true to hold B throughout, so every side is RUN rather than walked -- a different step duration (8 frames, not 16) and therefore a different test: the glide's speed comes from the peer's own rate, so a fault that hides at walking pace need not hide at running pace MESHGHOST_SQUARE_STOPS true to stop at corners; default is a FLOWING lap, because a stop at every corner makes the ghost show a real catch-up and a real slip there, and those are indistinguishable from renderer faults by eye (Crystal's own note, 2026-08-23). Continuous motion is judged flowing.
+
+### adapters/emulator/pokemon/emerald/probes/turn_and_door_probe.lua
+
+- pos2 is the engine's OWN sub-tile step offset for a sprite, and coordOffset is what playerScreenPos already adds. If (screen position - pos2) is the screen position of the player's TILE, it must hold still within a step and move by exactly 16 when the tile counter changes -- in EVERY direction. Reconstructing that offset from the camera counter instead was right going down and left and a whole tile out going up and right ("looks horrible when running up or right"), which is what this settles.
+
+### adapters/emulator/pokemon/emerald/probes/uiregion_probe.lua
+
+- THROTTLED, and the throttle is not optional. The first version logged every change: these registers change EVERY frame during normal play (measured 2026-08-19 -- values like "x 208..250" that are mid-frame states, not panel geometry), so it wrote a line and flushed a file 60 times a second and took the emulator from 60fps to 3. A probe that costs the thing it measures is worse than no probe (CLAUDE.md), so this samples at a fixed cadence and logs at most once a second.
+
+### adapters/emulator/pokemon/emerald/probes/vramdiff_probe.lua
+
+- WHY. Something writes into the spawned ghost's OBJ tiles mid-frame at the start of surfing (write-watch: BIOS CpuSet/LZ77 PCs, data not in ROM => decompressed/RAM source), and the per-address write-watch only covers the addresses it was pointed at. This inverts the question: snapshot ALL of OBJ VRAM every tick and report which tiles changed. The engine's own legitimate copies show up too -- the point is the FOOTPRINT, read alongside which ranges the adapter and the engine actually own. A region that changes while nobody owns it is the stomp, and the allocator can be taught to avoid it permanently.
+
+### adapters/emulator/pokemon/emerald/probes/wheelie_ghost.lua
+
+- THREE CONDITIONS, not one, and the third is the combination -- "A alone did nothing" never implies A+B does nothing (`CLAUDE.md`): 1. the action as the adapter issues it today 2. plus the engine's own `enableAnim` switch on the object (byte +0x01, bit 0x08), which is what clears a paused sprite the way the game does 3. plus clearing the sprite's paused bit outright, every frame A ghost's sprite is known to sit PAUSED most of the time it is settled (`verified.md`: paused on 232 of 252 stepping frames before that was fixed), which is why pausing is the first suspect.
+- The fourth condition is the one that matters now: conditions 1-3 all FINISHED in eleven frames, so a ghost on the Acro Bike completes the pop-wheelie perfectly well and pausing was never the cause. What is left is the ghost NOT wearing the bike when the action arrives -- the peer's graphic and its action travel separately -- so the same action is issued again with the ghost on the walking graphic. A hang there is the whole explanation.
+- ROUND TWO. The first three conditions above all FINISHED in eleven frames, so a ghost sitting idle on the Acro Bike completes the pop-wheelie perfectly, and neither pausing nor `enableAnim` was ever the cause. What is different in the adapter is WHEN it issues these: the wheelie branch fires on the peer's action CHANGING and does not check `ghostIsIdle` first, so the action lands on top of a step that is still running. `requestAction` resets the sprite's `data[2]` (`sActionFuncId`) but leaves `data[1]` (`sTypeFuncId`) alone -- and `data[1]` is what selects which FAMILY of step functions the engine calls. Stale, it keeps calling the old family with the new action id, which is a step that can never report finished.
+- ROUND THREE, after round two also finished in eleven frames: `data[1]` was already 0 in the interrupted case, so a stale step-function family is not it either.
+- What every attempt so far shares is that the action's DIRECTION matched the ghost's own facing, because the probe derived one from the other. The adapter does not: it mirrors the PEER's action id verbatim, and the direction baked into that id is the peer's facing, which the ghost need not have yet. The three ids the watchdog kept freeing were 0x69, 0x6B and 0x6D -- never the `+0` south member, which is the one a probe facing south would produce. So: issue all four members of the family to a ghost, whatever way it happens to be facing, and see which of them hang.
+
+### adapters/emulator/pokemon/emerald/probes/bikeline_probe.lua
+
+- ROUTE (user, 2026-08-20): about 4-5 tiles up, then 4-5 back down, repeating.
+- Eight rather than five, and DOWN first: the mud on this map sits below where the ride starts (user, 2026-08-20 -- *"need to go a bit further down again to get to the mud"*), and a five-tile leg settled into a stretch with none of it, logging "0 of them on mud" lap after lap.
+- CLIMB UNTIL THE MUD ENDS, rather than a guessed number of tiles. Five was not clearing the slope (user, 2026-08-20: *"its going up on the mud, just not getting up far enough"*), and the right length is a property of the slope, not something to tune: the leg ends once the player is past TILES_PER_LEG *and* standing on something that is no longer MB_MUDDY_SLOPE. The frame cap still ends a climb that never makes it, which on this terrain is a real outcome worth logging.
+
+### adapters/emulator/pokemon/emerald/probes/camoffset_find_probe.lua
+
+- THE QUESTION. EX SPEEDCHOICE 0.4.0 has every other anchor measured and still renders no peers: its player's tile and sprite read correctly and steadily, but camOff reads garbage that changes every frame -- (-1,513), then (4879,257), then (-1030,-1286). The painted tier positions peers against that pair, so every one of them lands off-screen.
+- THEN IT WALKS, because a pair of numbers that happens to match once is not an address. The player moves and the candidate must keep satisfying sprite + offset = centre at every step. Straight lines only, out and back on one axis, per the user's constraint for this savestate.
+
+### adapters/emulator/pokemon/emerald/probes/collisionmap.lua
+
+- WHY. Every scripted ride today has eventually driven the player into scenery -- a fence gap, a building, a ledge -- because the scripts count tiles and cannot see. The user, 2026-08-20: *"can you detect npc/buildings/objects somehow? to know how to make pathing/scripts without running into things?"* This answers the first half of that question by MEASUREMENT rather than by asserting a bit layout from memory.
+
+### adapters/emulator/pokemon/emerald/probes/grasswalk.lua
+
+- ROUTE (user, 2026-08-20): 3 tiles up, 3 tiles down, repeating -- a line rather than a square, so a character crosses the same grass tiles over and over and the transition between two of them can be watched as often as needed. Short sides on purpose: they keep the ride inside a safe town patch with no tall grass and no trainer sightlines. Note the cost -- a Mach Bike likely accelerates over distance (unmeasured; where to look: src/bike.c:75-80), so three tiles may never reach top speed. The animation cases show at any speed; the top-speed catch-up case may not reproduce here, and the log reports the speeds actually reached rather than assuming a held key produced them.
+- ADDRESSES: copied from meshghost_emerald.lua, never from memory -- two written from recall earlier today were both wrong. gPlayerAvatar 02037590 { objectEventId 0x05, preventStep 0x06, bikeSpeed 0x0B } gObjectEvents 02037350 stride 0x24, currentCoords x 0x10 / y 0x12 gMain.callback2 030022C4, CB2_Overworld 08085E5C
+- Shifted 3 tiles down the line the user wants watched: the walk still covers 3 tiles up and 3 down, it just starts lower. A one-shot lead-in rather than a longer route, so the repeating part stays the same length and the same transition is seen over and over.
+
+### adapters/emulator/pokemon/emerald/probes/gsprites_scan_probe.lua
+
+- active is bit 0 of +0x00; the isPlayer bit is bit 0 of +0x02, a DIFFERENT byte -- getting that wrong reads a movement flag instead and the player is only "found" while mid-step (caught here 2026-08-19 before it cost a measurement).
+- The run is only meaningful while the overworld is still the thing on screen. A wild encounter, a warp or a menu tears the object/sprite pairing down and reuses the sprite slots for something else entirely -- caught live on the first run of this probe 2026-08-19, where a BARBOACH appeared on the last step and the sample it produced looked like the address failing. Anything after that point is not evidence either way, so the probe says so instead of ruling.
+
+### adapters/emulator/pokemon/emerald/probes/hopride.lua
+
+- WHY. A short hop in place did not reproduce the drawn ghost appearing to dismount; the user's own reading of when it happens, 2026-08-20: *"try to mix in some left/right reversals while moving far in 1 direction"*. So: B held throughout, long runs one way, and reversals of varying length mixed in -- the case a fixed left/right shuttle never produces.
+- Uneven on purpose. Equal legs put every reversal on the same phase of the hop cycle, which is exactly the sampling that can miss a defect that depends on where in the cycle the turn lands. THE HOP HAS TO BE STARTED BEFORE IT CAN BE STEERED. Holding B WITH a direction from a standstill is a different move entirely -- it is the sideways jump -- so the first leg is B alone until the hop is going, and only then are directions added. The user, after watching the first attempt: *"think i made it so you didnt start hopping"*.
+
+### adapters/emulator/pokemon/emerald/probes/oaminject_probe.lua
+
+- Two tiles above the player, in pixels. User's call, 2026-08-21: high enough to be unmistakably a separate body rather than a smear on the player, close enough to share the same scenery.
+
+### adapters/emulator/pokemon/emerald/probes/seam_shuttle.lua
+
+- The user's own repro, 2026-09-12: *"emerald2, move 1 tile left, then 1tile right -- to go back/ forth between a route and town seam"*. Pacing a crossing is what makes a seam fault happen over and over instead of once, and Crystal's own copy of this file (probes/seam_shuttle.lua there) records why that matters: a build that lands mid-load is common while pacing and rare on a single crossing.
+- PORTED FROM CRYSTAL'S, deliberately -- same probe, different addresses. Cross-checking the sibling adapter before writing anything is the standing rule for two games in one series.
+- A LEG IS ONE TILE, MEASURED, NOT TIMED. The first version held each direction for a fixed 20 frames, which is longer than Emerald's 16-frame step: every leg leaked four frames into the next step, so the walk never stopped and drifted further left each lap -- the user, watching it: *"you are walking to fast/to far left"*. A fixed frame count cannot express "one tile" in a game whose step length depends on what the player is riding and whether the tile is rough. So the leg ends when the POSITION says it did -- x changed, or the map did -- and only then.
+- Two earlier versions got this wrong in ways worth keeping. The first alternated a fixed Left/Right pair, so it shuttled between whatever two tiles it happened to start on -- one tile west of the boundary after a reload, which paces an ordinary step while claiming to test a seam. The second chose the direction from "am I on the map I started on", which wanders the moment the player is not already adjacent to the boundary: measured walking 0:10 tiles 0,1,2,3 eastward while the seam sat behind it, and the user, watching: *"why is it just walking right?"*.
+
+### adapters/emulator/pokemon/emerald/probes/wheelie_watch.lua
+
+- A lone backslash inside a Lua pattern is an escape sequence, so the separator class is built rather than written out -- a scripted edit lost one and the load failed on the pattern itself.
+- HELD, not tapped -- the user, 2026-08-20: *"you need to hold for the jumping"*. A tap gives a pop-wheelie and nothing else, which is how the first Acro capture caught 0x6A and no hop.
+
+### adapters/emulator/pokemon/emerald/probes/wheelietile.lua
+
+- Hold B alone long enough to be up on the back wheel, then ONE tile, then let everything settle before the next one -- the whole point is to see a single tile in isolation. B FIRST, THEN THE DIRECTION WITHIN A FEW FRAMES -- that is the wheelie RIDE. Holding B for a second gives the bunny hop instead, which is what the first version of this measured by mistake (the log came back full of 0x70/0x71 hop actions and no ride at all).

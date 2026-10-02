@@ -1,37 +1,6 @@
--- Phase 2: fake ghost, no network. Draws a hardcoded-offset placeholder image next to the
--- local player every frame, using the same sprite->screen conversion the game itself uses
--- for field object sprites. Proves the map/camera -> screen pixel math before any network
--- code exists. Never writes memory.
---
--- Ghost position = local player's own on-screen sprite position + a hardcoded pixel offset.
--- This deliberately reuses the player's real screen coordinates (which already account for
--- camera scroll) rather than reimplementing camera math independently, so what's being
--- proven is "can we read and reproduce the game's own sprite->screen placement," which is
--- the actual risk Phase 3+ needs retired before real remote positions are involved.
---
--- Address/formula sources, all from the same make-compare-verified pokeemerald build used in
--- Phase 1 (see agent_docs/verified.md for the build verification entry):
---   gSaveBlock1Ptr = 0x03005d8c        (reused from Phase 1 for the nil/no-save-loaded gate)
---   gPlayerAvatar   = 0x02037590        (confirmed Phase 1, pokeemerald.map/.sym)
---   gSprites         = 0x02020630, entry size 0x44 (pokeemerald.sym gives the array size
---                                        0x1144; 0x1144 / 65 = 0x44)
---   gSpriteCoordOffsetX = 0x02021bbc  s16  (pokeemerald.sym)
---   gSpriteCoordOffsetY = 0x02021bbe  s16  (pokeemerald.sym)
---   Field offsets (gPlayerAvatar.spriteId, the struct Sprite position fields) were looked up in
---   include/global.fieldmap.h and include/sprite.h; the code below holds the values.
---
---   Screen position: a HYPOTHESIS, not re-derived independently -- sprite position plus its
---   sub-offset, center-to-corner vector and the global sprite coord offset, as a top-left-origin
---   screen pixel (where to look: UpdateObjectEventOffscreen, src/event_object_movement.c
---   L7361-7363). It also assumes the player's sprite has coordOffsetEnabled set -- NOT YET
---   CONFIRMED ON SCREEN; the on-screen test below is what confirms or refutes it.
---
--- gui.drawImage signature/behavior source: TASEmulators/BizHawk
--- Assets/Lua/_docs_luacats/gui.d.lua -- "function gui.drawImage(path, x, y, width, height,
--- cache, surfaceName)", supports .bmp/.gif/.jpg/.png/.tif, caches file contents by path.
---
--- Placeholder art: adapters/emulator/pokemon/emerald/assets/ghost_placeholder.bmp, a flat 16x16 magenta box
--- generated for this project (not ripped from any game) -- see agent_docs/licensing.md.
+-- Phase 2 snapshot, not maintained: a fake ghost with no network. A placeholder is drawn every frame at a fixed
+-- offset from the player's own on-screen sprite position, reusing the game's sprite-to-screen placement rather
+-- than separate camera math. Never writes memory. The placeholder is a flat 16x16 magenta box made for this project.
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GPLAYERAVATAR_ADDR = 0x02037590
@@ -40,18 +9,11 @@ local SPRITE_SIZE = 0x44
 local GSPRITECOORDOFFSETX_ADDR = 0x02021bbc
 local GSPRITECOORDOFFSETY_ADDR = 0x02021bbe
 
--- Hardcoded screen-pixel offset from the local player's own screen position. Arbitrary for
--- Phase 2 -- there is no real remote player yet. Placed up-and-right of the player.
+-- Arbitrary: there is no remote player yet. Up and right of the player.
 local GHOST_OFFSET_X = 16
 local GHOST_OFFSET_Y = -16
 
--- Path made relative to this script's own location -- a portability fix (2026-08-11, ahead of
--- publishing this repo publicly) to a hardcoded absolute path from Phase 2's original session
--- that only ever worked on that one machine. Uses the same io.popen("cd") approach
--- phase3_loopback.lua's scriptDir() later established (see that script's header for why
--- debug.getinfo does NOT work here); this is the one deviation from this file's otherwise
--- frozen-historical-record status, since a hardcoded personal path is a real bug for anyone
--- else running this script, not just a stylistic inconsistency.
+-- The script's directory from io.popen("cd"), as phase3_loopback.lua does.
 local function scriptDir()
     local pwd = io.popen and io.popen("cd"):read("*l")
     if not pwd or pwd == "" then

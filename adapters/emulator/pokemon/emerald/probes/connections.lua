@@ -1,24 +1,10 @@
--- MeshGhost -- what maps CONNECT to this one, measured (DEV TOOL, never shipped)
---
--- WHY. Cross-map ghosts (user request, 2026-08-20: see peers across a route seam, still hide them
--- in houses) need three facts per neighbor: which map it is, the seam offset, and its dimensions.
--- The engine keeps all three -- seams are "connections" in the map header, and houses join by warp
--- instead, which is exactly the distinction wanted -- but the structs must be MEASURED before the
--- adapter trusts them (CLAUDE.md: no addresses from memory).
---
--- STRUCTS UNDER TEST (where to look: MapHeader, MapConnections, MapConnection and MapLayout in
--- include/global.h and include/fieldmap.h). The offsets the code reads below are the hypothesis;
--- the layout is what this probe verifies.
---
--- SELF-LOCATING gMapGroups, because neighbor dimensions need the neighbor's header and only that
--- table maps group:num -> header. gMapHeader (02037318) is a COPY of the current map's ROM header,
--- so: find the ROM original by matching its first 16 bytes, find the pointer TO it (inside the
--- group's header array), then the pointer to THAT array (inside gMapGroups). Each step verified by
--- reading back -- the same self-location idea as the Archipelago sprite-shift detection.
+-- MeshGhost — what maps connect to this one (dev tool, read-only, never shipped). Per neighbour: direction, seam
+-- offset, map and dimensions, dumped again on every map change; a house has no connections pointer at all.
+-- gMapGroups is self-located: the ROM original of gMapHeader's copy, the pointer to it, then the pointer to that array.
 local GMAPHEADER = 0x02037318
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local ROM_BASE, ROM_END = 0x08000000, 0x09000000
-local CHUNK = 0x20000                     -- 128KB per frame keeps the scan off the game's back
+local CHUNK = 0x20000                     -- 128KB per frame, so the scan does not stall the game
 
 local function r8(a) return memory.read_u8(a) end
 local function r32(a) return memory.read_u32_le(a) end
@@ -159,7 +145,6 @@ local function tick()
             phase = "dump"
         end
     elseif phase == "watch" then
-        -- Cross a seam and the new map dumps itself; a house should print "no connections".
         dumpConnections()
     end
 end

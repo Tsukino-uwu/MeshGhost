@@ -1,32 +1,9 @@
--- MeshGhost -- Emerald: drive a FIXED COURSE, so one gait can be compared against another.
--- DEV TOOL, d-pad only (plus B as the run modifier). Never presses A.
---
--- WHY. Walking and running were confirmed 1:1 against the player on 2026-09-13; the bikes were
--- then reported teleporting, sliding and facing the wrong way. The user's ask: *"make a probe where
--- you go in straight lines / squares, or a mix just to test/compare movement. we know walking &
--- running works 1:1 now for comparison"*. A fault that only appears on one gait needs the SAME
--- course on every gait, or the comparison is between two different journeys.
---
--- THE COURSE, one lap, and every leg ends on the POSITION rather than a frame count (a fixed count
--- cannot express "one tile" across gaits whose steps are 16, 8, 4 or 2 frames --
--- adapters/_template/probes.md, "A driven leg is MEASURED, not timed"):
---
---   1. straight out 4 tiles LEFT, stop        -- a long straight, the easiest thing to judge
---   2. straight back 4 tiles RIGHT, stop      -- the same ground in reverse: a turn-around
---   3. straight out 4 tiles UP, stop
---   4. straight back 4 tiles DOWN, stop
---   5. a 2x2 square, corners FLOWING          -- four turns with no stop to hide them
---
--- Each phase is announced to the console and the log, so a per-frame trace (the adapter's
--- MESHGHOST_EMERALD_MOVE_TRACE) can be cut into phases afterwards and one gait laid against
--- another. The stops matter as much as the movement: a fault at the END of motion showed up on
--- every gait this session, and a course with no stops in it would have hidden it.
---
--- GAIT COMES FROM THE STATE, NOT FROM HERE. Walking is the default; MESHGHOST_COURSE_RUN holds B;
--- a bike comes from the savestate the rig loads (slot 9 mach, slot 10 acro -- the user's, 2026-09-13),
--- because a bike is a mounted state this probe has no business toggling.
---
--- WHAT IT IS NOT: passive. Drop it from the loader's target file before judging anything by eye.
+-- Drives a fixed course so one gait can be laid against another (dev tool, d-pad plus B to run, never A): long
+-- straights out and back on each axis with a stop after each, then a square with flowing corners. Every leg ends on
+-- the position, not a frame count, since a step is 16, 8, 4 or 2 frames by gait. Each leg is logged, so a
+-- per-frame trace (MESHGHOST_EMERALD_MOVE_TRACE) can be cut into phases; the stops matter, as faults at the end of
+-- motion show there. Walking is the default, MESHGHOST_COURSE_RUN holds B, and a bike comes from the savestate
+-- loaded first. It drives input, so drop it from the loader before judging anything by eye.
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local SETTLE = 30          -- frames standing still at the end of a straight leg
 local STUCK  = 150         -- a leg this long never moved: turn it round rather than lean on a wall
@@ -34,11 +11,7 @@ local STUCK  = 150         -- a leg this long never moved: turn it round rather 
 local function u32(a) local ok, v = pcall(memory.read_u32_le, a) return (ok and v) or 0 end
 local function s16(a) local ok, v = pcall(memory.read_s16_le, a) return (ok and v) or 0 end
 
--- THE STRAIGHT IS LONG ON PURPOSE. The user, watching the acro bike: *"need to go a bit further in
--- 1 direction for the teleporting"* -- and a fault whose severity grows with the LENGTH of an action
--- is something that REPEATS or ACCUMULATES rather than a constant offset (Crystal's own rule:
--- *"1 tile looks good/perfect... 4-5+ tiles and it starts to look really jittery"*). Four tiles hid
--- it; ten gives it room to build. Both lengths are knobs so a suspicion about length is one edit.
+-- Long straights: a fault that grows with an action's length repeats or accumulates. Both lengths are knobs.
 local STRAIGHT = tonumber(MESHGHOST_COURSE_STRAIGHT) or 10
 local SQUARE = tonumber(MESHGHOST_COURSE_SQUARE) or 2
 

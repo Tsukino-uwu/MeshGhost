@@ -1,13 +1,5 @@
--- MeshGhost -- who moves whom at a seam crossing (DEV TOOL, never shipped)
---
--- THE QUESTION. When the player crosses a map CONNECTION, the coordinate frame changes. The
--- adapter now rebases its own bookkeeping by the seam delta -- but whether the ENGINE also
--- rebases the coordinates of live object events (our spawned ghosts among them) decides whether
--- that bookkeeping matches the world or fights it. Ghosts vanish at crossings; this says why.
---
--- One line whenever the player's map or any active object's tile changes: the map key, the
--- player's save-block coords, and every active object's currentCoords. Read across one crossing,
--- the answer is in whether the objects' numbers jump by the map height when the map key flips.
+-- Does the engine rebase live objects when the player crosses a map connection? One line whenever the map or any
+-- active object's tile changes: the map key, the player's save-block coords and every active object's currentCoords.
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GOBJECTEVENTS_ADDR = 0x02037350
 local OBJECTEVENT_SIZE = 0x24

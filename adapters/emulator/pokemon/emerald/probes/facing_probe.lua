@@ -1,32 +1,5 @@
--- MeshGhost -- Emerald: what facing is the ghost actually DRAWN with (PROBE, never shipped)
---
--- WHY. The spawned ghost was reported facing the wrong way while hopping, and the adapter's own
--- HOP log answered the question it was asked -- the object's facingDirection agreed with the peer
--- every time. What a character LOOKS like is not that field: an object event's visible direction
--- is its sprite's ANIMATION NUMBER, plus the hardware flip that turns the west artwork into east.
--- Two facing fixes were reasoned out from the object field and neither landed, which is the point
--- at which this stops being reasoning (CLAUDE.md's two-guesses rule) and becomes a measurement.
---
--- So this reads BOTH characters at the same instant, from the same fields, and prints them on one
--- line: the player and the ghost, object facing and sprite animation side by side. A disagreement
--- between the two COLUMNS names the bug; a disagreement between the two ROWS of the same column
--- names which half of the pipeline dropped it.
---
--- FINDING THE GHOST WITHOUT ASKING THE ADAPTER: a ghost wears LOCALID_PLAYER (255) and is not the
--- player's own object event, which is enough to pick it out of the 16 slots. Nothing here reads an
--- adapter global, so the probe stays honest if the adapter is reloaded underneath it.
---
--- ADDRESSES, from our own make-compare-verified pokeemerald build:
---   gPlayerAvatar 02037590 { spriteId 0x04, objectEventId 0x05 }
---   gObjectEvents 02037350 stride 0x24 { active bit0 of 0x00, localId 0x08, spriteId 0x04,
---                                        facingDirection low nibble of 0x18, movementActionId 0x1C }
---   gSprites      02020630 stride 0x44 { oam 0x00, animNum 0x2A, animCmdIndex 0x2B,
---                                        animPaused bit6 of 0x2C, hFlip bit0 of 0x3F }
---   OAM attr1 bit 12 is hFlip for a non-affine entry.
---
--- HOW TO RUN. Add to dev-scripts/bizhawk-dev-loader-emerald.target beside the adapter, ride the
--- Acro Bike, then read probes/facing_probe_<date>.log. One line per CHANGE, so a held pose is one
--- line rather than a wall.
+-- MeshGhost — Emerald: what facing the ghost is drawn with (dev tool, read-only). Load it beside the adapter and ride
+-- the Acro Bike: a visible direction is the sprite's animation number plus the flip, not the object's facingDirection.
 
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
@@ -56,8 +29,7 @@ say("watching the player and the ghost together -- ride the Acro Bike and hop ab
 local last = nil
 local frame = 0
 
--- animNum, animCmdIndex, paused, and the flip as the HARDWARE has it -- which is the one that
--- decides what is on screen, and the one a paused sprite can be left holding from an older frame.
+-- Both flips: the OAM one decides what is on screen, and a paused sprite can hold it from an older frame.
 local function spriteState(id)
     local d = sprAddr(id)
     return ("anim=%d/%d paused=%d hflipOAM=%d hflipSpr=%d"):format(
@@ -71,6 +43,7 @@ local function tick()
     if pObjId > 15 then return end
     local pa = objAddr(pObjId)
 
+    -- The ghost is an active localId 255 that is not the player's object: no adapter global for a reload to skew.
     local ghostObjId = nil
     for i = 0, 15 do
         local a = objAddr(i)
@@ -82,10 +55,8 @@ local function tick()
     if not ghostObjId then return end
     local ga = objAddr(ghostObjId)
 
-    -- FRAME NUMBERED, so the gap between the peer changing action and the ghost adopting it can be
-    -- counted rather than eyeballed -- and, more to the point, so it can be watched for DRIFT over
-    -- a long hop sequence. A constant gap is the wire; a growing one is a bug in how the ghost's
-    -- bounces are re-issued.
+    -- Frame numbered, so the gap before the ghost adopts a peer's action can be counted: a constant gap is the wire,
+    -- a growing one a bug in how the ghost's bounces are re-issued.
     local line = ("f=%-6d P face=%-5s act=%02X %s | G face=%-5s act=%02X %s"):format(frame,
         DIRS[r8(pa + 0x18) & 0x0f] or "?", r8(pa + 0x1c), spriteState(r8(pa + 0x04)),
         DIRS[r8(ga + 0x18) & 0x0f] or "?", r8(ga + 0x1c), spriteState(r8(ga + 0x04)))

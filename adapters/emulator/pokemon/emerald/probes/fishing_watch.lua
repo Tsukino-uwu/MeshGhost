@@ -1,14 +1,5 @@
--- MeshGhost — Emerald: watch what the game CREATES while fishing (READ-ONLY)
---
--- Question: does fishing spawn a companion sprite the way surfing does? Surfing turned out to be a
--- pose PLUS a separate blue Pokemon attached through the object's `fieldEffectSpriteId`, so a
--- ghost given only the graphic was half the state. Fishing has to be asked the same question, and
--- the only honest way to ask is to fish and watch.
---
--- Fishing is a PROCESS with branches, not a flag (probes.md): nothing bites; something bites and
--- is missed; something bites and takes several rounds; something bites and a battle starts. So
--- this logs every change across the whole thing rather than sampling an endpoint -- the failure
--- branches are as informative as the success, and two of them end in the same standing pose.
+-- MeshGhost — Emerald: what the game creates while fishing (dev tool, read-only, never shipped). Logs every change
+-- of the player's graphic, animation, field-effect sprite, sprites in use and callback2, across every branch of a cast.
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GSPRITES_ADDR = 0x02020630
@@ -48,13 +39,9 @@ MESHGHOST_DEV_TICK = function()
 	if objId > 15 then return end
 	local a = GOBJECTEVENTS_ADDR + objId * OBJECTEVENT_SIZE
 	local sp = GSPRITES_ADDR + u8(a + 0x04) * SPRITE_SIZE
-	-- fieldEffectSpriteId is the field surfing uses to own its blob (ObjectEvent +0x1A). If
-	-- fishing owns a companion too, it shows up here as a non-zero id.
+	-- fieldEffectSpriteId: surfing owns its blob through it, so a fishing companion would show here.
 	local fx = u8(a + 0x1a)
-	-- callback2 is part of the key, not just the output. Without it, entering a menu or a battle
-	-- changed nothing this probe considered "a change", so a whole run logged one line and the
-	-- silence was misread as "the game did nothing" (pitfalls.md). A probe's change-detection
-	-- decides what it can see, so it has to include every transition worth noticing.
+	-- callback2 is in the key, so entering a menu or a battle counts as a change.
 	local key = string.format("%d|%d|%d|%d|%08X",
 		u8(a + 0x05), u8(sp + 0x2a), fx, spritesInUse(), u32(GMAIN_CALLBACK2_ADDR))
 	if key ~= last then

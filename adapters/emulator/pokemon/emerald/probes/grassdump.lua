@@ -1,7 +1,5 @@
--- What hides a character standing in tall grass? (PROBE, never shipped)
--- The player is visibly occluded by grass, so whatever does it is readable from the tile they are
--- on: if it is the metatile's TOP layer, the drawn tier's existing BG mask should already handle
--- it; if the top layer is empty, the occlusion is a field-effect SPRITE and needs different work.
+-- What hides a character standing in tall grass (probe, never shipped)? Logs the metatile layers on and around the
+-- player's tile and the live sprite count: an empty top layer means a field-effect sprite does it.
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GBACKUPMAPLAYOUT = 0x03005dc0

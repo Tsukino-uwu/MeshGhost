@@ -1,34 +1,7 @@
--- MeshGhost — Emerald UI-region probe (DEVELOPMENT TOOL, never shipped)
---
--- WHAT IT IS FOR
--- A DRAWN ghost is painted onto the emulator's output after the PPU has finished, so it is subject
--- to none of the engine's occlusion: it would paint straight over a text box or the START menu.
--- Before shipping a drawn tier the region those panels occupy has to be KNOWN, and the project's
--- rule is that it is measured rather than guessed (agent_docs/ideas.md records how the same
--- question was answered on Crystal: a compile-time constant text box, plus a menu rectangle the
--- game publishes in RAM).
---
--- WHAT IT READS, and why these and not game variables
--- The GBA's own display registers, which are hardware, documented independently of any game, and
--- identical on every cartridge:
---   DISPCNT  0x04000000  bits 13/14/15 -- window 0, window 1, and the object window, enabled?
---   WIN0H/V  0x04000040 / 0x04000044   -- window 0's right|left and bottom|top, in PIXELS
---   WIN1H/V  0x04000042 / 0x04000046   -- window 1, same encoding
---   WININ    0x04000048                -- which layers draw INSIDE each window
---   WINOUT   0x0400004A                -- which layers draw outside them / in the object window
---   BLDCNT   0x04000050                -- what is being blended, which a panel usually changes
--- If Emerald marks its text box or menu with a hardware window, these state the rectangle exactly,
--- for free, with no address in any game's RAM to go stale. If it does not, that is also an answer,
--- and the honest conclusion is to say so rather than to invent a rectangle.
---
--- HOW TO READ ITS OUTPUT
--- Every changed register set is logged with a frame number, and a screenshot is taken alongside it
--- (rate-limited), so each row can be matched to what was actually on screen at that moment. Play
--- normally: walk, open a text box, open the START menu, enter a building.
-
--- Resolve this script's own directory instead of hardcoding one developer's
--- checkout. A tracked absolute path is unusable on anyone else's machine and is
--- the class of leak .githooks/pre-commit now refuses (pitfalls.md).
+-- MeshGhost — Emerald UI-region probe: do the GBA's window registers mark the text box and START menu (dev tool,
+-- read-only, never shipped). Logs DISPCNT's window enables, WIN0/WIN1's rectangles, WININ, WINOUT and BLDCNT on change,
+-- with a screenshot when MESHGHOST_PROBE_SHOT_DIR (trailing slash) is set; never point it into the repo.
+-- Play normally: walk, open a text box, open the START menu, enter a building.
 local MESHGHOST_DIR = (function()
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then
@@ -39,9 +12,6 @@ end)()
 
 local IO = 0x04000000
 local SHOT_MIN_GAP_FRAMES = 45 -- ~0.75s: enough to catch a panel opening without a shot per frame
--- Screenshots go to the scratch directory of whoever is running this, NOT into the repo: they are
--- evidence for one session, and a probe that fills a tracked folder with PNGs is a mess the next
--- session inherits. Set MESHGHOST_PROBE_SHOT_DIR (with a trailing slash) to collect them.
 local SHOT_DIR = os.getenv("MESHGHOST_PROBE_SHOT_DIR")
 local LOG_PATH = MESHGHOST_DIR .. "/uiregion_probe.log"
 
@@ -64,7 +34,6 @@ local function snapshot()
 end
 
 local function describe(s)
-    -- Hn packs right in the low byte and left in the high byte; Vn packs bottom then top.
     local function rect(h, v)
         return string.format("x %d..%d y %d..%d", (h >> 8) & 0xFF, h & 0xFF, (v >> 8) & 0xFF, v & 0xFF)
     end
@@ -80,11 +49,7 @@ local function key(s)
         s.dispcnt, s.win0h, s.win0v, s.win1h, s.win1v, s.winin, s.winout, s.bldcnt)
 end
 
--- THROTTLED, and the throttle is not optional. The first version logged every change: these
--- registers change EVERY frame during normal play (measured 2026-08-19 -- values like "x 208..250"
--- that are mid-frame states, not panel geometry), so it wrote a line and flushed a file 60 times a
--- second and took the emulator from 60fps to 3. A probe that costs the thing it measures is worse
--- than no probe (CLAUDE.md), so this samples at a fixed cadence and logs at most once a second.
+-- These registers change every frame in ordinary play: sample at a cadence and log at most once a second.
 local SAMPLE_EVERY_FRAMES = 10
 local LOG_MIN_GAP_FRAMES = 60
 local frames, lastKey, lastShot, lastLog, shots = 0, nil, -9999, -9999, 0

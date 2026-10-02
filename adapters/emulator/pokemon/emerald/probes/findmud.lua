@@ -1,6 +1,5 @@
--- Where is the muddy slope on this map? (PROBE, never shipped)
--- Scans the loaded map grid for MB_MUDDY_SLOPE (208) and reports the block, so a ride can be put
--- at the bottom of it instead of hunting by eye.
+-- Where is the muddy slope on this map? Scans the loaded map grid for MB_MUDDY_SLOPE and reports the block, so a
+-- ride can start at the bottom of it.
 local GBACKUPMAPLAYOUT = 0x03005dc0
 local GMAPHEADER = 0x02037318
 local GPLAYERAVATAR_ADDR = 0x02037590

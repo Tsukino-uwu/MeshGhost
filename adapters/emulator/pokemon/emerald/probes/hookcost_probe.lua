@@ -1,17 +1,5 @@
--- MeshGhost — Pokémon Emerald: the emulator's top speed, frame limiter off, for pricing whatever else is
--- loaded (DEV TOOL, READ-ONLY on the game, turns the frame limiter off for its sample and back on;
--- never shipped) -- 2026-09-16
---
--- WHY THIS EXISTS. autoplay's Emerald module installs execute hooks to read text, and an execute hook
--- costs top speed (`emerald/MEASURED.md`, the text entry: 344 frames/s with none, 242.0 with five, one
--- instance). A sixth was added; this prices the set as loaded, against a run with none, in one place.
---
--- HOW. Checks that `emu.limitframerate` exists in this build before calling it (no API listing of this
--- build is kept), waits WARMUP frames after loading, turns the limiter off, samples
--- `client.get_approx_framerate()` every EVERY frames for SAMPLES samples, turns the limiter back on, logs
--- the samples and their median, and stops. Presses nothing; stand still while it runs.
--- WHAT IT CANNOT SEE: which loaded script costs what (load one set per run); anything the limiter's
--- setting does not govern.
+-- MeshGhost — Emerald: top speed with the frame limiter off, pricing what else is loaded, one set per run (dev tool).
+-- Presses nothing, turns the limiter back on after its sample, and logs the samples and their median. Stand still.
 
 local WARMUP, EVERY, SAMPLES, SETTLE = 120, 120, 30, 10
 
@@ -30,7 +18,7 @@ local function log(s)
 	end
 end
 
--- BizHawk's own functions are userdata here, not Lua functions (get_approx_framerate read so).
+-- BizHawk's own functions are userdata here, not Lua functions, so a type check for "function" misses them.
 local canLimit = type(emu) == "table" and emu.limitframerate ~= nil
 log("emu.limitframerate is " .. (canLimit and type(emu.limitframerate) or "absent") .. "; get_approx_framerate is " ..
 	type(client.get_approx_framerate))
@@ -46,8 +34,7 @@ MESHGHOST_DEV_TICK = function()
 		samples[#samples + 1] = client.get_approx_framerate()
 		if #samples >= SAMPLES then
 			emu.limitframerate(true)
-			-- The reading is smoothed and climbs for a while after the limiter goes off (60 to 778 over
-			-- the first 10 samples of a no-hook run), so the median is of the samples after SETTLE.
+			-- The reading is smoothed and climbs after the limiter goes off, so the median skips the first SETTLE.
 			local sorted = { table.unpack(samples, SETTLE + 1) }
 			table.sort(sorted)
 			local strs = {}

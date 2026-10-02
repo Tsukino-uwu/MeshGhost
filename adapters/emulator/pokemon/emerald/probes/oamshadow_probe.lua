@@ -1,47 +1,5 @@
--- MeshGhost — Emerald: is gMain.oamBuffer[64..127] really dead space, and does it reach hardware?
--- READ-ONLY. Writes nothing to the game; a log file beside itself is its only output.
---
--- WHY
--- The hardware-sprite tier (plans.md Phase 8.1) rests on three claims taken from the decomp and the
--- build map rather than from a running game (verified.md 2026-08-21):
---
---   1. gOamLimit is 64 on the overworld, so the engine's per-frame dummy-fill stops there and
---      indices 64..127 of the shadow buffer are never written by the sprite system;
---   2. LoadOam copies the FULL 128 entries to hardware OAM every VBlank regardless of that limit,
---      so anything parked above the limit is displayed for free on the game's own DMA;
---   3. the only thing rewritten on all 128 entries every frame is affineParam at byte +6
---      (CopyMatricesToOamBuffer), so a tier that writes +0/+2/+4 and never +6 is not fighting it.
---
--- Every later stage writes into that window. A wrong address there is not a crash -- it is a
--- plausible number and a corrupted sprite somewhere else -- so this probe exists to turn all three
--- claims into observations before a single byte is written. It is the cheap de-risk: nothing
--- appears on screen, and nothing can be broken by running it.
---
--- WHAT IT REPORTS, once a second and again at unload
---   * gOamLimit's live value, and whether it ever moves (the slot machine raises it to 0x80);
---   * how many of the 128 shadow entries are non-dummy, split at the limit -- the count below it is
---     the engine's own sprite list, the count above it should be a flat zero;
---   * whether any of bytes +0/+2/+4 in 64..127 EVER differ between two consecutive frames, and at
---     which index if so. That is claim 1, stated as something that can fail;
---   * whether +6 differs between frames in the same range -- claim 3, which SHOULD change;
---   * a byte-compare of shadow 64..127 against hardware OAM 0x07000000 + 512..1023. Claim 2 holds
---     only if they agree; if they diverge, the transfer is bounded after all and the whole design
---     moves to a different injection point.
---
--- READ AT A FRAME BOUNDARY, deliberately. The comparison in claim 2 is "does what the engine built
--- last frame match what the hardware is holding now", which is exactly what a between-frames read
--- sees. A mid-frame hook would be answering a different question.
---
--- HOW TO RUN
---   Point dev-scripts/bizhawk-dev-loader.target at this file, load a save, and walk around a busy
---   map for a minute -- a map with several NPCs is the interesting one, because that is when the
---   engine's own list is long enough for a boundary mistake to show. Then open the START menu and a
---   text box, and step into a battle and back out if you can reach one, since ResetOamRange(0,128)
---   at a scene change is the one thing that legitimately does clear our window.
-
--- Addresses: gMain from our own make-compare-verified pokeemerald build (agent_docs/environment.md);
--- the oamBuffer offset of 0x038 derived from struct Main's field list and cross-checked two ways
--- (verified.md 2026-08-21). OAM_ADDR and the 8-byte stride are GBA hardware, not facts about Emerald.
+-- MeshGhost — Emerald: is gMain.oamBuffer[64..127] dead space the engine never writes? (dev tool, read-only)
+-- Walk a busy map, open the START menu and a text box, enter a battle: ResetOamRange is the one legitimate clear.
 local GMAIN_ADDR = 0x030022c0
 local OAMBUF_ADDR = GMAIN_ADDR + 0x038
 local GOAMLIMIT_ADDR = 0x02021b38
@@ -51,7 +9,7 @@ local ENTRY_SIZE = 8
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
 
--- The engine's own "hidden" encoding, gDummyOamData: y=160, x=304, 8x8, priority 3.
+-- gDummyOamData, the engine's own hidden entry.
 local DUMMY_A0, DUMMY_A1, DUMMY_A2 = 0x00a0, 0x0130, 0x0c00
 
 local REPORT_FRAMES = 60
@@ -72,34 +30,24 @@ end
 
 local function r16(a) return memory.read_u16_le(a) end
 
--- The +1 is the Thumb bit: gMain.callback2 holds a function POINTER, and the engine stores the
--- Thumb-mode form. Measured live 2026-08-21 as 0x08085e5d, and the adapter tests both forms for the
--- same reason (meshghost_emerald.lua:136). A probe that only tested the even address would sit
--- silent forever and look like a dead emulator.
+-- The +1 is the Thumb bit: callback2 holds the Thumb form, and a test of the even address alone never matches.
 local function inOverworld()
     local cb2 = memory.read_u32_le(GMAIN_CALLBACK2_ADDR)
     return cb2 == CB2_OVERWORLD_ADDR or cb2 == CB2_OVERWORLD_ADDR + 1
 end
 
--- Last frame's entries above the limit, so "did anything change" is a real comparison rather than a
--- guess. Four halfwords per entry: +0/+2/+4 are the ones the tier wants to own, +6 is the engine's.
+-- Last frame's entries above the limit: +0/+2/+4 are the halfwords the tier wants to own, +6 is the engine's.
 local prev = {}
 local frame = 0
 
--- Running verdicts. Each starts out as the claim being true and can only ever be falsified -- a
--- probe that can only confirm what it went looking for is worth nothing.
+-- Running verdicts: each starts as the claim being true and can only be falsified.
 local limitSeen = {}
 local attrChanged = 0        -- frames on which +0/+2/+4 moved in 64..127
 local attrChangedWhere = nil -- the first index that did it, kept for the log
 local affineChanged = 0      -- frames on which +6 moved there (expected to be most of them)
--- Hardware-vs-shadow is counted SEPARATELY below and above the limit, and NEITHER half settles
--- claim 2 on its own -- learned by running it, 2026-08-21. Above the limit both sides are dummy on
--- a clean run, so agreement is trivially true. Below it the two legitimately disagree on some
--- frames: this probe reads at a frame boundary, where the engine has already rebuilt the shadow for
--- the coming frame while hardware still holds the copy LoadOam made at the last VBlank. That is one
--- frame of phase, not a bounded transfer, and it showed up on ~6% of frames (134 of 2250) exactly
--- when sprites were moving. So the below-limit number is reported as PHASE, and claim 2 is settled
--- properly only by Stage 1: park something non-dummy above the limit and see whether it appears.
+-- Counted apart below and above the limit, and neither settles claim 2 (LoadOam pushes all 128): above it both sides
+-- are dummy, and below it the engine has already rebuilt the shadow for the coming frame while hardware holds the last
+-- VBlank's copy. oaminject_probe.lua settles it by drawing.
 local hwMismatch = 0         -- frames on which shadow and hardware disagreed above the limit
 local hwMismatchBelow = 0    -- ... and below it -- PHASE, not a failure: see the verdict text
 local hwMismatchWhere = nil

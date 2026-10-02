@@ -1,76 +1,12 @@
--- Stage 1 of the VRAM/sprite injection investigation (agent_docs/ideas.md, "Emerald:
--- VRAM/sprite injection investigation (draw vs. inject)"). Read-only probe of OBJ VRAM (sprite
--- tile memory), OBJ palette RAM, and OAM (the hardware slot table that decides what's actually
--- displayed) during normal vanilla play. Never writes memory, game or otherwise.
---
--- WHAT THIS ANSWERS: is there a contiguous run of OBJ VRAM tiles the game never touches during
--- ordinary play, that a future injection-based ghost renderer could safely claim?
---
--- WHAT THIS DOES NOT ASSUME: unlike the reference project that inspired this investigation
--- (GBA-PK-multiplayer, CC BY-NC 4.0, read-only reference only per agent_docs/licensing.md, not
--- cloned locally -- its own source comment "CHANGE AGAIN BACK TO 182 due to ruby/sapphire" is
--- the entire reason this probe exists), there is no fixed "the target VRAM region" anywhere in
--- this repo to verify. This probe DISCOVERS candidate free regions empirically instead of
--- checking a guessed address -- see agent_docs/ideas.md for the full staged test plan and why
--- inheriting that project's fixed-address approach would just reproduce its fragility here.
---
--- Two independent views are compared every time a tile changes:
---   1. EMPIRICAL: did the raw bytes at this tile ever change / were they ever non-zero?
---   2. AUTHORITATIVE: does the game's own sprite-tile allocator (sSpriteTileAllocBitmap in
---      pokeemerald's src/sprite.c) consider this tile allocated *right now*?
--- A tile that changes while the allocator calls it free is flagged as a DISAGREEMENT -- it
--- proves some subsystem writes OBJ VRAM without going through AllocSpriteTiles, which would
--- mean the allocator bitmap alone could never be trusted to pick a safe injection target.
---
--- ==========================================================================================
--- Address source: pret/pokeemerald, built locally, checkout matching ROM SHA1
--- F3AE088181BF583E55DAF962A92BB46F4F1D07B7 (`make compare` -> "pokeemerald.gba: OK"), same
--- build cited by every other address in this project (see agent_docs/verified.md,
--- phase1_probe.lua, battle_probe.lua). All addresses below were read from that checkout on
--- 2026-08-14, not typed from memory.
---
--- OBJ VRAM, OBJ palette and OAM regions: the constants in the code below (0x06010000 OBJ VRAM,
---   1024 tiles of 32 bytes = 0x8000, 0x06014000 as the bitmap-mode boundary, 0x05000200 OBJ
---   palette, 0x07000000 OAM of 128 x 8 bytes) were looked up in include/gba/defines.h. In BG
---   modes 3-5 the OBJ tile base is taken to move to 0x06014000; this probe watches the mode live
---   via REG_DISPCNT rather than assuming one (see below).
---
--- OAM: each entry's first 2 bytes are attr0, low byte the Y screen coordinate. The hypothesis
---   this probe uses: unused OAM buffer slots are parked with Y = 160, off the visible screen
---   (where to look: gDummyOamData and AddSpritesToOamBuffer, src/sprite.c), so "attr0 & 0xFF >=
---   160" in the LIVE OAM buffer marks an unused slot -- this game's convention, not a general
---   GBA-hardware assumption, and unmeasured here.
---
--- Sprite-tile allocator (where to look: src/sprite.c):
---   gReservedSpriteTileCount: runtime address 0x02021b3a (pokeemerald.map), a u16.
---   sSpriteTileAllocBitmap: a file-static 128-byte array declared right after it in the source
---   (the declaration order is the hint, not the evidence). It has NO entry of its own in
---   pokeemerald.map (static arrays are sometimes omitted from the symbol list even when other
---   statics in the same file, e.g. gOamLimit, are present) -- its address is DERIVED, the same
---   cross-check style phase1_probe.lua already uses for gObjectEvents: the next symbol after it
---   in both source order and the map, gSpriteCoordOffsetX, sits at 0x02021bbc. Working back
---   from gReservedSpriteTileCount's end (0x02021b3a + sizeof(u16) = 0x02021b3c), the gap is
---   0x02021bbc - 0x02021b3c = 0x80 = 128 bytes -- exactly sizeof(sSpriteTileAllocBitmap). So:
---     sSpriteTileAllocBitmap runtime address = 0x02021b3c.
---   Bit ordering, the hypothesis this probe reads with (where to look: the SPRITE_TILE_* macros
---   and AllocSpriteTiles, src/sprite.c): tile n's bit is bitmap[n / 8], bit (n % 8), 1 =
---   allocated. Tiles below gReservedSpriteTileCount are expected never to be handed out, with no
---   guarantee their bits are set -- so this probe treats "allocated" strictly as bitmap-bit-set,
---   and reports the reserved count separately, rather than conflating the two.
---
---   gReservedSpritePaletteCount: runtime address 0x0300301c (pokeemerald.map), a u8.
---
--- Overworld/battle context (same idiom as meshghost_emerald.lua:79-85 and battle_probe.lua,
--- both already-verified addresses): gMain.callback2 @ 0x030022c4, CB2_Overworld @ 0x08085e5c
--- (or +1 for the Thumb-bit variant). This is a two-way "in overworld or not" split ONLY --
--- battle_probe.lua already established callback2 leaving CB2_Overworld covers battle, every
--- menu, every fade, the PC and the Pokedex alike. This probe compensates by logging the raw
--- callback2 value alongside each tile's first observed change (see below), so a later reader
--- can look that address up in pokeemerald.map and name the actual culprit.
---
--- REG_DISPCNT: 0x04000000 (looked up in include/gba/io_reg.h). Low 3 bits are taken as the BG
--- mode (0-5); modes 3-5 are the bitmap modes discussed above.
--- ==========================================================================================
+-- Stage 1 of the VRAM/sprite-injection investigation, read-only: is there a contiguous run of OBJ VRAM tiles the
+-- game never touches in ordinary vanilla play? It discovers candidate free regions rather than checking a guessed
+-- address, and on every tile change compares two views: did the raw bytes ever change or go nonzero, and does the
+-- game's sprite-tile allocator call the tile allocated right now? A tile that changes while the allocator calls it
+-- free is a disagreement: something writes OBJ VRAM without going through the allocator.
+-- The allocator bitmap has no symbol of its own; its address is derived as the 128 bytes between the end of
+-- gReservedSpriteTileCount and gSpriteCoordOffsetX, read as tile n = bit n % 8 of byte n / 8, with the reserved count
+-- reported separately. An OAM entry whose attr0 low byte (Y) is 160 or more is taken as parked. The overworld test
+-- is two-way only (battle, menus and fades all read "not"), so each tile's first change also logs callback2.
 
 local OBJ_VRAM0_ADDR = 0x06010000
 local OBJ_VRAM0_SIZE = 0x8000
@@ -93,9 +29,7 @@ local GRESERVEDSPRITEPALETTECOUNT_ADDR = 0x0300301c
 
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
--- Archipelago-recompiled equivalent, watched live 2026-08-14 -- see the same citation in
--- meshghost_emerald.lua's inOverworld(). Without this, a Stage 1/2 session on an
--- Archipelago-patched ROM gets ow=0 for the whole run, an artifact this fix closes.
+-- Archipelago's CB2_Overworld: without it a patched ROM reads as outside the overworld all run.
 local CB2_OVERWORLD_ARCHIPELAGO_ADDR = 0x080867f1
 
 local REG_DISPCNT_ADDR = 0x04000000
@@ -105,12 +39,6 @@ local REPORT_INTERVAL_FRAMES = 600 -- ~10s at 60fps
 local BLOCK_SIZE = 2048
 local BLOCK_COUNT = OBJ_VRAM0_SIZE / BLOCK_SIZE -- 16
 local TILES_PER_BLOCK = BLOCK_SIZE / TILE_SIZE_4BPP -- 64
-
-----------------------------------------------------------------------------
--- Script directory + log file (same io.popen("cd") approach as
--- meshghost_emerald.lua:227-233 -- BizHawk loads scripts as in-memory string
--- chunks, debug.getinfo can't find the script's own path).
-----------------------------------------------------------------------------
 
 local function scriptDir()
     local ok, pwd = pcall(function() return io.popen and io.popen("cd"):read("*l") end)
@@ -138,10 +66,8 @@ do
     end
 end
 
--- Every line that goes to the console also goes to the log file, flushed immediately --
--- BizHawk sessions end by closing the emulator, so an unflushed buffer loses the whole run.
--- console.log accepts non-string values (e.g. tables) and formats them itself; io.write does
--- not, so anything headed for the log file is coerced through tostring() first.
+-- Console lines also go to the log, flushed at once: a session ends by closing the emulator. io.write takes only
+-- strings, so values go through tostring() first.
 local function logLine(msg)
     console.log(msg)
     if logFile then
@@ -150,16 +76,9 @@ local function logLine(msg)
     end
 end
 
-----------------------------------------------------------------------------
--- Memory domain + read-tier selection. Nothing here is assumed: the domain list is read at
--- startup, and the VRAM<->System Bus aliasing is proven live rather than inferred from GBATEK.
-----------------------------------------------------------------------------
+-- The memory domain and read tier: the domain list is read at startup and the VRAM/System Bus aliasing proven live.
 
--- memory.getmemorydomainlist()'s own doc string (BizHawk.Client.Common.dll) claims it returns
--- "a single string delimited by line feeds" -- observed live 2026-08-14, that's wrong for this
--- 2.11 build: it returns a Lua table of domain-name strings instead (confirmed by the
--- "0: \"IWRAM\"" ... "9: \"System Bus\"" shape BizHawk's own console.log printed it as). Handle
--- both shapes rather than trust the doc string over what actually came back.
+-- getmemorydomainlist() returns a Lua table on this BizHawk build, whatever its doc string says; both shapes work.
 local domainList = memory.getmemorydomainlist()
 local domainNames = {}
 if type(domainList) == "table" then
@@ -220,10 +139,6 @@ if logPath then
     logLine("Log file: " .. logPath)
 end
 
-----------------------------------------------------------------------------
--- Per-tile / per-palette-slot / OAM state
-----------------------------------------------------------------------------
-
 local tile = {}
 for i = 0, TOTAL_OBJ_TILE_COUNT - 1 do
     tile[i] = {
@@ -266,18 +181,12 @@ local function isOverworld(cb2)
         or cb2 == CB2_OVERWORLD_ARCHIPELAGO_ADDR or cb2 == CB2_OVERWORLD_ARCHIPELAGO_ADDR + 1
 end
 
-----------------------------------------------------------------------------
--- Bulk-read helpers, chosen by tier.
-----------------------------------------------------------------------------
-
 local function tileAddr(i)
     return OBJ_VRAM0_ADDR + i * TILE_SIZE_4BPP
 end
 
--- Every byte-array read in this script goes through here, so palette/OAM/allocator reads
--- (all small, a few hundred bytes at most) keep working even on a hypothetical core lacking
--- read_bytes_as_array -- only the big 32KB-per-frame OBJ VRAM tile scan actually needs the
--- bulk API for speed, and that's what TIER gates (see sampleObjVram vs sampleObjVramTierC).
+-- Every byte-array read goes through here, so the small reads work on a core without read_bytes_as_array; only
+-- the 32KB-a-frame tile scan needs the bulk API, and TIER gates that.
 local function readBytes(addr, len)
     if type(memory.read_bytes_as_array) == "function" then
         return memory.read_bytes_as_array(addr, len)
@@ -289,8 +198,7 @@ local function readBytes(addr, len)
     return out
 end
 
--- Cheap change-detection signature for a small region, using hash_region when available and
--- falling back to a plain byte-array comparison string otherwise.
+-- A cheap change signature for a small region: hash_region when available, else a byte-array string.
 local function regionSignature(addr, len)
     if type(memory.hash_region) == "function" then
         return memory.hash_region(addr, len)
@@ -316,12 +224,8 @@ local function bitmapBit(bitmap, tileIndex)
     return (byteVal >> (tileIndex % 8)) & 1
 end
 
-----------------------------------------------------------------------------
--- Startup full scan: establishes baseline hashes/nonzero state for every tile and palette
--- slot, so later frames only need to look at what actually changed. Without this, a tile that
--- is nonzero from frame 1 (e.g. already-allocated at script load) would never be flagged
--- nonzero, since only CHANGES are detected after this point.
-----------------------------------------------------------------------------
+-- Startup full scan: baseline hashes and nonzero state for every tile and palette slot, so a tile already nonzero
+-- at load is flagged; after this only changes are looked at.
 
 local function initialScan(frame, ow, cb2)
     if TIER == "A" or TIER == "B" then
@@ -335,8 +239,7 @@ local function initialScan(frame, ow, cb2)
         if TIER == "A" or TIER == "B" then
             t.hash = regionSignature(tileAddr(i), TILE_SIZE_4BPP)
         end
-        -- Safe at every tier: readBytes falls back to per-byte reads when the bulk API is
-        -- absent. This is the one-time startup cost of establishing baseline nonzero state.
+        -- Safe at every tier: readBytes falls back to per-byte reads.
         local nz = tileNonzero(i)
         if nz then
             if ow then t.everNonzeroOw = true else t.everNonzeroNon = true end
@@ -355,10 +258,6 @@ local function initialScan(frame, ow, cb2)
     end
     logLine("Initial full scan complete at frame " .. frame .. ".")
 end
-
-----------------------------------------------------------------------------
--- Per-frame sampling
-----------------------------------------------------------------------------
 
 local function sampleObjVram(frame, ow, cb2)
     local anyBlockChanged = false
@@ -406,8 +305,8 @@ local function sampleObjVram(frame, ow, cb2)
     return anyBlockChanged
 end
 
--- Tier C: no hash_region / read_bytes_as_array. Sample 4 fixed offsets per tile, on a stride,
--- far weaker than an exhaustive scan -- explicitly marked as such in every report.
+-- Tier C, with no hash_region or read_bytes_as_array: 4 fixed offsets per tile on a stride, far weaker than an
+-- exhaustive scan and marked so in every report.
 local TIER_C_OFFSETS = { 0, 8, 16, 24 }
 local tierCCursor = 0
 local function sampleObjVramTierC(frame, ow, cb2)
@@ -467,9 +366,7 @@ local function sampleOam()
     end
 end
 
-----------------------------------------------------------------------------
--- Reporting: contiguous runs, not per-tile lines, to stay inside the console scrollback.
-----------------------------------------------------------------------------
+-- Reports contiguous runs, not per-tile lines, to stay inside the console scrollback.
 
 local function forEachRun(predicate, emit)
     local runStart = nil
@@ -553,10 +450,6 @@ local function report(frame)
     logLine("=== end report ===")
 end
 
-----------------------------------------------------------------------------
--- Main loop
-----------------------------------------------------------------------------
-
 logLine("MeshGhost VRAM probe (Stage 1) running. This is a read-only DEV PROBE, not the shipped adapter.")
 logLine("Run the full session checklist from the Stage 1 plan (walk, menus, battle, bike, surf, PC, Mart, Fly) before reading the report.")
 logLine("Reports print automatically every ~10s and on script exit; nothing is written to the ROM or save.")
@@ -591,12 +484,8 @@ local function runFrame()
         nonOverworldRunFrames = 0
     else
         framesNon = framesNon + 1
-        -- Only count this toward "battle" if the overworld has actually been observed at
-        -- least once first -- otherwise the title screen / intro / no-save-loaded state (also
-        -- sustained non-overworld from frame 1, cb2 never changing) would falsely qualify. See
-        -- meshghost_emerald.lua/battle_probe.lua: a sustained non-overworld callback2 is the
-        -- same heuristic those scripts use for "in battle", but it's still only a heuristic --
-        -- it also fires for a long dialogue box or menu, not just a real battle.
+        -- Counted as battle only once the overworld has been seen, or the title screen would qualify; a sustained
+        -- non-overworld callback2 is still only a heuristic (a long dialogue or a menu fires it too).
         if everInOverworld then
             nonOverworldRunFrames = nonOverworldRunFrames + 1
             if nonOverworldRunFrames > 300 then

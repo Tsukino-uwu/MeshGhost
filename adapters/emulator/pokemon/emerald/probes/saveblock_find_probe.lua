@@ -1,31 +1,11 @@
--- MeshGhost — Emerald: find gSaveBlock1Ptr on a build that moved IWRAM (PROBE)
---
--- READ-ONLY. Reads game memory, writes none, presses nothing, draws nothing.
---
--- THE QUESTION. EX SPEEDCHOICE 0.4.0 relocated IWRAM: 0x03005D8C reads FDFDFFFF, which is not a
--- pointer, so the adapter cannot read the player's tile or the map it is on -- `inGame=false`,
--- `local=nil`, nothing sent and nothing drawn. `romvariant_probe.lua` reported this anchor
--- UNRESOLVED and said why: its search needs gObjectEvents resolved first, and at the time it was
--- not. It is now (+0xC80, by objevents_walk_probe.lua), which makes the search possible.
---
--- THE TEST. gSaveBlock1Ptr is a POINTER IN IWRAM to a struct in EWRAM whose first four bytes are
--- the player's x and y as s16 -- and a map object's coordinates are that same tile plus the map
--- border offset of 7. So: walk every word-aligned IWRAM slot, keep the ones holding a plausible
--- EWRAM address, and of those keep the ones where the target's x/y are exactly the player object's
--- minus 7. Both axes, which a coincidence rarely manages.
---
--- THEN IT WALKS. A match is a candidate until it MOVES with the player: the probe steps one axis
--- and requires every surviving candidate to follow. That is the same discipline gsprites_scan_probe
--- uses, and it is what separates the real pointer from a stale copy of it -- Emerald keeps more
--- than one save block in memory.
---
--- The user's constraint is respected (2026-09-11): straight lines only, out and back on one axis,
--- never turning a corner.
+-- MeshGhost — Emerald: find gSaveBlock1Ptr on a build that moved IWRAM (dev tool, reads memory, walks the player,
+-- never shipped). Lists every word-aligned IWRAM slot pointing into EWRAM at the player's tile, then walks three
+-- tiles right and back in a straight line, keeping the slots whose target follows. Start with room to the right.
 
 local IWRAM_START, IWRAM_END = 0x03000000, 0x03008000
 local EWRAM_START, EWRAM_END = 0x02000000, 0x02040000
 local GOBJECTEVENTS_ADDR = 0x02037350
-local SHIFTS = { 0, 0x284, 0xA4, 0xC80 }
+local SHIFTS = { 0, 0x284, 0xA4, 0xC80 } -- gObjectEvents on vanilla, Archipelago, SPEEDCHOICE, EX SPEEDCHOICE
 local OBJECTEVENT_SIZE = 0x24
 local MAP_OFFSET = 7
 local STEP_FRAMES = 22

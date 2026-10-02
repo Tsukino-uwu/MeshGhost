@@ -1,15 +1,6 @@
--- MeshGhost -- get on the MACH BIKE (DEV TOOL, never shipped)
---
--- The Acro Bike's twin of `use_acro.lua`, and the same reasoning: register the bike as the SELECT
--- item and press SELECT, so the item's real field effect sets every flag the avatar needs rather
--- than writing PLAYER_AVATAR_FLAG_MACH_BIKE by hand.
---   gSaveBlock1Ptr->registeredItem  +0x496  (include/global.h:1004)
---   ITEM_MACH_BIKE 259              (include/constants/items.h, per grant_test_kit.lua's header)
---
--- PRESSES UNTIL IT IS ACTUALLY ON, up to a few times, because one press does different things
--- depending on where you start: on foot it mounts, on the OTHER bike it has to get off first. The
--- graphicsId says which state we are in -- Brendan 1 / May 90 is the Mach Bike (verified.md's
--- table) -- so the probe can simply look rather than assume a fixed number of presses.
+-- MeshGhost — gets on the Mach Bike the game's own way (dev tool, writes live RAM, vanilla only, never shipped).
+-- Writes the Mach Bike into SaveBlock1's registered SELECT item (an in-game save keeps it), then taps SELECT until the
+-- player's graphic is the Mach Bike's: on foot one press mounts, on the Acro Bike the first gets off. Holds the pad.
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
@@ -36,15 +27,14 @@ local function tick()
     local objId = memory.read_u8(GPLAYERAVATAR_ADDR + 0x05)
     if objId > 15 then return end
     local gfx = memory.read_u8(GOBJECTEVENTS_ADDR + objId * 0x24 + 0x05)
-    if gfx == 1 or gfx == 90 then
+    if gfx == 1 or gfx == 90 then -- Brendan / May on the Mach Bike
         joypad.set({})
         done = true
         say("on the Mach Bike (graphicsId " .. gfx .. ")")
         return
     end
 
-    -- Tapped, not held: the game reads a NEW press. One press per 90 frames, so the mount or
-    -- dismount it starts has finished before the next is judged.
+    -- Tapped, not held (the game reads a new press), one per 90 frames so each mount or dismount finishes first.
     local t = (n - 20) % 90
     joypad.set({ Select = t < 6 })
     if t == 0 then

@@ -1,8 +1,5 @@
--- MeshGhost -- one tile, in a wheelie (DEV TOOL, never shipped)
---
--- WHY. The user, 2026-08-20: in a wheelie, one tile down, the SPAWNED ghost plays *"the while
--- cosntantly riding animation instead of just the small wiggle"*. A wheelie ride has to be entered
--- before it can be steered -- B held first, then a direction -- so a plain tap never produces it.
+-- MeshGhost -- one tile in a wheelie, down then up, with a settle between (dev tool, holds the pad, never shipped).
+-- Start it on the Acro Bike; outside the overworld, or while a script has the player, it lets go of the pad.
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
 local GPLAYERAVATAR_ADDR = 0x02037590
@@ -13,11 +10,7 @@ local function tick()
         or memory.read_u8(GPLAYERAVATAR_ADDR + 0x06) ~= 0
     then joypad.set({}) return end
     n = (n + 1) % 260
-    -- Hold B alone long enough to be up on the back wheel, then ONE tile, then let everything
-    -- settle before the next one -- the whole point is to see a single tile in isolation.
-    -- B FIRST, THEN THE DIRECTION WITHIN A FEW FRAMES -- that is the wheelie RIDE. Holding B for a
-    -- second gives the bunny hop instead, which is what the first version of this measured by
-    -- mistake (the log came back full of 0x70/0x71 hop actions and no ride at all).
+    -- B first and the direction within a few frames is the wheelie ride; B held alone for a second hops instead.
     if n < 8 then joypad.set({ B = true })
     elseif n < 40 then joypad.set({ B = true, Down = true })
     elseif n < 130 then joypad.set({})

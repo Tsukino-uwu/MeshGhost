@@ -1,28 +1,5 @@
--- MeshGhost — Pokémon Emerald: the map around the player, raw (DEV TOOL, READ-ONLY, never shipped)
--- -- 2026-09-16
---
--- WHY THIS EXISTS. autoplay's Phase 1 wants a text map of the tiles around the player and the
--- characters on them (`agent_docs/phases/phase13.md`), and a walk that ends on the game's own state.
--- What each byte of the map grid, the object events and the map's event lists MEANS is to be measured:
--- this logs them raw every time the player's map, tile, facing or elevation changes, so walking into a
--- wall, an NPC, a door or water pairs each reading with what the game did.
---
--- ADDRESSES: a pokeemerald build whose ROM hashed identical to the vanilla ROM this runs on (SHA-1
--- compared 2026-09-16) proves where each lives, not what its bytes mean. Vanilla only.
---
--- WHAT IT LOGS (map_probe_<target>_<time>.log beside this file; gitignored), on change only:
---   POS    map from SaveBlock1 +4/+5, SaveBlock1 +0/+2, the player object's +0x10/+0x12, +0x0B, +0x18,
---          the avatar block's first 4 bytes
---   LAYOUT the 12 bytes named gBackupMapLayout, and the 0x18 bytes of the header's first pointer
---   GRID   rows of the grid entries (16-bit hex) from 7 left to 7 right and 5 up to 5 down of the
---          player object's coordinates, addressed as cmd_drive.lua's `grid` does
---   BEH    the low byte of each of those tiles' attribute word (cmd_drive.lua's `mtscan` route); "--"
---          past a tileset's attribute table
---   OBJ    every object slot whose first byte has bit 0 set: its first 0x1C bytes
---   EVT    the header's second pointer: its 4 count bytes, then each list raw (8 / 16 / 12 / 24 bytes
---          per entry for the second, third, fourth and first counts)
--- WHAT IT CANNOT SEE: why a step is refused (it logs the tiles, not the decision), anything drawn
--- rather than stored, and a patched ROM.
+-- MeshGhost — Emerald: the map around the player, raw, on each map, tile, facing or elevation change (dev tool).
+-- The grid and behaviours 7 tiles either side and 5 up and down, every object in use, and the header's event lists.
 
 local BUS = "System Bus"
 local SB1PTR = 0x03005d8c

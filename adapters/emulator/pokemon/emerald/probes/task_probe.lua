@@ -1,20 +1,8 @@
--- MeshGhost — Pokémon Emerald: every active task, raw (DEV TOOL, READ-ONLY, never shipped) -- 2026-09-17
---
--- WHY THIS EXISTS. Screens that nothing reads keep their state in a task's data: the wall clock of the new game's room
--- (autoplay's `advance_text` stops `stuck` on it, `agent_docs/phases/phase13.md`). `list_menu_probe.lua` logs data only
--- for the list menu's task. This logs every active task whole, so the one a screen runs can be found by pressing and
--- watching what moves.
---
--- ADDRESSES: a pokeemerald build whose ROM hashed identical to the vanilla ROM (SHA-1, 2026-09-16) proves where the
--- array the build names gTasks lives (0x03005E00, 16 tasks of 40 bytes, as `list_menu_probe.lua` measured: the routine
--- at +0, nonzero +4 while active, data from +8). What any data word means is to be measured.
---
--- WHAT IT LOGS (task_probe_<target>_<time>.log beside this file; gitignored), each on change, with the pad:
---   CB2    gMain.callback2
---   TASK n the routine's address and the task's 40 bytes raw, for every active task n
---   GONE n when task n stops being active
--- WHAT IT CANNOT SEE: state kept outside a task, anything between two changes, a patched ROM.
--- COST: 640 bytes read a frame, no hooks.
+-- Read-only, never shipped, no hooks: every active task whole, on change, with the pad. A screen nothing reads
+-- keeps its state in a task's data, so the one a screen runs can be found by pressing and watching what moves.
+-- gTasks is 16 tasks of 40 bytes: the routine at +0, nonzero +4 while active, data from +8. Vanilla only. The log,
+-- task_probe_<target>_<time>.log beside this file, has CB2 (gMain.callback2), TASK n (routine and 40 bytes) and
+-- GONE n lines; it cannot see state kept outside a task or anything between two changes.
 
 local BUS = "System Bus"
 local GMAIN_CB2, GTASKS, TASK_SIZE, NUM_TASKS = 0x030022c4, 0x03005e00, 40, 16

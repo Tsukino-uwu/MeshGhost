@@ -1,30 +1,6 @@
--- MeshGhost -- run left and right, and say what the EMULATOR's frame rate did (DEV TOOL)
---
--- WHY. User, 2026-08-20: *"the game does feel laggy ... while moving around"*, and *"run left/right
--- a bit, and test/check the fps"*. An impression cannot be compared against anything; a number
--- taken the same way twice can, which is the whole point of driving the movement from a script
--- rather than by hand -- both runs then cover the same tiles at the same speed.
---
--- THE INSTRUMENT IS `client.get_approx_framerate`, for the reason `fps_probe.lua` records: os.clock
--- inside the adapter measures the Lua process's own CPU and said 0.44ms/frame while the user still
--- reported lag, because a Lua overlay's gui.* calls and the emulator's own pacing are not in that
--- number. The emulator's own framerate is.
---
--- HOW TO USE IT AS AN A/B. Load it with the adapter, read the summary; then drop the adapter from
--- the loader control file, load this alone, and read the summary again. Same route, same probe,
--- one variable. This probe's own cost is one call and one compare per frame, and it holds no
--- strings between samples -- it must stay that cheap to be usable as the control.
---
--- RUNNING, not walking: holding B is how a player actually crosses a map, it is the case the
--- report is about, and it moves twice as many tiles per second past the ghost logic.
--- BIASED LEFT (user, 2026-08-20: *"go a bit more to the left as well"*): the left legs are longer
--- than the right ones, so the route drifts westward across the map instead of shuttling over the
--- same few tiles. New ground is the point -- frame cost follows what is on screen, and a stretch
--- with more NPCs or more scenery is exactly where a drop would hide.
--- LONGER BOTH WAYS (user, 2026-08-20: *"a longer distance both left/right combined"*). The first
--- version shuttled over the same handful of tiles, and a biased one drifted west without ever
--- coming back -- neither crosses much map. Equal long legs walk a real stretch of route in each
--- direction, which is what the report is about.
+-- Runs left and right in long equal legs and logs the emulator's frame rate (dev tool), so two runs over the same
+-- tiles compare; os.clock in the adapter misses gui.* calls and the emulator's own pacing. For an A/B, read the
+-- summary with the adapter loaded, then with this alone. Its own cost is one call and one compare a frame.
 local LEG_FRAMES = 240       -- ~4s of running, each way
 local LEFT_LEG_FRAMES = 240
 local LEGS = 8

@@ -1,22 +1,5 @@
--- MeshGhost -- what is walkable around the player (DEV TOOL, never shipped)
---
--- WHY. Every scripted ride today has eventually driven the player into scenery -- a fence gap, a
--- building, a ledge -- because the scripts count tiles and cannot see. The user, 2026-08-20: *"can
--- you detect npc/buildings/objects somehow? to know how to make pathing/scripts without running
--- into things?"* This answers the first half of that question by MEASUREMENT rather than by
--- asserting a bit layout from memory.
---
--- WHAT IS BEING TESTED. The map grid stores one 16-bit word per tile. `holdup.lua` already uses the
--- low ten bits of it as the metatile id, successfully, so the word and its address are known good.
--- The claim under test is that the two bits ABOVE the id (0x0C00) are the collision flags, and the
--- four above those the elevation. If that holds, a tile the player cannot enter reads non-zero
--- there and a tile they can walk onto reads zero -- and pathing becomes a lookup instead of a
--- guess.
---
--- HOW TO READ THE OUTPUT. A grid centred on the player: `.` free, `#` collision bits set, `P` the
--- player, digits an object event standing there. Compare it against the screen -- if the walls in
--- the picture are the `#`s in the grid, the layout is confirmed and every probe after this one can
--- path around them.
+-- What is walkable around the player: a grid of the map words round it, `.` free, `#` collision bits (0x0C00) set,
+-- `P` the player, a digit an object event, to compare against the screen. Reads only.
 local GBACKUPMAPLAYOUT = 0x03005dc0
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
@@ -47,8 +30,7 @@ local function tick()
     local px = memory.read_s16_le(po + 0x10) - MAP_OFFSET
     local py = memory.read_s16_le(po + 0x12) - MAP_OFFSET
 
-    -- Where every live object event is standing, so NPCs show up as obstacles too -- they are not
-    -- in the map grid at all, which is the other half of the question.
+    -- Characters are not in the map grid at all, so every live object event is marked too.
     local occupied = {}
     for i = 0, 15 do
         local a = GOBJECTEVENTS_ADDR + i * OBJECTEVENT_SIZE

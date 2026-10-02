@@ -1,49 +1,16 @@
--- MeshGhost — Pokémon Emerald: what text the game prints, and into which window (DEV TOOL, READ-ONLY,
--- never shipped) -- 2026-09-16
---
--- WHY THIS EXISTS. autoplay's Phase 1 needs the game's text and menus as data (`agent_docs/phases/
--- phase13.md`): what a box says, whether it waits for a button, what a menu offers and where its
--- cursor is. Nothing about Emerald's character encoding or its text structures is measured yet. This
--- probe logs RAW what the game hands its text routines, so a screenshot of the same frames can pair
--- each byte with the glyph drawn for it -- the encoding learned from the game, the decomp only saying
--- where to look.
---
--- ADDRESSES. Taken from a pokeemerald build we made, whose ROM hashed identical to the vanilla ROM
--- this runs on (SHA-1 compared 2026-09-16). That proves each ADDRESS; it proves nothing about what a
--- byte there means, which is exactly what this log is for. Vanilla only: a patched build moves code.
---
--- WHAT IT LOGS (to text_probe_<target>_<time>.log beside this file; gitignored):
---   ATP     entry to the routine named AddTextPrinter: R0's first 16 bytes raw, R1, and the bytes at
---           the pointer in R0's first word up to the first FF (at most 1024)
---   FILL / REMOVE / PUT / CLEARTM   entry to FillWindowPixelBuffer / RemoveWindow / PutWindowTilemap /
---           ClearWindowTilemap: R0 (and R1 for FILL)
---   ADDWIN  entry to AddWindow: R0's first 8 bytes raw
---   PRN     one 0x24-byte block per window id in the block named sTextPrinters, when its bytes
---           +0x1B or +0x1C change (logged with the first 8 bytes and +0x1D..0x1F)
---   MENU    the 12 bytes named sMenu (menu.c's), on change
---   MBOX    the byte named sFieldMessageBoxMode, on change
---   START   the 11 bytes from the one named sStartMenuCursorPos, on change
---   WINS    the 0x180 bytes named gWindows, as 12-byte slots, on change (non-zero slots only)
---   BG0     per screen row, the first and last column with a non-zero BG0 tile (textbox_probe.lua's
---           method: the tilemap base from BG0CNT), on change
---   FPS     client.get_approx_framerate() every 300 frames -- an execute hook's cost is on the core
---   Repeated identical lines collapse into one with a count.
---
--- WHAT IT CANNOT SEE: text drawn without that routine (a bitmap blitted by a special screen, the
--- title), the frame each glyph lands (it logs the string when printing STARTS), and anything on a
--- patched ROM.
---
--- COST. Four execute hooks and a few block reads per frame. `TEXT_PROBE_NO_HOOKS = true` before
--- loading skips the hooks, to price them against FPS.
+-- MeshGhost — Pokémon Emerald: what text the game prints, and into which window (dev tool, read-only, vanilla only,
+-- never shipped). Execute hooks log each string's raw bytes as its printing starts and each window call; the text
+-- printers, sMenu, the message box mode, the START menu, gWindows and BG0's drawn rows are logged on change, FPS
+-- every 300 frames. TEXT_PROBE_NO_HOOKS = true before loading leaves the hooks out, to price them.
 
 local BUS = "System Bus"
 local HOOKS = {
-	{ name = "ATP", at = 0x0800467c },
-	{ name = "FILL", at = 0x08003c48 },
-	{ name = "REMOVE", at = 0x08003574 },
-	{ name = "PUT", at = 0x0800378c },
-	{ name = "CLEARTM", at = 0x080038a4 },
-	{ name = "ADDWIN", at = 0x08003380 },
+	{ name = "ATP", at = 0x0800467c }, -- AddTextPrinter
+	{ name = "FILL", at = 0x08003c48 }, -- FillWindowPixelBuffer
+	{ name = "REMOVE", at = 0x08003574 }, -- RemoveWindow
+	{ name = "PUT", at = 0x0800378c }, -- PutWindowTilemap
+	{ name = "CLEARTM", at = 0x080038a4 }, -- ClearWindowTilemap
+	{ name = "ADDWIN", at = 0x08003380 }, -- AddWindow
 }
 local STEXTPRINTERS, PRINTER_SIZE, WINDOWS_MAX = 0x020201b0, 0x24, 32
 local SMENU = 0x0203cd90
@@ -77,7 +44,7 @@ end
 local function flush()
 	if not logf or #pending == 0 then return end
 	logf:write(table.concat(pending, "\n"), "\n")
-	logf:flush() -- on a timer or a full buffer, never per line
+	logf:flush()
 	pending = {}
 end
 
@@ -91,7 +58,6 @@ local function reg(name)
 	return ok and v or -1
 end
 
--- Bytes from an address up to the first FF, in chunks, at most 1024.
 local function bytesUntilFF(at)
 	if at < 0x02000000 or at >= 0x0A000000 then return nil, "not RAM/ROM" end
 	local out = {}

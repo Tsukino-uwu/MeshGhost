@@ -1,25 +1,8 @@
--- MeshGhost — Pokémon Emerald: a move's data in the ROM, raw (DEV TOOL, READ-ONLY, never shipped) --
--- 2026-09-16
---
--- WHY THIS EXISTS. autoplay's `observe` names a Pokémon's moves and their PP; an agent choosing a move
--- also needs what it does -- its type, power, accuracy and effect (the user, 2026-09-16: "different
--- attacks do different things, you can check what type/power/effect they have"). The game draws them
--- on the summary's BATTLE MOVES page. This logs the ROM bytes behind them for the moves listed in
--- MOVES, to be read against that page.
---
--- ADDRESSES: a pokeemerald build whose ROM hashed identical to the vanilla ROM (SHA-1, 2026-09-16)
--- proves where the tables the build names gBattleMoves, gTypeNames and gMoveDescriptionPointers live,
--- and their sizes (0x10A4, 0x7E, 0x588); what an entry's bytes mean is what this is for. Vanilla only.
---
--- WHAT IT LOGS once, on load (move_data_probe_<time>.log beside this file; gitignored), per move id:
---   the 12 bytes at gBattleMoves + id * 12, raw and each byte as a number; the 7 bytes at
---   gTypeNames + (byte +2) * 7 decoded; and the string behind gMoveDescriptionPointers + (id - 1) * 4,
---   decoded up to FF.
--- WHAT IT CANNOT SEE: which byte is which until the page is read; how the game turns a stored value
--- into what it draws (a 0 drawn as "---", for one).
+-- MeshGhost — Emerald: each move in MOVES from the ROM, once: its 12-byte entry, the type name its +2 picks and its
+-- effect text, to read against the summary's BATTLE MOVES page (dev tool, read-only, vanilla addresses).
 
 local BUS = "System Bus"
-local MOVES = { 33, 45, 189 } -- the MUDKIP's TACKLE, GROWL and MUD-SLAP (party_bag_probe.lua)
+local MOVES = { 33, 45, 189 } -- the MUDKIP's TACKLE, GROWL and MUD-SLAP
 local BATTLE_MOVES, MOVE_SIZE = 0x0831c898, 12
 local TYPE_NAMES, TYPE_LEN = 0x0831ae38, 7
 local DESCRIPTIONS = 0x0861c524

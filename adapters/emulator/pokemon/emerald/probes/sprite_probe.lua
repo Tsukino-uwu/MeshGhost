@@ -1,38 +1,12 @@
--- Phase 5.5 Step 1: sprite-decode feasibility probe. Not a phase deliverable -- a throwaway
--- diagnostic to confirm, before building any rendering, that gObjectEventPic_BrendanNormal /
--- gObjectEventPal_Brendan really are raw uncompressed 4bpp tile data + a raw BGR555 palette at
--- the addresses found by reading the decomp, and that this script decodes them correctly.
--- Never writes memory. Same probe-script convention as battle_probe.lua.
---
--- Address source: pret/pokeemerald, built locally 2026-08-11 from a checkout matching ROM
--- SHA1 F3AE088181BF583E55DAF962A92BB46F4F1D07B7 (`make compare` -> "pokeemerald.gba: OK"),
--- same build cited by every other address in agent_docs/verified.md. Read directly from
--- pokeemerald.sym (not from memory):
---   gObjectEventPic_BrendanNormal = 0x084975F8, size 0x900 (9 walking frames x 256 bytes/frame)
---   gObjectEventPal_Brendan       = 0x084987F8, size 0x20 (16 colors x 2 bytes, BGR555)
--- Frame size, the hypothesis this probe draws with: a 2x4 tile grid (16x32px) per frame (where to
--- look: sPicTable_BrendanNormal, src/data/object_events/object_event_pic_tables.h).
--- Uncompressed (not LZ77), also a hypothesis: the graphics declarations in
--- src/data/object_events/object_event_graphics.h carry no compressed-graphics suffix, so this is
--- read as a plain byte array in ROM with a direct 4bpp/BGR555 decode -- the drawn result is what
--- tests it.
---
--- 4bpp tile format (standard GBA format, not project-specific -- same format every GBA game
--- uses, documented independently of any single decomp): each 8x8 tile is 32 bytes, 4 bytes per
--- row, 2 pixels per byte (low nibble = left pixel, high nibble = right pixel). This decomp's
--- tile grid is stored row-major: tile index = tileRow * gridWidthInTiles + tileCol.
---
--- NOT YET CONFIRMED: this probe is exactly what confirms it. Prints the whole decoded frame as
--- an ASCII palette-index grid (one hex digit per pixel -- a recognizable trainer silhouette,
--- hat on top, means the tile decode and frame offset are right) and the 16-color palette
--- resolved to RGB (should look like a plausible trainer palette: skin tone, cap color, etc.,
--- not visual noise).
+-- MeshGhost — does Brendan's overworld sprite decode straight from ROM (dev tool, read-only, vanilla only, never
+-- shipped). Prints gObjectEventPal_Brendan as RGB and frame 0 of gObjectEventPic_BrendanNormal as a grid of palette
+-- indices, one hex digit per pixel, to compare against the sprite on screen.
 
 local GOBJECTEVENTPIC_BRENDANNORMAL_ADDR = 0x084975f8
 local GOBJECTEVENTPAL_BRENDAN_ADDR = 0x084987f8
 local FRAME_WIDTH_TILES = 2
 local FRAME_HEIGHT_TILES = 4
-local FRAME_BYTES = FRAME_WIDTH_TILES * FRAME_HEIGHT_TILES * 32 -- 256
+local FRAME_BYTES = FRAME_WIDTH_TILES * FRAME_HEIGHT_TILES * 32
 
 if not memory.usememorydomain("System Bus") then
     console.log("ERROR: 'System Bus' memory domain not found on this core.")
@@ -40,12 +14,9 @@ if not memory.usememorydomain("System Bus") then
     return
 end
 
--- 5-bit -> 8-bit: replicate the top 3 bits into the low bits, the standard GBA color
--- expansion (not a project-specific choice -- same formula every GBA-color-aware tool uses)
--- rather than a naive *8 which would leave pure white as 0xF8 instead of 0xFF.
+-- Replicates the top bits into the low ones so 31 becomes 255; a plain *8 would leave white at 248.
 local function expand5to8(v5) return (v5 << 3) | (v5 >> 2) end
 
--- decodePalette reads 16 BGR555 u16 colors starting at addr, returns a table of {r,g,b} 0-255.
 local function decodePalette(addr)
     local pal = {}
     for i = 0, 15 do
@@ -58,8 +29,6 @@ local function decodePalette(addr)
     return pal
 end
 
--- decodeFrame reads one FRAME_BYTES-byte 4bpp frame at addr, returns a
--- FRAME_WIDTH_TILES*8 x FRAME_HEIGHT_TILES*8 grid of palette indices (0-15), row-major.
 local function decodeFrame(addr)
     local widthPx = FRAME_WIDTH_TILES * 8
     local heightPx = FRAME_HEIGHT_TILES * 8

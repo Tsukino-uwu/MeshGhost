@@ -1,15 +1,8 @@
--- Dev-only follow-up to avatar_verify_probe.lua. That probe confirmed gPlayerAvatar/
--- gObjectEvents are now correct on this Archipelago-patched ROM (real, responsive
--- flags/runningState/facingDirection) -- but the ghost is still observed stuck at a
--- per-reboot-fixed screen position, meaning something ELSE in playerScreenPos()'s formula is
--- still wrong. This probe watches the two pieces never independently tested: GSPRITES_ADDR
--- (0x02020630 vanilla) and GSPRITECOORDOFFSETX/Y_ADDR (0x02021bbc/0x02021bbe vanilla) -- if
--- either is also shifted on this ROM, sx/sy/sx2/sy2/cx/cy would read frozen garbage even with a
--- now-correct spriteId feeding into them. Read-only, never writes memory.
+-- MeshGhost — does the player's screen anchor track on the Archipelago ROM (dev tool, read-only, never shipped).
+-- Logs, on change, the player's gSprites position fields and gSpriteCoordOffsetX/Y at their vanilla addresses: a
+-- field that sits frozen while the player walks is shifted on this build. Run it after avatar_verify_probe.lua.
 
-local GPLAYERAVATAR_ADDR = 0x02037814 -- confirmed Archipelago address this session, hardcoded
--- here rather than re-detecting, since this probe is meant to run right after
--- avatar_verify_probe.lua already confirmed this exact address is correct on this ROM/session.
+local GPLAYERAVATAR_ADDR = 0x02037814 -- the Archipelago address avatar_verify_probe.lua confirms; not re-detected
 local GSPRITES_ADDR = 0x02020630
 local SPRITE_SIZE = 0x44
 local GSPRITECOORDOFFSETX_ADDR = 0x02021bbc
