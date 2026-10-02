@@ -1,38 +1,12 @@
 name: Docs
 
-# Until 2026-08-27, NOTHING in CI ran any of the documentation gates. ci.yml filters on '**.go'
-# and lua.yml on '**.lua', so a push that changed only prose produced no run at all -- and the
-# tree-level checks in dev-scripts/preflight.ps1 (reading budgets, markdown link
-# integrity, the canonical-source register, index coverage for pitfalls / VERIFIED / the ADRs /
-# the phase files / the dev-scripts README / each adapter's mandated file set, the bridge
-# constants, invented durations, and more) held only when somebody remembered to run the script.
+# preflight's tree checks (budgets, links, indexes and more) for a prose push, which ci.yml's '**.go' and lua.yml's
+# '**.lua' filters never see. -TreeOnly runs only what a bare checkout can answer and SKIPs what needs a working copy.
 #
-# THE EVIDENCE THAT THIS IS NOT HYPOTHETICAL. Commit b77b2cf shipped adapters/_template/probes.md
-# at 1,854 lines against its own declared 1,850-line cap; it was trimmed back two commits later.
-# The same audit found ten pitfalls entries governed by nothing, an index sealed inside a code
-# fence, and a duration gate that had reported PASS since it was written because three of its six
-# patterns contained literal backspace bytes. Every one of those is a check that existed and was
-# not run.
+# windows-latest because preflight is PowerShell, the script people run locally. fetch-depth: 0 because the
+# _template back-port check compares commit dates.
 #
-# -TreeOnly is the point: it runs exactly the checks a bare checkout can answer, and SKIPS the
-# ones that need a working copy -- built binaries, deployed mod DLLs, an installed Lua, running
-# processes. Those stay local, because a runner genuinely cannot answer them, and pretending
-# otherwise would be worse than not checking. gofmt and the Lua parse are already covered by
-# ci.yml and lua.yml respectively.
-#
-# Separate workflow rather than a job in ci.yml for the reason lua.yml is separate: triggers are
-# per-workflow, and ci.yml filters on '**.go' deliberately so a docs-only push spends nothing on
-# the race detector and the fuzzers.
-#
-# windows-latest because preflight.ps1 is PowerShell and this repo's own environment is Windows;
-# running it anywhere else would be checking a different script than the one people run locally.
-# fetch-depth: 0 because the _template back-port check compares COMMIT dates, not file mtimes.
-
-#
-# '**_test.go' and ci.yml are here for the fuzz census (preflight's "every Fuzz target has a CI
-# step"): the push that adds a target or deletes a step touches exactly those files, and until
-# 2026-09-16 neither triggered this workflow, so the census only ran when the same push happened
-# to touch prose (pass 5 of the adversarial review, X2-3).
+# '**_test.go' and ci.yml are here for the fuzz census: the push that adds a target or drops a step touches them.
 
 on:
   push:
@@ -62,15 +36,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The _template back-port freshness check runs `git log -1 --format=%ct -- <path>`,
-          # which needs history. With the default shallow clone it silently finds nothing for
-          # every path and reports a clean result -- the exact failure mode this workflow exists
-          # to stop.
+          # A shallow clone gives the back-port check no history, and it silently reports clean for every path.
           fetch-depth: 0
 
       - name: preflight -TreeOnly
         shell: pwsh
         run: |
-          # A SKIP is not a pass and must not read like one, so the log is worth reading rather
-          # than just the exit code. Exit 1 = at least one FAIL; warnings never fail the run.
+          # Exit 1 is a FAIL and warnings never fail the run; a SKIP is not a pass, so read the log.
           ./dev-scripts/preflight.ps1 -TreeOnly

@@ -1,31 +1,9 @@
 name: Hygiene
 
-# THE ONE LEAK SCAN, AND THE ONLY WORKFLOW HERE WITH NO PATH FILTER.
+# The one leak scan, and the only workflow with no path filter, so a push of any file type is scanned.
 #
-# It used to live in ci.yml, which triggers on '**.go', 'go.mod', 'go.sum' and its own
-# file. docs.yml runs preflight -TreeOnly, and triggers on '**.md', 'preflight.ps1' and
-# its own file. Every other workflow is scoped to one adapter's tree and scans nothing.
-# So a push touching ONLY a .ps1, .bat, .txt, .json, .cs, .cpp, .hpp, .lua or a binary
-# got no leak scanning at all -- while .githooks/pre-commit tells the reader in as many
-# words that "CI re-runs the same scan over the whole tree". It did not.
-#
-# That is not hypothetical: dev-scripts/zoom.ps1 shipped a hardcoded clone path
-# (preflight.ps1 records it, 2026-09-07), and `dev-scripts/*.ps1` is matched by no
-# workflow's path filter except preflight.ps1's own name. The hook is the primary
-# defence, but hooks are not carried by `git clone`, need `git config core.hooksPath`
-# once per clone, and can be skipped with --no-verify -- which is exactly when a
-# backstop has to exist, and exactly when this one was absent.
-#
-# A user path in a PUBLIC repo cannot be taken back once pushed: it stays in every clone
-# and fork, and rewriting published history does not reach them. That asymmetry is why
-# this is a hard failure rather than a warning, and why it is cheap enough (one checkout,
-# two greps) to run on literally every push.
-#
-# Moved here from ci.yml rather than copied: the list of exclusions below already had
-# three copies (hook, ci.yml, preflight.ps1) and a comment in each saying "change one,
-# change all three" -- which is a rule that had already been broken once, when
-# agent_docs/pitfalls/ was split out on 2026-08-25 and CI failed on its own documentation
-# until it was noticed on 2026-08-26. Two copies is better than four.
+# The pre-commit hook is the first defence, but a clone does not carry it and --no-verify skips it. A path pushed to
+# a public repo stays in every clone and fork, so this fails hard rather than warns.
 on:
   push:
   pull_request:
@@ -44,11 +22,8 @@ jobs:
 
       - name: Scan text files for user paths
         run: |
-          # Both slash directions AND -F, all three load-bearing: a pattern covering one
-          # direction passes cleanly on a file that leaks in the other, and without -F the
-          # backslashes are read as escapes. /Users/ and /home/ cover macOS and Linux.
-          # The patterns and exemptions come from dev-scripts/gate-lists.txt, which the hook and
-          # preflight.ps1 also read.
+          # Both slash directions and -F: one direction misses a leak in the other, and without -F a backslash is an
+          # escape. The patterns and exemptions come from dev-scripts/gate-lists.txt, as in the hook and preflight.
           list() { awk -v s="[$1]" '/^\[/ { on = ($1 == s); next } on && NF && $1 !~ /^#/ { print $1 }' dev-scripts/gate-lists.txt; }
           list home-patterns > "$RUNNER_TEMP/home"
           mapfile -t exempt < <(list exempt | sed 's/^/:!/')
@@ -62,12 +37,8 @@ jobs:
 
       - name: Scan binaries for user paths and clone paths
         run: |
-          # -I is DEFINED as "treat a binary file as containing no match", so the grep above
-          # -- and the hook, and preflight, from 2026-08-23 to 2026-09-07 -- could not see the one file type a
-          # path reaches without anyone typing it: a toolchain embeds the build directory in
-          # a PDB reference, and a Rust toolchain embeds the cargo registry in panic strings.
-          # A tracked, SHIPPED UE4SS.dll carried the maintainer's Windows username 86 times
-          # while every scanner in this repo reported clean (found 2026-09-07).
+          # The -I above treats a binary as matching nothing, and a toolchain embeds the build directory in a PDB
+          # reference or the cargo registry in panic strings, with nobody typing it.
           list() { awk -v s="[$1]" '/^\[/ { on = ($1 == s); next } on && NF && $1 !~ /^#/ { print $1 }' dev-scripts/gate-lists.txt; }
           { list home-patterns; list clone-patterns; } > "$RUNNER_TEMP/patterns"
 
@@ -91,10 +62,7 @@ jobs:
 
       - name: Stray files (root allowlist, local-only headers)
         run: |
-          # A working checklist whose first line said "deliberately untracked" was committed on
-          # 2026-09-08 and sat here until 2026-09-09: its header was prose and every scanner looked for
-          # paths. Same two rules as .githooks/pre-commit and preflight.ps1's "Stray files", and the
-          # same lists (dev-scripts/gate-lists.txt).
+          # The same two rules and lists as .githooks/pre-commit and preflight's "Stray files".
           list() { awk -v s="[$1]" '/^\[/ { on = ($1 == s); next } on && NF && $1 !~ /^#/ { print $1 }' dev-scripts/gate-lists.txt; }
           list root-allow > "$RUNNER_TEMP/root"
           mapfile -t exempt < <(list exempt | sed 's/^/:!/')

@@ -1166,3 +1166,14 @@ Next: finish and review each probe batch (`BRIEF-review-other.md`), prove (`lua-
 their own; then the gate commit: the comment-trace floors to 0 and a hard FAIL, the decomp-citation floors for both
 probe folders lowered to their new counts, the directive exemption, run `negative-test-preflight.ps1`. Then A5's second
 pass, then A6. Open items for the user stay in `private/a5/notes-session2.md`, "For the user / later".
+
+## 2026-10-02 — A5: the workflows and the attribute files trimmed
+
+Resumed in a new chat. The eleven workflows, `.gitignore` and `.gitattributes` went from 1,052 whole-line comments to
+247; every `uses:` pin and every trailing comment on a code line is byte-identical, and every changed line is a comment
+line (`comment-only.py`). History no record held is in `pitfalls/by-lesson.md`, "The stories behind the code" (33
+bullets), and four CI measurements (the race job's 10m29s, the fuzz shards, the release binary's sizes, the
+`-TreeOnly` pass) in `verified.md`'s 2026-10-02 entry. Two comments that contradicted the code were fixed: `.gitignore`
+said the relay logs in its working directory (it writes beside its config or executable), and `.gitattributes` gave
+every hook a leak check (only pre-commit has one). Two living-doc pointers the trim moved now name what they mean:
+`pitfalls/method.md`'s quote of the README eol comment, and `ideas.md`'s `ci.yml:158` (the `race` job).

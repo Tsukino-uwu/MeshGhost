@@ -1,115 +1,43 @@
-# .github/workflows/release.yml's TEVI and Pseudoregalia staleness gates hash these files with
-# PowerShell's Get-FileHash on a windows-latest runner, and compare against hashes
-# dev-scripts/build-tevi.bat / build-pseudoregalia.bat computed locally. GitHub's windows-latest
-# runners default to core.autocrlf=true, so without this, actions/checkout silently rewrites
-# these LF-committed files to CRLF, changing their hash and permanently failing the gate
-# regardless of whether the DLL is actually stale.
+# release.yml's staleness gates hash these on a Windows runner, whose checkout would otherwise write CRLF and fail them.
 adapters/tevi/MeshGhostTevi/*.cs text eol=lf
 adapters/tevi/MeshGhostTevi/*.csproj text eol=lf
 adapters/tevi/MeshGhostTevi/packages.lock.json text eol=lf
 global.json text eol=lf
 Directory.Build.props text eol=lf
 nuget.config text eol=lf
-# The sibling test project is not hashed by any staleness gate, but it is pinned with the
-# adapter it compiles by link so the two never disagree about line endings on a Linux runner.
+# Pinned with the adapter it compiles by link, so the two agree on a Linux runner.
 adapters/tevi/MeshGhostTevi.Tests/*.cs text eol=lf
 adapters/tevi/MeshGhostTevi.Tests/*.csproj text eol=lf
-# The Pseudoregalia harness compiles PeerJson.hpp by include path on a Linux runner, so it is
-# pinned LF with the adapter it tests -- same reasoning as the TEVI test project above, and the
-# header itself is already covered by the Mod/src/*.hpp rule below.
+# The harness compiles PeerJson.hpp on a Linux runner, so it is pinned LF with the adapter it tests.
 adapters/pseudoregalia/MeshGhostPseudo.Tests/*.cpp text eol=lf
 adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.cpp text eol=lf
 adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.hpp text eol=lf
 adapters/pseudoregalia/MeshGhostPseudo/Mod/CMakeLists.txt text eol=lf
 
-# Shell scripts are pinned LF, and this rule is load-bearing right now, not hypothetical:
-# .github/workflows/ci.yml's fuzz job runs `bash dev-scripts/ci-fuzz.sh` on ubuntu-latest, so a
-# CRLF copy of it breaks CI outright with the classic "$'\r': command not found". This machine
-# CANNOT demonstrate that failure -- Git Bash's sh tolerates CRLF happily (checked 2026-08-16) --
-# so a broken script looks perfectly healthy in local testing and only fails on the runner.
-# (The release's Linux/macOS packages are tarred on a Linux runner, which keeps the executable
-# bit; that is why no chmod helper is needed, not why this rule exists.)
+# A CRLF shell script fails on Linux with "$'\r': command not found", while Git Bash here runs it fine.
 *.sh text eol=lf
 
-# go.mod/go.sum are pinned LF because `go mod tidy` rewrites them wholesale to LF: without this
-# they sit in the working tree as CRLF (go.mod was in fact stored MIXED), so a routine tidy
-# produces a whole-file phantom diff that looks like a dependency change and is not.
+# go mod tidy rewrites these as LF, so a CRLF copy turns a routine tidy into a whole-file diff.
 go.mod text eol=lf
 go.sum text eol=lf
 
-# *.go pinned LF for the same reason, found 2026-08-23. `core.autocrlf=true` means git WRITES CRLF
-# whenever it materializes a file, so any revert of a .go file (`git checkout --`, a reverted patch,
-# a stash pop) silently re-creates it with CRLF -- with the CONTENT identical to HEAD, so `git
-# status` and `git diff` both show nothing and there is no edit to blame. `gofmt -l` then reports
-# the file as unformatted and prints a whole-file diff, which reads like a formatting disaster
-# rather than a line-ending one, and `dev-scripts/preflight.ps1`'s first check fails.
-#
-# Four files were sitting in exactly that state when this was added: `core.go`, `bridge.go` and
-# both `cmd/*/main.go`, three of them byte-identical to HEAD. The pin is what `go.mod`/`go.sum`
-# above already had; `.go` was simply missed.
+# Under core.autocrlf=true a revert writes CRLF, which gofmt -l reports as a whole-file diff while git diff is empty.
 *.go text eol=lf
 
-# The pre-commit hook is a shell script with no .sh extension, so the rule above does not reach it.
-# Same reasoning, and the same failure: a CRLF hook on a Linux or macOS clone dies with the classic
-# `$'\r': command not found` and the leak check it performs silently stops running -- which is worse
-# than the hook not existing, because preflight would report core.hooksPath as correctly set.
+# The hooks are shell scripts without .sh; a CRLF one dies on Linux, and the pre-commit leak check silently stops.
 .githooks/* text eol=lf
 
-# The player-facing text that ships INSIDE the release zip, pinned to CRLF.
-#
-# These are opened by double-clicking on Windows, where a file with bare LF
-# renders as one endless line in Notepad. They used to survive on the raw bytes
-# in the blob rather than on a rule, which held only until something rewrote one
-# -- a doc edit on 2026-09-06 did exactly that and flipped README.txt to LF.
-# Pinned here instead, so the ending is decided by the repo and not by whichever
-# runner happens to check the tree out.
-#
-# Scoped to the READMEs WE write, deliberately: a wider glob also swept the vendored
-# UE4SS runtime's own LICENSE and THIRD-PARTY-NOTICES.txt, and a vendored file stays
-# byte-identical to what its project shipped.
-#
-# `**` and not `*` in the games rule, corrected 2026-09-08. A gitattributes `*` does not
-# cross a `/`, so `games/*/README.txt` reached tevi/ and pseudoregalia/ and MISSED both
-# Pokemon READMEs, which sit a level deeper under games/pokemon/. `git check-attr eol` on
-# those two printed `unspecified`: they were CRLF only because the bytes in the blob
-# happened to be, which is precisely the state the paragraph above records going wrong on
-# 2026-09-06. Check the fix the same way rather than by reading the pattern -- all four
-# paths must print `eol: crlf`.
-#
-# `**` also reaches one file the old `*` never did and that IS wanted: the explanatory
-# README.txt we ship inside the user's ue4ss\Mods\ folder, which is our text, opened by
-# double-click on Windows exactly like the other four. It is LF in the blob today, so the
-# first checkout after this rule lands rewrites it -- a whole-file ending diff with no
-# content change, which is the pin doing its job and not something to revert. The vendored
-# UE4SS files in that same tree are untouched: they are LICENSE and THIRD-PARTY-NOTICES.txt,
-# and this glob only matches the basename README.txt.
+# READMEs a player double-clicks on Windows, where Notepad shows bare LF as one line; only our own, as vendored UE4SS
+# files stay byte-identical. `**`: a gitattributes `*` does not cross a `/`; confirm with `git check-attr eol`.
 packaging/release/README.txt text eol=crlf
 packaging/release/games/**/README.txt text eol=crlf
 
-# The Linux and macOS READMEs are the same player-facing text for the OTHER packages, and
-# they are pinned the opposite way for the same reason: release.yml renames each into the
-# tarball as README.txt, where a stray CR is what shows up as a visible ^M in a terminal
-# pager. They were unpinned until 2026-09-08 and are LF today only on the blob's bytes.
+# Renamed into the tarballs as README.txt, where a stray CR shows as ^M in a terminal pager.
 packaging/unix/README-*.txt text eol=lf
 
-# config.json is the one shipped file that goes to ALL THREE packages from one blob -- the
-# Windows zip root, both tarballs, and (cut down by dev-scripts/stage-release.ps1) every
-# game folder. LF rather than CRLF deliberately: encoding/json does not care on either
-# side, and the two tarballs are the copies where the ending is visible to a reader. Pinned
-# 2026-09-08 so it stays decided here rather than by whichever runner checks the tree out.
+# Ships to all three packages from one blob; LF because encoding/json ignores it and the tarballs are where it shows.
 packaging/release/config.json text eol=lf
 
-# Batch files, for the same reason one line up and with the same history.
-#
-# `dev-scripts/run-core.bat` states the requirement in its own header: "This file MUST keep CRLF
-# line endings. cmd.exe mis-parses labels and `goto` in an LF-only .bat, and the first draft ran
-# straight past its own argument validation and launched a core with an empty -game" (2026-08-25).
-# That was recorded and then protected by nothing: no rule covered *.bat, so the property lived in
-# whichever bytes happened to be in each blob. On 2026-09-07 a one-word sed edit to a COMMENT in
-# that same file rewrote every line ending in it and stored it as LF -- a one-line content diff, a
-# green tree, and no gate anywhere that could see it.
-#
-# Pinned for every .bat rather than the three that use labels today, because "does this script use
-# goto yet" is not a property anyone will re-check before adding one.
+# cmd.exe mis-parses labels and goto in an LF-only .bat; pinned for every .bat, not only those using goto today.
 *.bat text eol=crlf
 

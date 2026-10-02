@@ -1,24 +1,11 @@
-# Negative-tests the gates themselves: can preflight still FAIL?
+# Negative-tests the gates: on a clean tree a broken gate and a working one print the same word, so this plants a
+# real violation per fixture and fails if a section does not name its own.
 #
-# docs.yml runs preflight against a clean tree, which is the only direction anyone ever runs it --
-# and the direction in which a broken gate and a working one print the same word. This job runs it
-# against trees with a real violation planted in them, one per fixture, and fails if a section does
-# not name its own. It caught three on the day it was written (2026-09-11): two sections reading a
-# different tree through [IO.File] relative paths, and a WARN that had been on since it was added.
+# Path-filtered hard: every fixture is a full preflight run, and only the gate script, the harness and the hook can
+# turn a gate blind. Sharded: fixtures are dealt round-robin by position and each job runs its slice plus the
+# baseline. Raise the shard count everywhere below (the name, the matrix, -Shards) when the list grows.
 #
-# PATH-FILTERED HARD, because every fixture is a full preflight run and therefore minutes, not
-# seconds. The only files that can turn a gate blind are the gate script, the harness, and the hook
-# that carries the same exclusion list; a .md push does not need this, and docs.yml already covers
-# that side.
-#
-# SHARDED since 2026-09-16, when the list grew from 15 fixtures to 61 (every section that runs
-# under -TreeOnly): one job would take about 47 minutes at the runner's ~45 s per fixture. The
-# harness deals fixtures round-robin by position, each job runs its slice plus the baseline, and
-# the sum of the shards is one full run -- the same shape ci.yml uses for the race tests. Raise the
-# count in BOTH places below when the list grows.
-#
-# windows-latest for the reason docs.yml gives: preflight is PowerShell and this repo's environment
-# is Windows, so running it elsewhere would be checking a different script than people run locally.
+# windows-latest because preflight is PowerShell, the script people run locally.
 name: gates
 
 on:
@@ -51,15 +38,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The harness creates a detached worktree at HEAD, and preflight's _template back-port
-          # and phase-log checks read commit dates. A shallow clone gives them nothing to work
-          # with, and the baseline run would go quietly wrong rather than loudly.
+          # The harness makes a detached worktree at HEAD, and the back-port and phase-log checks read commit dates.
           fetch-depth: 0
 
       - name: "Plant a violation in front of every gate in this shard"
         shell: pwsh
         run: |
-          # The log is the point, not just the exit code: it ends with the sections that have NO
-          # fixture yet (tallied over the full list, not this shard), which is the list of gates
-          # whose ability to fail is still assumed.
+          # The log ends with the sections that have no fixture yet, tallied over the full list, not this shard.
           ./dev-scripts/negative-test-preflight.ps1 -Shard ${{ matrix.shard }} -Shards 6

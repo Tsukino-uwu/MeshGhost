@@ -1,41 +1,14 @@
 name: CI
 
-# Runs the Go client/server checks CLAUDE.md requires before any change to the
-# Go side is called done -- build, vet, the full test suite, and a
-# short fuzz campaign against twenty-seven targets across seven packages (protocol 13, bridge 3, relay 3, transport 1, core 5, internal/hotkey 1, cmd/meshghost 1).
-# That is every target a release build carries but two: `grep -hc '^func Fuzz' $(git ls-files '*_test.go')`
-# counted 30 on 2026-09-15 -- 29 in the release build plus netx/udpconn's one, which is behind
-# the meshghost_devudp tag and deliberately has no step (ADR 0065) -- and agent_docs/testing.md
-# names the two core targets with no step here and why (both are socket-bound schedule fuzzers
-# that are opt-in on purpose). Only FuzzSchedule replays its seed corpus in the race job:
-# FuzzNameDeliverySurvivesAnyConnectOrdering skips itself unless MESHGHOST_SCHEDULE_FUZZ is set,
-# so its seeds run nowhere in CI (this line said both until pass 5's X2-7, 2026-09-16). COUNT BOTH
-# RATHER THAN TRUSTING THIS LINE: it said eleven across four for as long as the two bridge targets
-# had existed, on 2026-09-10 it still said 26/two while the tree held 27 and three were unwired --
-# a target had shipped with an ADR and no step -- and on 2026-09-15 it said 25/eight while the
-# tree held 30 (bridge had 3, core had 7). Until this existed,
-# every one of those ran only when a human remembered to run them, and
-# release.yml shipped binaries without running a single test.
+# The Go client and server: build, vet, the race tests, a vulnerability scan and a short fuzz campaign per target.
+# The Fuzz targets with no step here are the two opt-in, socket-bound schedule fuzzers in core and the dev-only udp
+# one; count them in the tree rather than trusting a number written here.
 #
-# This deliberately covers ONLY the Go side. Adapters are excluded on
-# purpose: CLAUDE.md's standard for an adapter is "was the expected thing
-# seen happening on screen in a running game", which no runner can do, and
-# NEITHER of the two mod DLLs can be built here (proprietary game DLLs and a
-# private UE4SS dependency -- see packaging/README.md; the other two adapters are
-# Lua and have no DLL at all, which is what "two of the three" got wrong). The staleness
-# gates in release.yml are what guard those.
+# Adapters are excluded: no runner can watch a game, and neither mod DLL can be built here, so release.yml's
+# staleness gates guard those.
 #
-# Only runs when the Go client/server actually changed. No tracked .go file in
-# this repo belongs to an adapter -- they are Lua, C# and C++ -- so "**.go" is
-# precisely "server/client files" whatever directory they sit in (they moved out
-# of internal/ on 2026-08-17; the filter needed no change, which is the point of
-# matching on extension rather than path). An adapter, packaging, or agent_docs
-# push produces no run at all, rather than spending minutes re-proving code it
-# cannot have affected. The workflow file itself is included so a change to
-# these checks still gets exercised by them.
-#
-# workflow_dispatch deliberately carries no filter: the Actions tab can always
-# run the full thing by hand, whatever the last commit touched.
+# '**.go' matches by extension because no adapter is written in Go, wherever the files sit. workflow_dispatch has no
+# filter, so the Actions tab can always run the whole thing.
 on:
   push:
     paths:
@@ -54,25 +27,10 @@ on:
 permissions: {}
 
 jobs:
-  # The leak scan MOVED to .github/workflows/hygiene.yml on 2026-09-07, and is not
-  # duplicated here. It was in this workflow, which triggers only on '**.go', 'go.mod',
-  # 'go.sum' and its own file -- so a push touching only a .ps1, .bat, .txt, .json, .cs,
-  # .cpp, .hpp, .lua or a binary was scanned by nothing, while .githooks/pre-commit told
-  # the reader "CI re-runs the same scan over the whole tree". hygiene.yml has no path
-  # filter and runs on every push, which is what that sentence always claimed.
-
   test:
     permissions:
       contents: read
     name: Build, vet, format
-    # Linux, not Windows, specifically for the race detector: on Windows it
-    # needs a working cgo C toolchain, and a machine can easily have a `gcc`
-    # on PATH that is the wrong install (found live 2026-08-16 -- the dev
-    # box's `gcc` resolved to a devkitPro MSYS2 copy whose headers `-race`
-    # can't use). On Linux it just works with no toolchain setup at all.
-    # The Go code is platform-agnostic (net, encoding/json, no syscalls), so
-    # a race here is a race on Windows too; the windows job below covers the
-    # actual shipping target.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -80,9 +38,6 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # Caching keys off go.sum, which this module has had since quic-go
-          # was adopted (2026-08-16). It was off while the module had zero
-          # dependencies and setup-go had nothing to key on.
           cache: true
 
       - name: Build
@@ -91,21 +46,12 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      # Plain udp is dormant (ADR 0065, 2026-09-15): compiled only under this tag, tested
-      # only by hand. Vetting the tagged tree here is the anti-rot step -- a refactor that
-      # breaks netx/udpconn fails this job instead of the next manual comparison run. No
-      # udp tests or fuzzing in CI, on purpose.
+      # Plain udp compiles only under this tag and is tested by hand; vetting it here fails a refactor that breaks it.
       - name: Vet the dev-only udp build
         run: go vet -tags meshghost_devudp ./...
 
-      # The release ships Linux and macOS builds of the client and server in the same zip
-      # as the Windows ones, but the release workflow is workflow_dispatch only -- so
-      # without this, a break on a platform no CI job runs would first appear on release
-      # day, with a tag already cut. Compiling is enough: these are cheap, and what they
-      # catch is a build-tag mistake in the small per-OS seam (cmd/meshghost's parentGone
-      # and consoleWriter), which is exactly the kind of thing that compiles on the OS you
-      # wrote it on and nowhere else. darwin has no runner here at all, so this is its only
-      # coverage.
+      # The release is dispatch-only, so this is where a build-tag mistake in the per-OS seam (cmd/meshghost's
+      # parentGone and consoleWriter) shows first; darwin has no runner, so this is its only coverage.
       - name: Cross-compile the other shipped platforms
         env:
           CGO_ENABLED: "0"
@@ -116,10 +62,7 @@ jobs:
             GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/meshghost-relay
           done
 
-      # gofmt is not vet: `go vet` passes happily on misformatted source, so
-      # nothing caught cmd/meshghost-relay/main.go drifting out of gofmt shape
-      # until the 2026-08-18 audit read it. A formatting gate is cheap and the
-      # failure is always trivially fixable with `gofmt -w`.
+      # go vet passes misformatted source.
       - name: Check formatting
         run: |
           unformatted=$(gofmt -l $(git ls-files '*.go'))
@@ -134,29 +77,13 @@ jobs:
     permissions:
       contents: read
     name: Test (race) - ${{ matrix.name }}
-    # Linux, not Windows, specifically for the race detector: on Windows it
-    # needs a working cgo C toolchain, and a machine can easily have a `gcc`
-    # on PATH that is the wrong install (found live 2026-08-16 -- the dev
-    # box's `gcc` resolved to a devkitPro MSYS2 copy whose headers `-race`
-    # can't use). On Linux it just works with no toolchain setup at all.
-    # The Go code is platform-agnostic (net, encoding/json, no syscalls), so
-    # a race here is a race on Windows too; the windows job below covers the
-    # actual shipping target.
+    # Linux for the race detector: on Windows it needs a cgo toolchain, and a gcc on PATH can be the wrong install.
+    # The Go code uses no syscalls, so a race here is a race on Windows; the windows job covers the shipping target.
     #
-    # Three runners, not one: `go test ./...` already runs packages side by side,
-    # but on one four-core runner the two long packages starve each other and the
-    # job's wall time was the slowest of them -- 10m29s on 2026-09-15, with core
-    # alone at Go's ten-minute package limit. Each shard gets a whole runner, and
-    # the job takes its longest shard. The command and the count are unchanged;
-    # every package is in exactly one shard, and the third shard's `go list`
-    # subtraction means a new package lands there without anyone editing this.
+    # Three shards, because on one runner the long packages starve each other and core nears Go's ten-minute package
+    # limit. The third shard's `go list` subtraction picks up a new package with no edit here.
     #
-    # -count=3 because this suite has caught a real race by failing
-    # intermittently rather than reliably (see CLAUDE.md and the pending-
-    # payload fix in transport, which lived in internal/transport until the
-    # 2026-08-17 move of the library packages to the repo root). The race detector is the
-    # deterministic version of the "run it repeatedly and watch" ritual
-    # that replaced; running both is belt and braces.
+    # -count=3: this suite has caught a real race by failing intermittently rather than reliably.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -167,9 +94,7 @@ jobs:
           - name: relay and end to end
             packages: ./relay ./internal/e2e
           - name: everything else
-            # Anchored on the WHOLE import path (-x): a suffix match would also drop a
-            # future netx/relay or similar from this shard, and it is in neither of the
-            # other two (pass 5 of the adversarial review, 2026-09-16, X2-13).
+            # Anchored on the whole import path (-x): a suffix match would drop a future netx/relay from every shard.
             packages: $(go list ./... | grep -v -x -E "$(go list -m)/(core|relay|internal/e2e)")
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -186,13 +111,8 @@ jobs:
     permissions:
       contents: read
     name: Known vulnerabilities in dependencies
-    # govulncheck (2026-09-02) matches the module's dependency graph -- one direct dependency,
-    # quic-go, plus its golang.org/x set and the standard library itself -- against the Go
-    # vulnerability database, and reports only vulnerabilities in code this module actually
-    # CALLS, not everything present in a dependency. A hit here is a reason to bump go.mod (or
-    # the Go version) before the next release, and the answer to "are your dependencies current"
-    # before anyone has to ask. Installed at latest on purpose: the database and the tool move
-    # together, and pinning the tool would pin the question to an old answer.
+    # Reports only vulnerabilities in code this module calls; a hit means bump go.mod or Go before the next release.
+    # Installed at latest on purpose: the database and the tool move together.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -205,11 +125,7 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
-      # A newer quic-go is a NOTICE, never a failure: the module is pinned in go.mod on purpose
-      # (quic-go is v0.x and moves its API between minors), and an update is a deliberate change
-      # that gets the full suite and a release, not something a push should be red over. What
-      # this prevents is silent staleness -- nobody re-checking because nothing said
-      # to. govulncheck above is the one that fails, and only for a version with a known hole.
+      # A notice, never a failure: quic-go is v0.x and moves its API between minors, so a bump is a deliberate change.
       - name: Newer quic-go available?
         run: |
           latest=$(go list -m -u -f '{{if .Update}}{{.Update.Version}}{{end}}' github.com/quic-go/quic-go)
@@ -225,38 +141,16 @@ jobs:
       contents: read
     name: Fuzz ${{ matrix.name }}
     runs-on: ubuntu-latest
-    # Six shards in parallel instead of one job running all 29 targets end to end. The
-    # serial job took 17m24s on 2026-09-15 -- each target is its own instrumented build
-    # plus its campaign, and they only ever ran one after another. The targets, their
-    # fuzz times and the wrapper are unchanged; what changed is that the job's wall time
-    # is now its longest shard (about three and a half minutes) rather than the sum.
-    # Shards group by package so a shard's instrumented build is shared by its targets.
-    # There is no cap that made four jobs the limit: a public repo runs 20 at once.
+    # Shards group by package so a shard's targets share one instrumented build.
     #
-    # dev-scripts/preflight.ps1's fuzz census reads this file for every Fuzz* target's
-    # NAME, so a target lives here as a literal line, never in a variable or a script.
+    # preflight's fuzz census reads each target's name from this file, so a target stays a literal line, never a
+    # variable or a script.
     strategy:
       fail-fast: false
       matrix:
         include:
-          # A relay is a listening port strangers connect to, so every byte it
-          # parses is attacker-controlled. Each target gets a short campaign per
-          # push -- enough to catch a regression that makes previously-safe
-          # input crash, not a substitute for a long campaign when the parsing
-          # or limit code actually changes. Run one of those by hand with
-          # -fuzztime=10m; each target's doc comment carries the exact command.
-          #
-          # The four planes past cosmetic (2026-08-17) parse their own
-          # attacker-controlled shapes: an event payload is opaque bytes forwarded
-          # to other players, and a lease key or escrow id becomes a map key in the
-          # relay's own state. Same exposure as the state plane, so the same
-          # treatment. world.v1 retains attacker-chosen opaque bytes for a room's
-          # lifetime and hands them to whoever takes a lease next, and an authority
-          # string is compared for equality against a lease key -- a non-UTF-8 one
-          # becomes a DIFFERENT string across JSON, so every write is silently
-          # denied while the client's own validation passed. That target was written
-          # with the plane and left out of CI, the same omission
-          # FuzzListenerSurvivesArbitraryDatagrams had; it had therefore never run.
+          # Every byte a relay parses is attacker-controlled. A short campaign per push catches a regression; run a
+          # long one (-fuzztime=10m) by hand when parsing or limit code changes.
           - name: "protocol - the wire"
             targets: |
               ./protocol FuzzValidateStateIsStableAcrossTheWire 45s
@@ -265,35 +159,6 @@ jobs:
               ./protocol FuzzValidateEventIsStableAcrossTheWire 30s
               ./protocol FuzzValidateLeaseAndEscrowNeverPanic 30s
               ./protocol FuzzValidateWorldIsStableAcrossTheWire 30s
-          # Room feature stickiness compares normalized capability lists by string
-          # equality, so a normalizer that is not idempotent would refuse two
-          # clients a shared room for no reason -- a handshake failure with no
-          # legible cause.
-          #
-          # Rate resolution is where a relay's advertised send_hz and a peer's
-          # requested receive cap enter this process, and every caller trusts the
-          # answer without re-checking it: core drives its send loop with it, the
-          # relay sizes a flood cap with it. A resolver that let a value escape
-          # [MinSendHz, MaxSendHz] would put a client at a rate nothing enforces.
-          # Added 2026-09-01 alongside the DefaultSendHz 20 -> 15 change -- a
-          # constant that moves is a constant worth fuzzing around.
-          #
-          # extras and orientation were bounded by SIZE and never by SHAPE until
-          # 2026-09-03: 490 levels of nesting fit inside the 1024-byte extras cap and
-          # 127 inside orientation's 256, measured 2026-08-24. Every receiver then
-          # walks that structure, and the receivers are four hand-written decoders in
-          # three languages. The depth target pins the two depth checkers against each
-          # other -- one scans raw bytes, the other walks a decoded value -- because
-          # orientation is bounded by the scanner ALONE, so a scanner more permissive
-          # than the walk is a hole in the field that never gets decoded.
-          #
-          # Four pins that existed in the tree without a step here until 2026-09-06 (the user's
-          # call: CI runs every Go test it can). Two are encoder-vs-encoding/json pins -- our hand
-          # encoders must produce exactly the bytes json.Marshal would, or a size limit checked at
-          # one end and enforced at the other becomes a moved validation boundary. Two are the
-          # sanitizer pins -- a display name or colour must be safe to log and re-send whatever
-          # arrives, and sanitizing twice must equal sanitizing once, because the relay and every
-          # client both do it.
           - name: "protocol - limits, encoders and sanitizers"
             targets: |
               ./protocol FuzzNormalizeFeaturesIsIdempotent 30s
@@ -303,21 +168,8 @@ jobs:
               ./protocol FuzzExtrasSizingMatchesMarshal 30s
               ./protocol FuzzSanitizeDisplayNameIsAlwaysSafeToShowAndLog 30s
               ./protocol FuzzSanitizeNameColorIsAlwaysAHexColourOrNothing 20s
-          # The bridge is the OTHER protocol, and it had no fuzzing (and no tests at
-          # all) until 2026-08-25. Its exposure is different from the relay's rather
-          # than smaller: the bytes come from a game mod on the same machine -- a Lua
-          # script a user edits -- and a panic decoding them takes the core down and
-          # every ghost with it. Four adapters in three languages compose these
-          # messages by hand, so malformed input is the ordinary case, not the attack.
-          # The two decode targets go into plain structs with no custom UnmarshalJSON,
-          # so between them they campaign encoding/json and no line of package bridge.
-          # The third has the package's own validator as its SUBJECT -- it was only
-          # ever an ORACLE, in core's track-parser target, always on a one-edge batch
-          # (X2-3 and X2-7, 2026-09-12). An input track is a file one player sends
-          # another, and the adapter reading it back narrows its fields in C++.
-          #
-          # The room-code proof's two incoming messages (ADR 0067): bytes from an
-          # unauthenticated peer on both sides, refused or answered, never a panic.
+          # Bridge bytes come from a mod on the same machine, composed by hand, and a panic decoding them takes the
+          # core down; the room-code proof's messages come from an unauthenticated peer.
           - name: "bridge, pake and transport"
             targets: |
               ./bridge FuzzEnvelopeUnmarshalNeverPanics 30s
@@ -325,28 +177,8 @@ jobs:
               ./bridge FuzzValidateInputSampleAgreesWithItsOwnRejectReason 30s
               ./pake FuzzMessagesNeverPanic 30s
               ./transport FuzzReadLoopNeverExceedsItsLineLimit 45s
-          # THE CLIENT'S OWN TWO MOUTHS. Most targets fuzz what a SERVER reads, or a
-          # file, or a pure function. Until 2026-09-12 nothing pushed arbitrary bytes
-          # into the two things the core itself reads from -- the relay connection
-          # (docs/security.md treats a hostile relay as a real threat model, and the
-          # 2026-09-12 pass fixed five findings in that exact path) and the bridge
-          # socket (loopback with no authentication, by design). FuzzEverything drives
-          # the bridge, but only ever with legal frames, and its relay is a stand-in
-          # that delivers nothing. X2-4.
-          #
-          # The client's known-servers file (known_servers.json, ADR 0066) is bytes
-          # off a disk a hand may have edited: the loader must error or load, never panic.
-          #
-          # A replay file (ADR 0047, 2026-09-03) is a stranger's bytes by design --
-          # shared and hand-edited -- and the loader is the only parser in core
-          # that reads a file. It must never panic, and anything it accepts must
-          # pass the same per-sample validation a relay packet does. Its sibling,
-          # the input track, is a FILE for the same reason, so it is a stranger's
-          # bytes the moment one person sends another a clip. Added 2026-09-10 -- it
-          # shipped with ADR 0056 on 2026-09-08 and had no step, while this comment,
-          # agent_docs/testing.md and docs/reviewing.md all said the only unwired
-          # targets were the two socket-bound ones. Nothing was watching the count;
-          # the doc sweep that found it was reading by hand.
+          # What the client itself reads: a hostile relay, the unauthenticated bridge socket, and files a hand edits
+          # or a stranger shares (known servers, replays, input tracks).
           - name: "core - what it reads"
             targets: |
               ./core FuzzHostileRelayLines 45s
@@ -354,36 +186,14 @@ jobs:
               ./core FuzzKnownRelaysFileNeverPanics 30s
               ./core FuzzParseReplayNeverPanics 30s
               ./core FuzzParseInputTrackNeverPanics 30s
-          # The user's standard, 2026-09-03: "a fuzzer that doesn't fuzz everything randomly won't
-          # catch things we didn't think about". One client, random config inside and outside every
-          # limit, random order and timing of frames, files, controls, relay messages and clock resets,
-          # checked against the invariants a player would state. No relay sockets, so it can run here.
-          #
-          # Two things a player types by hand and nothing else parsed: a hotkey chord, and the
-          # nested config blocks. Must never panic and must never admit a value past its rule.
+          # FuzzEverything opens no relay socket, so unlike the schedule fuzzers it can run here.
           - name: "core - everything, and what a player types"
             targets: |
               ./core FuzzEverything 60s
               ./internal/hotkey FuzzParseNeverPanicsAndOnlyAdmitsDocumentedChords 20s
               ./cmd/meshghost FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane 20s
-          # The relay's POST-JOIN dispatch had no fuzz coverage at all until
-          # 2026-08-17: the first target dials, writes one line and hangs up, so the
-          # switch reaching handleEvent/handleLease/handleEscrow/handleWorld -- where
-          # a lease key, an escrow id and a worldKey all become keys in the relay's
-          # own maps -- was only ever exercised by hand-written, well-formed tests.
-          #
-          # The protocol version stopped being a constant comparison on 2026-09-08 and
-          # became a FLOOR -- a decision with two outcomes, made before the room is
-          # touched. Both other relay targets hard-code protocol.Version in their
-          # hello, so it was the one field nothing varied; the third drives it across
-          # the floor, both int32 edges and negatives, and asserts the relay's verdict
-          # matches protocol.AcceptsPeerVersion exactly, which is what stops the two
-          # ends drifting into "some players cannot join".
-          #
-          # netx/udpconn's FuzzListenerSurvivesArbitraryDatagrams has no step since 2026-09-15:
-          # plain udp is compiled only under the meshghost_devudp tag and no release carries it
-          # (ADR 0065). The test job's vet step still compiles it; dev-scripts/run-gotests-udp.bat
-          # runs its tests and fuzz seeds by hand.
+          # netx/udpconn's target has no step: no release carries plain udp, and dev-scripts/run-gotests-udp.bat runs
+          # its tests and seeds by hand.
           - name: "relay"
             targets: |
               ./relay FuzzRelaySurvivesArbitraryLines 45s
@@ -395,26 +205,11 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # Caching keys off go.sum, which this module has had since quic-go
-          # was adopted (2026-08-16). It was off while the module had zero
-          # dependencies and setup-go had nothing to key on.
           cache: true
 
-      # Invoked via `bash ...` rather than executed directly: the executable bit is a file mode
-      # git only tracks if it is set at the time of `git add`, and getting that wrong fails the
-      # step with a bare "Permission denied" (exit 126) that says nothing about fuzzing. Calling
-      # the interpreter explicitly makes the mode irrelevant, on Windows checkouts too.
-      # Each target runs through dev-scripts/ci-fuzz.sh rather than `go test` directly.
-      # `go test -fuzz` can exit non-zero with only "context deadline exceeded" when its
-      # own -fuzztime elapses mid-execution -- no crashing input, nothing written to
-      # testdata, and a pass on the next run. Seen 2026-08-17 (45s, 3.98M execs, 273 new
-      # interesting inputs, no failing input, and the same target green locally). The
-      # wrapper forgives ONLY that bare deadline, and still fails on a real find, on a
-      # failing seed-corpus entry, and on anything else non-zero. See its own header.
-      #
-      # -run=XXX (inside the wrapper) so the ordinary tests in these packages don't run
-      # again here; the race job already ran them under -race. Each target is its own
-      # ::group:: so the log folds per target the way the old one-step-per-target job did.
+      # Through bash, so the script's executable bit does not matter. ci-fuzz.sh forgives only the bare "context
+      # deadline exceeded" go test -fuzz can exit with when -fuzztime elapses; a real find still fails the step.
+      # Its -run=XXX skips the ordinary tests, which the race job already ran.
       - name: Fuzz every target in this shard
         run: |
           while read -r pkg target secs; do
@@ -425,12 +220,7 @@ jobs:
           done <<'TARGETS'
           ${{ matrix.targets }}
           TARGETS
-      # A fuzz failure writes the exact reproducing input to
-      # testdata/fuzz/<Target>/<hash>. Without this it exists only inside a
-      # deleted runner and the log shows a hash nobody can reproduce from;
-      # with it, the input can be downloaded and dropped straight into the
-      # repo, where `go test ./<pkg>` replays it as an ordinary test case.
-      # One artifact per shard: two shards failing at once must not collide.
+      # The failing input in testdata/fuzz/<Target>/ drops into the repo as a test case; one artifact per shard.
       - name: Upload the failing input
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -443,9 +233,7 @@ jobs:
     permissions:
       contents: read
     name: Build and test on the shipping target
-    # The race detector doesn't run here (see the race job), but this is the
-    # platform every user actually runs, and it's the one that would catch a
-    # path-handling or line-ending assumption the Linux job can't.
+    # The shipping platform: it catches a path-handling or line-ending assumption the Linux jobs can't.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -453,9 +241,6 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # Caching keys off go.sum, which this module has had since quic-go
-          # was adopted (2026-08-16). It was off while the module had zero
-          # dependencies and setup-go had nothing to key on.
           cache: true
 
       - name: Build the release binaries

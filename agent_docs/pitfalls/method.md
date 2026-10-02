@@ -1394,9 +1394,10 @@ Linux runner or a `core.autocrlf=false` clone gets. The attribute half runs unde
 `docs.yml` enforces it. Both halves were deliberately broken once to prove they can fail.
 
 **The transferable rule.** *A line-ending requirement recorded only in a comment is not enforced.*
-This repo had already learned it once — `.gitattributes:57-59` says the release READMEs' endings
+This repo had already learned it once — the comment on `.gitattributes`'s release-README rule said their endings
 "used to survive on the raw bytes in the blob rather than on a rule, which held only until
-something rewrote one" — and `.bat` was simply left out of the fix. When a file's format matters,
+something rewrote one" (that comment is now in `by-lesson.md`, "The stories behind the code") — and `.bat` was simply
+left out of the fix. When a file's format matters,
 pin it where the tooling reads, not where a human does.
 
 ## "A file is not there" is a filesystem answer to a HISTORY question (2026-09-07)

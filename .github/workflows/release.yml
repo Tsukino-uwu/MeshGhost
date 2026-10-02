@@ -1,9 +1,7 @@
 name: Release
 
-# Builds Windows binaries and packages them into the one zip a non-dev friend actually needs
-# -- see packaging/README.md for why it's laid out this way. Manual trigger only (Actions tab ->
-# this workflow -> "Run workflow") -- deliberately not tied to a tag push, so nothing publishes
-# without someone actually clicking the button and typing a version.
+# Builds the release: the Windows zip with every game's mod, and native Linux and macOS client and server tarballs.
+# Manual trigger only, not a tag push, so nothing publishes without someone typing a version.
 on:
   workflow_dispatch:
     inputs:
@@ -25,22 +23,8 @@ on:
 permissions: {}
 
 jobs:
-  # Refuse to build anything if the release BODY would carry a machine-specific path.
-  #
-  # 2026-09-07, v1.2.1, live: the highlights text was written to a file and passed as
-  # `gh workflow run -F highlights=<path>` without the `@` that makes gh read the file. gh sent
-  # the path as a literal string, this workflow put that string in `body:` verbatim, and the run
-  # went green -- publishing a scratchpad path containing the operator's Windows username as the
-  # entire release description of a public release. Nothing existing could have caught it:
-  # .githooks/pre-commit and preflight scan TRACKED FILES, and a workflow_dispatch input is
-  # neither tracked nor a file. So the same scan has to happen here, on the text that is actually
-  # about to be published.
-  #
-  # It runs FIRST and everything else needs it, so a bad body costs a few seconds rather than a
-  # full Windows build, a tag, and a deletion afterwards. A published release is the one artifact
-  # in this project that cannot be quietly fixed: the tag, the notes and the assets are all public
-  # the moment the job finishes, and a leak there is worse than one in a tracked file because it
-  # is what people read first.
+  # Refuses a machine-specific path in the release body: a dispatch input is neither tracked nor a file, so no other
+  # scan sees it. It runs first, so a bad body costs seconds rather than a build, a public tag and a deletion.
   validate-release-notes:
     permissions:
       contents: read
@@ -51,10 +35,7 @@ jobs:
           # Tags and history, so the commit-subject scan below has something to scan.
           fetch-depth: 0
 
-      # The input arrives through `env:`, never interpolated into the script body. A
-      # ${{ inputs.highlights }} inside a run: block is pasted in as shell source before bash sees
-      # it, so a backtick or $( ) in someone's release notes would EXECUTE here. As an env var it
-      # is only ever data. Same reason the version is passed this way.
+      # Inputs arrive through env:, never interpolated: inside run: they would be pasted in as shell source.
       - name: Refuse a machine-specific path in the release body
         env:
           HIGHLIGHTS: ${{ inputs.highlights }}
@@ -63,10 +44,8 @@ jobs:
           set -u
           fail=0
 
-          # Both slash directions and the Windows-only forms, kept in step with the list in
-          # .githooks/pre-commit -- a pattern that covers one direction passes cleanly on text
-          # that leaks in the other. AppData and %USERPROFILE% are here and not in the hook
-          # because this is where a scratchpad path actually came from.
+          # The home patterns of dev-scripts/gate-lists.txt in both slash directions, plus the forms a scratchpad
+          # path takes.
           PATTERNS='-e C:\Users -e C:/Users -e /home/ -e /Users/ -e AppData -e %USERPROFILE%'
 
           if printf '%s' "$HIGHLIGHTS" | grep -qIF $PATTERNS; then
@@ -75,11 +54,8 @@ jobs:
             fail=1
           fi
 
-          # The v1.2.1 shape specifically: the whole body is one line that is a path, because the
-          # `@` was missing and gh passed the filename instead of the file. Caught separately from
-          # the pattern scan so the error can say what to actually do -- a relative path or a
-          # username-free temp dir would slip past the scan above and still publish a filename as
-          # the release description.
+          # A one-line body that looks like a path is gh passing a filename without its @, which a relative path
+          # would slip past the scan above; caught apart so the error says what to do.
           lines=$(printf '%s' "$HIGHLIGHTS" | grep -c '' || true)
           if [ "$lines" = "1" ] && printf '%s' "$HIGHLIGHTS" | grep -qE '^([A-Za-z]:[\\/]|[.]{0,2}/)[^ ]*$|^[^ ]+\.(md|txt)$'; then
             echo "::error::The release notes are a single line that looks like a FILE PATH, not release notes."
@@ -87,10 +63,7 @@ jobs:
             fail=1
           fi
 
-          # generate_release_notes: true appends the commit subjects since the last tag, so they
-          # are part of the published body too and get the same scan. The pre-commit hook cannot
-          # see these: it checks staged FILE CONTENT, and a commit MESSAGE is neither staged nor a
-          # file, which leaves exactly the same hole this job exists to close.
+          # generate_release_notes publishes the commit subjects since the last tag, and no hook scans a message.
           prev=$(git tag --sort=-v:refname | grep -v "^${VERSION}$" | head -n 1 || true)
           if [ -n "$prev" ]; then
             subjects=$(git log --format=%s "$prev"..HEAD)
@@ -109,18 +82,9 @@ jobs:
           fi
           echo "Release body is clean."
 
-  # The Linux and macOS client and server, as their OWN downloads rather than bulked into the
-  # Windows zip. A Linux or macOS player of TEVI or Pseudoregalia is already running a Windows
-  # game through Proton/Wine, and the Windows client runs there too -- so the main zip stays
-  # the one download almost everyone wants, and these are here for whoever specifically wants
-  # a native binary (a native relay host above all, which has no Windows game involved at all).
-  #
-  # Built on ubuntu-latest, not cross-built on the Windows runner, for one concrete reason:
-  # the executable bit. A file only runs on Unix if it is marked as a program, a Windows
-  # runner's filesystem has no such mark to set, and .zip cannot store one either. Building
-  # here lets chmod +x mean something and tar preserve it, so these unpack ready to run --
-  # replacing a "now go run chmod" instruction, which is a bad first experience and the kind
-  # of step that reads as "this is broken" rather than "this is Unix".
+  # The native Linux and macOS client and server, as their own downloads: a Proton/Wine player runs the Windows zip,
+  # and these serve a native relay host above all. Built on ubuntu-latest for the executable bit, which a Windows
+  # runner cannot set and a .zip cannot store, so they unpack ready to run.
   unix-binaries:
     permissions:
       contents: read
@@ -135,8 +99,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Same suite the Windows job runs. These are separate artifacts now, so nothing else
-      # would catch a broken build before it was attached to a release.
+      # The same suite the Windows job runs: nothing else checks these artifacts before a release.
       - name: Vet and test
         run: |
           go vet ./...
@@ -148,7 +111,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -e
-          # Not stripped, as in the Windows job below (2026-09-22): the comment there says why.
+          # Not stripped, as in the Windows job below, which says why.
           build() { # build <goos> <goarch> <label> <staging dir>
             GOOS=$1 GOARCH=$2 go build -trimpath -o "$4/meshghost-$3" ./cmd/meshghost
             GOOS=$1 GOARCH=$2 go build -trimpath -o "$4/meshghost-server-$3" ./cmd/meshghost-relay
@@ -168,15 +131,8 @@ jobs:
           cp packaging/unix/README-linux.txt stage/linux/README.txt
           cp packaging/unix/README-macos.txt stage/macos/README.txt
 
-          # tar.gz rather than .zip specifically because it records the executable bit set
-          # above; a .zip would silently drop it and put the chmod step straight back.
-          #
-          # NOT verifiable on the dev machine: a local dry run of these exact steps produced
-          # correct packages in every respect except that one, because NTFS has no executable
-          # bit for chmod to set or tar to record (checked 2026-08-16 -- the tarred files came
-          # out 0644). That is precisely why this job runs on ubuntu-latest, and it also means
-          # the first real release is where it gets proven. If a Linux user reports "permission
-          # denied", this is the line to look at.
+          # tar.gz keeps the executable bit set above, which a .zip drops. NTFS has no such bit, so a local dry run
+          # cannot show it: a Linux "permission denied" points here.
           tar -czf "MeshGhost-linux-server-client-$VERSION.tar.gz" -C stage/linux .
           tar -czf "MeshGhost-macos-server-client-$VERSION.tar.gz" -C stage/macos .
 
@@ -186,25 +142,11 @@ jobs:
           path: MeshGhost-*.tar.gz
           if-no-files-found: error
 
-  # The Windows suite, beside the unix job rather than after it (2026-09-15). The packaging
-  # job below used to run it first, so a release was unix (4 min) THEN windows tests plus
-  # packaging (6-7 min), in sequence. The tests never needed the tarballs; only the packaging
-  # does. Running them here in parallel cuts a release to the slower of the two plus the
-  # packaging, and changes nothing about what blocks a release: build-and-package needs both
-  # jobs, and a job with `needs` never starts when one of them is red -- no tag, no release.
+  # The Windows suite, beside the unix job: build-and-package needs both, so a red one still means no tag and no
+  # release. Repeated from ci.yml because a release can be cut from a commit that never had a green CI run.
   #
-  # A release used to go straight from "checkout" to "build and zip"
-  # without running a single test, so the one artifact real users
-  # download was the only Go build in this repo that nothing verified.
-  # These are the same checks ci.yml runs on every push -- repeated here
-  # because a release can be cut from any commit, including one that
-  # never had a green CI run, and because the packaging steps are slow
-  # and irreversible-ish (they create a tag and a public release).
-  #
-  # No -race here: on Windows it needs a working cgo toolchain, and the
-  # race detector is covered on Linux by ci.yml's race job. -count=2
-  # because parts of this suite have failed intermittently rather than
-  # reliably (see CLAUDE.md).
+  # No -race: on Windows it needs a cgo toolchain, and ci.yml's race job covers it. -count=2 because parts of this
+  # suite have failed intermittently rather than reliably.
   windows-tests:
     permissions:
       contents: read
@@ -266,33 +208,11 @@ jobs:
             exit 1
           }
 
-      # NOT stripped, since 2026-09-22. Until then -ldflags="-s -w" dropped the symbol table and
-      # DWARF debug info (stack traces unaffected, verified 2026-08-18; 9.4 MB -> 6.5 MB on disk
-      # at the time). Four VirusTotal uploads of the same source on 2026-09-22 settled it the
-      # other way: the stripped builds drew Bkav and Elastic, the unstripped builds did not, and
-      # an unstripped build with -trimpath scored 0/70 -- the stripped bytes were what those
-      # engines reacted to, and the missing -trimpath (this machine's paths in the binary) was
-      # what Microsoft's !ml verdict followed. Measured on the client the same day: 8.7 MB -> 12.5 MB
-      # on disk, 3.3 MB -> 6.4 MB zipped; nothing at runtime. agent_docs/security-design.md,
-      # code-signing section, has the table.
+      # Not stripped (no -s -w): stripped builds drew antivirus false positives. -trimpath drops the runner's paths, so
+      # a build of the tag with the same Go version (go version -m prints it and these flags) is byte-identical.
       #
-      # -trimpath (2026-09-02) strips the runner's filesystem paths from the binary, which is the
-      # last thing that varied between two builds of the same tag. With it, anyone can check out
-      # the tag, build with the same Go version (`go version -m` on the shipped file prints it,
-      # along with these exact flags) and get a byte-identical file -- so the digest GitHub shows
-      # beside each asset proves the asset came from this source, not merely that it downloaded
-      # intact. docs/reviewing.md carries the recipe. Stack traces are unaffected: paths in them
-      # become module-relative, which is what a bug report wants anyway.
-      # Windows version resource (2026-09-06): the Product name / File version block Windows
-      # shows under Properties > Details. Go writes none, and SignPath's code-signing policy
-      # requires it on every file it signs (docs/code-signing.md). go-winres (ISC, in
-      # agent_docs/licensing.md) compiles the committed cmd/<x>/winres/winres.json into
-      # rsrc_windows_amd64.syso, which go build links into a Windows build automatically and
-      # every other GOOS ignores. Generated here, never committed (.gitignore). Its output is
-      # deterministic -- two runs gave byte-identical .syso files and exes on 2026-09-06 -- so
-      # the reproducible-build recipe in docs/reviewing.md still holds; it just includes this
-      # step. The version is the workflow input without its leading v; a pre-release suffix
-      # such as -rc1 is accepted.
+      # The version resource (Properties > Details) SignPath requires on every file it signs: go-winres compiles
+      # winres.json into a .syso that go build links into Windows builds only. Deterministic, and never committed.
       - name: Windows version resource
         shell: bash
         env:
@@ -304,18 +224,8 @@ jobs:
           done
           ls -l cmd/meshghost/rsrc_windows_amd64.syso cmd/meshghost-relay/rsrc_windows_amd64.syso
 
-      # CGO_ENABLED: "0" is here for the same reason it is on the unix job above, and it was
-      # MISSING here until 2026-09-08 -- the one job whose output is the signed, shipped
-      # artifact. Go's default is 1 whenever a C compiler is on PATH, and windows-latest has
-      # one, so the cgo setting of the file every player downloads was decided by whatever
-      # toolchain happened to be in the runner image rather than by this file. That is exactly
-      # the input a reproducible build cannot have: docs/reviewing.md's recipe pins
-      # CGO_ENABLED=0, and docs/code-signing.md rests the signature's meaning on anyone being
-      # able to rebuild the tag and get the same bytes. A reviewer whose hash did not match had
-      # no way to tell whether the source or the runner was the thing that differed.
-      #
-      # Setting it on the job's build steps rather than the whole job deliberately: the Vet and
-      # Test steps above stay as they were, since the tests are not what ships.
+      # CGO_ENABLED=0, since windows-latest has a C compiler and Go would otherwise let it decide the shipped bytes;
+      # the reproducible-build recipe pins it.
       - name: Build meshghost.exe
         env:
           CGO_ENABLED: "0"
@@ -328,25 +238,15 @@ jobs:
 
 
       - name: Verify the committed TEVI plugin isn't stale
-        # MeshGhostTevi.dll is checked into packaging/release/games/tevi/MeshGhost/ (a
-        # dedicated subfolder so the whole MeshGhost/ folder is a single drag-and-drop into
-        # BepInEx/plugins/) because CI can't build it itself (the .csproj needs the
-        # developer's own proprietary TEVI install -- see packaging/README.md and
-        # dev-scripts/build-tevi.bat). This is the guard that stops a release shipping a DLL
-        # older than the source that's supposed to have produced it: rehash every build input
-        # build-tevi.ps1 hashed, and compare against what it recorded in built-from.txt
-        # (kept outside the MeshGhost/ drag-and-drop tree, one level up).
+        # The DLL is committed because CI cannot build it without the game's own DLLs. This rehashes every input
+        # build-tevi.ps1 hashed against built-from.txt, kept one level up from the drag-and-drop MeshGhost/ folder.
         shell: pwsh
         run: |
           $destDir = "packaging\release\games\tevi"
           $builtFrom = Get-Content "$destDir\built-from.txt" -Raw
 
           $files = @{
-            # EVERY source file build-tevi.bat hashes must be listed here, or this gate
-            # passes while the DLL is stale. CoreLauncher.cs was missing until 2026-08-19:
-            # the build recorded four hashes and the gate checked three, so an
-            # autostart-only edit would have shipped a stale DLL with a green check.
-            # Pseudoregalia's identical gap was closed 2026-08-18; TEVI's was left.
+            # Every input build-tevi.ps1 hashes must be listed here, or this gate passes while the DLL is stale.
             "Plugin.cs"              = "adapters\tevi\MeshGhostTevi\Plugin.cs"
             "BridgeClient.cs"        = "adapters\tevi\MeshGhostTevi\BridgeClient.cs"
             "CoreLauncher.cs"        = "adapters\tevi\MeshGhostTevi\CoreLauncher.cs"
@@ -371,15 +271,8 @@ jobs:
           Write-Host "TEVI DLL is up to date with its source."
 
       - name: Verify the committed Pseudoregalia plugin isn't stale
-        # main.dll is checked into
-        # packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/
-        # (mirroring the real Steam install's own folder layout, so the whole "pseudoregalia"
-        # folder is a single drag-and-drop for the user) because CI can't build it itself (the
-        # CMake tree needs the private UEPseudo submodule and a locally installed UE4SS -- see
-        # agent_docs/phases/phase7.md's 7.2 entry and dev-scripts/build-pseudoregalia.bat).
-        # Same staleness gate shape as TEVI's above. built-from.txt itself is kept outside the
-        # drag-and-drop tree (packaging/release/games/pseudoregalia/MeshGhostPseudo-built-from.txt)
-        # so it never ends up in a user's game folder.
+        # main.dll is committed because CI lacks the private UEPseudo submodule and a local UE4SS. The same gate as
+        # TEVI's; its record sits outside the drag-and-drop tree so it never reaches a player's game folder.
         shell: pwsh
         run: |
           $gameDir = "packaging\release\games\pseudoregalia"
@@ -388,21 +281,11 @@ jobs:
           $files = @{
             "Plugin.cpp"       = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\Plugin.cpp"
             "Plugin.hpp"       = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\Plugin.hpp"
-            # PeerJson.hpp holds the peer-facing JSON readers and their bounds, lifted out of
-            # Plugin.cpp 2026-09-04 so a Linux CI job can fuzz them. It is header-only, so it
-            # never appears in Mod/CMakeLists.txt's source list -- which is exactly why it has to
-            # be listed HERE by hand. A source file that compiles into main.dll but is hashed by
-            # nobody is the stale-DLL-behind-a-green-check case this gate exists for, and it has
-            # happened twice already (CoreLauncher on both sides, 2026-08-18; TEVI's, 2026-08-19).
+            # Header-only, so CMakeLists.txt never lists it: it must be listed here by hand.
             "PeerJson.hpp"     = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\PeerJson.hpp"
             "BridgeClient.cpp" = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\BridgeClient.cpp"
             "BridgeClient.hpp" = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\BridgeClient.hpp"
             "dllmain.cpp"      = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\dllmain.cpp"
-            # CoreLauncher is what starts meshghost.exe alongside the game (autostart). It
-            # compiles into main.dll via CMakeLists' source list, but went unhashed here and in
-            # build-pseudoregalia.bat until 2026-08-18 -- so an edit to the autostart path would
-            # have shipped a stale DLL with every other gate still reporting green. Found in an
-            # audit, not by it going wrong.
             "CoreLauncher.cpp" = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\CoreLauncher.cpp"
             "CoreLauncher.hpp" = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\CoreLauncher.hpp"
             "CMakeLists.txt"   = "adapters\pseudoregalia\MeshGhostPseudo\Mod\CMakeLists.txt"
@@ -422,16 +305,8 @@ jobs:
           Write-Host "Pseudoregalia DLL is up to date with its source."
 
       - name: Verify the committed UE4SS runtime isn't stale
-        # UE4SS.dll/dwmapi.dll are checked into
-        # packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ (mirroring the
-        # real Steam install layout, see the Pseudoregalia plugin step above) so users get a
-        # one-step drag-and-drop (no separate UE4SS download) -- a deliberate exception to the
-        # project's normal "user installs the modding tool themselves" posture, see
-        # agent_docs/licensing.md's RE-UE4SS entry. CI can't build these itself (see
-        # dev-scripts/stage-ue4ss-runtime.bat), so this only checks the committed binaries still
-        # match both their own recorded hashes and the RE-UE4SS submodule pin they were built
-        # from -- catching the case where the submodule pin moved but nobody re-staged.
-        # built-from.txt is kept outside the drag-and-drop tree, same reasoning as above.
+        # UE4SS.dll and dwmapi.dll are committed so a player installs in one drag-and-drop. CI cannot build them, so
+        # this checks their recorded hashes and that the RE-UE4SS submodule pin has not moved since they were staged.
         shell: pwsh
         run: |
           $gameDir = "packaging\release\games\pseudoregalia"
@@ -465,51 +340,20 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          # ONE implementation of the staging, shared with the local dry run. It used to live
-          # inline here, which meant there was no way to try a release without cutting one --
-          # every local test ran against dev-scripts instead, reaching the adapters at their
-          # source paths and never exercising the layout a player installs. Moving it into a
-          # script both callers use is what makes dev-scripts/stage-release.ps1 a real rehearsal
-          # rather than a second thing that merely resembles this one. Read that file for what
-          # each copy is for; the comments went with it.
-          #
-          # -NoBuild: the two .exe files are built by this job's own earlier steps, with the same
-          # -ldflags, and other steps expect them at the repo root.
-          # -ForRelease: kept for compatibility, a no-op since 2026-09-02 -- every game's
-          # config.json is cut from the root config.json's client block, no template to remove.
+          # One staging implementation, shared with the local dry run, so a release can be rehearsed; the script says
+          # what each copy is for. -NoBuild: the steps above built the two .exe files. -ForRelease is a no-op.
           pwsh dev-scripts/stage-release.ps1 -NoBuild -ForRelease
 
-          # The three provenance records do NOT go in the zip (2026-09-08). Each was already
-          # kept out of the drag-and-drop tree so it could not land in a user's game folder --
-          # but Compress-Archive takes packaging\release\* wholesale, so all three shipped one
-          # level up from where they were being kept out of, next to the README a player reads.
-          #
-          # They are a build gate, not a deliverable: their own headers say "Do not hand-edit",
-          # their whole job is a hash comparison done EARLIER IN THIS JOB (the three "isn't
-          # stale" steps above), and by the time the zip exists they have already done it. What
-          # a player gets from one is a file of SHA-256 lines that looks like something they
-          # are supposed to check and is not, next to filenames of source they do not have.
-          #
-          # Deleted from the runner's working copy, never from the repo -- the tracked files are
-          # what the gates read, and nothing after this step touches them.
+          # The three built-from records are a build gate the steps above already ran, not a deliverable, and
+          # Compress-Archive would take them wholesale: removed from the runner's copy, never from the repo.
           Remove-Item -Force `
             packaging\release\games\tevi\built-from.txt, `
             packaging\release\games\pseudoregalia\MeshGhostPseudo-built-from.txt, `
             packaging\release\games\pseudoregalia\ue4ss-runtime-built-from.txt
 
-          # "full" rather than "windows", for two reasons. It says what is actually in here
-          # (client, server, and every game's mod) instead of naming a platform, and GitHub
-          # sorts release assets ALPHABETICALLY BY FILENAME -- upload order is ignored, and
-          # there is no manual ordering. "full" sorts above "linux" and "macos", which is what
-          # puts the download almost everyone wants at the top of the Assets list.
-          #
-          # This is also why the version moved to the end: '-' sorts before '.', so anything
-          # named MeshGhost-<version>-something would always sort ABOVE MeshGhost-<version>.zip,
-          # no matter what the extras were called.
-          #
-          # The version stays because the file outlives the page it came from: once it's in
-          # someone's Downloads folder, the tag that would have identified it is gone, and
-          # "which version are you running?" is the first question any bug report needs.
+          # "full", not "windows": it says what is inside, and GitHub sorts assets by filename, so it sorts above
+          # "linux" and "macos". The version goes last because '-' sorts before '.', and stays because the file
+          # outlives the release page it came from.
           Compress-Archive -Path packaging\release\* -DestinationPath "MeshGhost-full-$env:VERSION.zip"
 
       - name: Collect the Linux and macOS packages
@@ -528,45 +372,20 @@ jobs:
             MeshGhost-linux-server-client-${{ inputs.version }}.tar.gz
             MeshGhost-macos-server-client-${{ inputs.version }}.tar.gz
 
-      # **PINNED TO A COMMIT, NOT A TAG (review J8, 2026-09-11).** This is the only
-      # non-`actions/*` action in the tree and it runs in the one job that holds
-      # `contents: write`, so whoever controls what `@v3` points at can publish
-      # releases to this repository. A major tag is MUTABLE by design -- it moves
-      # to every 3.x -- so "pinned to v3" is a statement about a name, not about
-      # code, and nothing here would notice it moving.
-      #
-      # A commit sha is immutable. The cost is that Dependabot-style updates stop
-      # being automatic, which is the point: an update becomes a decision someone
-      # makes rather than one that happens.
-      #
-      # RESOLVED FROM THE API, NOT FROM MEMORY (CLAUDE.md): the annotated tag v3
-      # -> tag object 5113cdc9 -> commit efb35369, which is release 3.0.3, dated
-      # 2026-08-30. Re-resolve the same way when bumping it; the comment names the
-      # version so a reader can tell at a glance what they are pinned to.
+      # The only non-actions/* action, in the one job with contents: write, so its commit pin matters most: a tag can
+      # move. When bumping, resolve the tag to its commit through the API; an annotated tag points at a tag object.
       - name: Create release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ inputs.version }}
           prerelease: ${{ inputs.prerelease }}
-          # Three assets, listed so the one nearly everyone wants is first: the Windows zip
-          # (client, server, and every game's mod), then native Linux and macOS builds of just
-          # the client and server. The two tarballs contain no adapters on purpose -- every
-          # shipped adapter is for a Windows game, so a native Unix build has nothing to hook.
+          # The Windows zip first, the one nearly everyone wants; the tarballs carry no adapters, since every shipped
+          # adapter is for a Windows game.
           files: |
             MeshGhost-full-${{ inputs.version }}.zip
             MeshGhost-linux-server-client-${{ inputs.version }}.tar.gz
             MeshGhost-macos-server-client-${{ inputs.version }}.tar.gz
-          # The few lines a person writes about what this release is FOR, above the
-          # generated list of commits. Optional: empty means the changelog alone, which
-          # is what every release before v1.1.0 shipped with. It is an input rather than
-          # anything stored in the repo so the text belongs to the release being made,
-          # and so nobody has to edit a published release afterwards to add it.
+          # A few lines on what this release is for, above the generated changelog; empty means the changelog alone.
           body: ${{ inputs.highlights }}
-          # No hash table of our own. One lived here briefly on 2026-08-18 and was removed
-          # the same day: GitHub already computes and displays a sha256 digest for every uploaded
-          # asset, right next to its download button, and exposes the same value on the API. The
-          # table restated what the Assets list was already showing. The audit that prompted it
-          # checked whether the WORKFLOW published a hash and concluded the docs' "every release
-          # asset shows a SHA-256" claim was false -- without checking whether GitHub published
-          # one. It does, and the claim was true all along.
+          # No hash table of our own: GitHub shows a sha256 digest beside every asset.
           generate_release_notes: true

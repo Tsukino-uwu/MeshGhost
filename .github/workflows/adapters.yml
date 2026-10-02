@@ -1,20 +1,8 @@
 name: Adapters
 
-# The tree-level gates, run for a push that touches an ADAPTER and nothing else.
-#
-# Until 2026-09-16 the SYNCED.md section of dev-scripts/preflight.ps1 -- which reads every extras
-# key out of the SEND CODE (Plugin.cpp, BridgeClient.cs, the two Lua adapters) and holds it to that
-# adapter's page, refusing an empty check cell and a rising count of "not checked yet" -- ran in CI
-# only through docs.yml, and docs.yml fires on '**.md'. So the one push that gate exists for, a
-# code-only push adding a key with no row and no guard, was exactly the push that never ran it.
-# The same held for every other tree gate that reads adapter CODE (FLAGS.md completeness, the
-# bridge constants, the FindAllOf ratchet, the stale-safe annotations, the ghost-drop sweep).
-#
-# A separate workflow rather than a wider docs.yml because an adapter gate may filter only on
-# adapters/** and its own file (preflight's "Every adapter has its own path-filtered workflow"
-# section), and docs.yml must keep firing on prose. It runs the whole -TreeOnly pass rather than
-# one section: preflight has no per-section switch, the pass takes under a minute on the Windows
-# runner, and a check that exists is a check that runs.
+# The tree gates that read adapter code (the synced keys, the flag register, the bridge constants and more), for a
+# push that touches only an adapter, which docs.yml never sees. Its own workflow because an adapter gate may filter
+# only on adapters/** and its own file. The whole -TreeOnly pass, since preflight has no per-section switch.
 #
 # windows-latest and fetch-depth: 0 for the reasons docs.yml gives.
 
@@ -45,6 +33,5 @@ jobs:
       - name: preflight -TreeOnly
         shell: pwsh
         run: |
-          # Exit 1 = at least one FAIL; warnings never fail the run. A SKIP is a check that needs
-          # a working copy and is not a pass -- read the log, not just the tick.
+          # Exit 1 is a FAIL and warnings never fail the run; a SKIP needs a working copy and is not a pass.
           ./dev-scripts/preflight.ps1 -TreeOnly

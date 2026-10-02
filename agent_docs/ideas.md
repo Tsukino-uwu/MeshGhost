@@ -2446,7 +2446,7 @@ just the absence of a crash.
    invariant checked after every step.
 3. **Race coverage was already done, and the entry above was wrong to ask for it.** `go test`
    without `-fuzz` runs a target against its seed corpus, and the race job runs
-   `go test -race -count=3 ./...` (`ci.yml:158`), so the replay lifecycle has run under the race
+   `go test -race -count=3 ./...` (`ci.yml`, job `race`), so the replay lifecycle has run under the race
    detector three times per push since the target landed. What was worth doing instead — seeds for
    the seam shapes — is done: a cheap collapsed-gap seam and a clock back-step under a live replay.
 
