@@ -1,12 +1,8 @@
 package core
 
-// Error decay (correction.go), step A3 of agent_docs/prediction-planning.md.
-//
-// Every test here drives a real Core through storeRemoteState and
-// remoteStatesAt on the fake clock, so the render time, the decay and the
-// "drawn before" probe all read one clock and every number is exact. Position
-// x is 1 unit per ms of sender time, so a speed reads as 1 and a distance
-// reads as milliseconds.
+// Error decay (correction.go). Every test drives a real Core through storeRemoteState and remoteStatesAt on the fake
+// clock, so the render time, the decay and the drawn-before probe read one clock and every number is exact. Position x
+// is 1 unit per ms of sender time, so a speed reads as 1 and a distance as milliseconds.
 
 import (
 	"math"
@@ -46,12 +42,10 @@ func drawnX(t *testing.T, c *Core, id string) (float64, protocol.State) {
 	return st.Position[0], st
 }
 
-// reversalScenario runs the one motion that defeats a stateless render: a peer
-// moving +1/ms whose samples stop 50ms short of the render time, so the render
-// predicts them onward, and who then turns out to have REVERSED. Returns the
-// position drawn just before the reversal sample landed and the core ready to
-// render just after it. With prediction on and no decay the next render jumps
-// by 100 (predicted +50 forward, truth is 50 back).
+// reversalScenario runs the motion that defeats a stateless render: a peer moving +1/ms whose samples stop 50ms short
+// of the render time, so the render predicts them onward, and who turns out to have reversed. It returns the position
+// drawn just before the reversal sample landed, leaving the core ready to render just after it. With prediction on and
+// no decay the next render jumps by 100 (predicted 50 forward, truth 50 back).
 func reversalScenario(t *testing.T, c *Core, clk *fakeClock, id string) (drawnBefore float64) {
 	t.Helper()
 	now := c.nowMs()
@@ -113,8 +107,8 @@ func TestAReversalUnderPredictionDoesNotJump(t *testing.T) {
 		worst := 0.0
 		for i := 0; i < 30; i++ {
 			clk.Advance(16 * time.Millisecond)
-			// Keep feeding the reversed motion so the buffer is never dry
-			// for long: the correction is what is under test, not a gap.
+			// Keep feeding the reversed motion so the buffer is never dry for long: the correction is under test, not a
+			// gap.
 			now := c.nowMs()
 			feed(c, "p1", now-450, "a", float64(now-500-(now-1000))-50-float64(16*(i+1)), 0)
 			x, _ := drawnX(t, c, "p1")
@@ -127,8 +121,7 @@ func TestAReversalUnderPredictionDoesNotJump(t *testing.T) {
 	}
 	off := maxJump(0)
 	on := maxJump(100 * time.Millisecond)
-	// One frame of motion at speed 1 is 16 units; the decay adds at most
-	// 100*(1-exp(-16/100)) ~ 15 on its first frame.
+	// One frame of motion at speed 1 is 16 units; the decay adds at most 100*(1-exp(-16/100)) ~ 15 on its first frame.
 	if on > 40 {
 		t.Errorf("largest frame-to-frame move with decay on is %v units, want under 40 (16 of motion plus the first decay step)", on)
 	}
@@ -143,8 +136,7 @@ func TestAReversalUnderPredictionDoesNotJump(t *testing.T) {
 func TestTheOffsetDecaysToNothing(t *testing.T) {
 	c, clk := newCorrectionCore(t, 100*time.Millisecond, 200*time.Millisecond)
 	reversalScenario(t, c, clk, "p1")
-	// Hold the peer still after the reversal so the raw render is exact and
-	// the only thing changing is the offset.
+	// Hold the peer still after the reversal, so the raw render is exact and only the offset changes.
 	c.mu.Lock()
 	buf := c.remotes["p1"]
 	last := buf.snapshots[len(buf.snapshots)-1]
@@ -252,13 +244,10 @@ func TestWithCorrectionNeverWritesIntoTheBuffer(t *testing.T) {
 	}
 }
 
-// TestCorrectionOnANetsimShapedLink is the numbers gate from the plan: a
-// synthetic walk with reversals, delivered through a link shaped like the
-// no-arg netsim profile (transit 200ms +/- 50, reordering by jitter, and a
-// burst of twelve lost samples straddling every reversal, so the buffer is
-// dry exactly while the peer turns), rendered at 60Hz. It says whether
-// the step is ready to show, never whether it looks right -- that is the
-// user's, on screen.
+// TestCorrectionOnANetsimShapedLink: a synthetic walk with reversals through a link shaped like the no-arg netsim
+// profile (transit 200ms +/- 50, reordering by jitter, twelve lost samples straddling every reversal, so the buffer is
+// dry exactly while the peer turns), rendered at 60Hz. It says whether the knob is ready to show, never whether it
+// looks right, which only the screen can judge.
 func TestCorrectionOnANetsimShapedLink(t *testing.T) {
 	type arrival struct {
 		at int64
@@ -311,10 +300,8 @@ func TestCorrectionOnANetsimShapedLink(t *testing.T) {
 			}
 			states, _ := c.remoteStatesAt(now)
 			st, ok := states["p1"]
-			// Measure once the render time has passed the first sample: before
-			// that the render is an edge hold of whichever sample arrived first,
-			// and a reordered pair makes it switch, which is a spawn artifact
-			// rather than a correction.
+			// Measure once the render time has passed the first sample: before that the render edge-holds whichever
+			// sample arrived first, and a reordered pair switching it is a spawn artifact, not a correction.
 			if !ok || now-450-base < 100 {
 				continue
 			}

@@ -74,17 +74,9 @@ func TestRemoteBufferClampsBeforeFirstAndAfterLast(t *testing.T) {
 }
 
 func TestRemoteBufferEvictsOldSnapshots(t *testing.T) {
-	// Eviction is by TIME first (2026-08-28): a bare count starved a large
-	// interpolation delay at a high send rate -- 8 samples at 100Hz is 80ms of
-	// history, so a 250ms render time fell off the old edge and edge-held,
-	// seen on screen as stutter on long walks. History must cover the buffer's
-	// window regardless of rate.
-	//
-	// A bare remoteBuffer has historyMs unset, which means defaultSnapshotAgeMs
-	// -- the same 600ms this test was written against. Since 2026-08-30 a Core
-	// DERIVES the window from its render settings instead (Core.requiredHistoryMsLocked),
-	// because the fixed value hid two silent edge-hold bugs; see
-	// core/hzceiling_test.go. This test still pins the default path.
+	// Eviction is by time first: a bare count starves a large interpolation delay at a high send rate. A bare
+	// remoteBuffer uses defaultSnapshotAgeMs, while a Core derives its window from its render settings
+	// (Core.requiredHistoryMsLocked), so this pins the default path.
 	var b remoteBuffer
 	for i := 0; i < 69; i++ {
 		b.add(protocol.State{PlayerID: "p2", Timestamp: int64(i * 100), Position: []float64{float64(i)}})
@@ -98,12 +90,7 @@ func TestRemoteBufferEvictsOldSnapshots(t *testing.T) {
 		t.Fatalf("oldest retained snapshot position = %v, want [62]", b.snapshots[0].Position)
 	}
 
-	// The count cap still exists, and since 2026-08-30 it is reachable ONLY by
-	// an adversarially fast sender -- which is the whole point of the change.
-	// 5ms spacing (200Hz) used to trip it and now does not, because 1024
-	// samples at 200Hz would be five seconds of history and the 600ms window
-	// trims them first. Reaching it takes MORE THAN ONE SAMPLE PER MILLISECOND,
-	// which no configurable rate can produce (MaxSendHz is 100).
+	// The count cap is reachable only by more than one sample per millisecond, which no configurable rate produces.
 	var dense remoteBuffer
 	for i := 0; i < maxSnapshots+6; i++ {
 		dense.add(protocol.State{PlayerID: "p2", Timestamp: int64(i / 2), Position: []float64{float64(i)}})
@@ -112,8 +99,7 @@ func TestRemoteBufferEvictsOldSnapshots(t *testing.T) {
 		t.Fatalf("dense buffer length = %d, want the %d count cap", len(dense.snapshots), maxSnapshots)
 	}
 
-	// And at a rate a real relay could actually advertise, the WINDOW governs
-	// and the count never gets a say -- the property the fix exists to give.
+	// Below that, the window governs and the count never does.
 	var fast remoteBuffer
 	for i := 0; i < 2000; i++ {
 		fast.add(protocol.State{PlayerID: "p2", Timestamp: int64(i * 5), Position: []float64{float64(i)}}) // 200Hz
@@ -136,14 +122,8 @@ func TestRemoteBufferMismatchedPositionLengthFallsBackToOlder(t *testing.T) {
 	}
 }
 
-// TestRemoteBufferMismatchedAreaIDFallsBackToOlder is a regression test for
-// a bug found in a review pass: without an AreaID check, lerp blended two
-// bracketing snapshots' raw world coordinates even when they belonged to
-// different areas (a remote crossing a zone boundary mid-interpolation-
-// window), rendering at a meaningless midpoint between two unrelated
-// coordinate spaces — the same phantom-ghost failure the cross-area
-// filtering ADR (agent_docs/architecture.md) exists to prevent, just
-// reached via a different path than the one that ADR actually closed.
+// TestRemoteBufferMismatchedAreaIDFallsBackToOlder: two bracketing snapshots from different areas must not be
+// blended, which would draw a phantom ghost at a midpoint between two unrelated coordinate spaces.
 func TestRemoteBufferMismatchedAreaIDFallsBackToOlder(t *testing.T) {
 	var b remoteBuffer
 	b.add(protocol.State{PlayerID: "p2", Timestamp: 1000, Position: []float64{1, 2}, AreaID: "zone-a"})
@@ -155,25 +135,13 @@ func TestRemoteBufferMismatchedAreaIDFallsBackToOlder(t *testing.T) {
 	}
 }
 
-// TestOpaqueFieldsNeverFlapAcrossInterpolation is the Go side's answer to a
-// question raised by a live session: a Pseudoregalia ghost was seen entering
-// and leaving its slide pose repeatedly during one continuous player slide,
-// and the adapter fires that pose on the EDGE of an opaque value it receives
-// (the peer's capsule height crossing a standing threshold). So the question
-// was whether interpolation could manufacture those edges.
-//
-// It cannot, and this pins that: non-position fields come from the OLDER of
-// the two bracketing snapshots, and renderTime advances monotonically, so a
-// value that changes once in the source changes once in the output. Anything
-// else would mean the core was inventing state transitions in a field it is
-// forbidden to interpret at all.
+// TestOpaqueFieldsNeverFlapAcrossInterpolation: non-position fields come from the older bracketing snapshot and
+// renderTime only advances, so a value that changes once in the source changes once in the output. An adapter may
+// fire on the edge of an opaque value, and the core must never invent one.
 func TestOpaqueFieldsNeverFlapAcrossInterpolation(t *testing.T) {
-	// A peer that stands, then crouches once and stays crouched — the shape a
-	// held slide should produce.
+	// A peer that stands, then crouches once and stays crouched, as a held slide does.
 	const standing, crouched = 65.0, 22.0
-	// Kept inside maxSnapshots so nothing is trimmed: the invariant is about
-	// interpolation, and a buffer that dropped the standing samples would
-	// report "no transitions" for a reason that has nothing to do with it.
+	// Inside maxSnapshots, so trimming cannot drop the standing samples.
 	const samples = 8
 	var b remoteBuffer
 	for i := 0; i < samples; i++ {
@@ -190,8 +158,6 @@ func TestOpaqueFieldsNeverFlapAcrossInterpolation(t *testing.T) {
 		})
 	}
 
-	// Walk the render clock forward one millisecond at a time across the whole
-	// buffer and count how many times the opaque value changes.
 	transitions := 0
 	last := -1.0
 	for rt := int64(1000); rt <= 1000+(samples-1)*50; rt++ {

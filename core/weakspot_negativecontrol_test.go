@@ -1,24 +1,7 @@
 package core
 
-// NEGATIVE ASSERTIONS WITH A POSITIVE CONTROL (2026-09-08).
-//
-// core's "nothing arrived" assertions were bounded by wall time and nothing
-// else: wait 200 ms, read a channel, conclude the message was never sent.
-// That shape gets WEAKER as the machine gets slower, so it fails toward PASS
-// -- on CI under -race, or on a loaded box, the thing being forbidden can be
-// sent a millisecond after the wait ends and the test still reports success.
-// Nobody notices, because the failure mode is green.
-//
-// Two examples of the shape stood in this package on 2026-09-08:
-// TestRecordingStateIsPushedOnChangeOnly (200 ms on fa.recordings) and
-// TestAPeerWithNoNameIsNeverStored (a 200 ms sleep, then assert the map is
-// empty). Both would pass against a core that pushed nothing at all, and the
-// second would pass against one whose nametag pipeline was entirely dead.
-//
-// The fix in both cases is a POSITIVE CONTROL in the same test: make the same
-// channel carry something it MUST carry, so "nothing arrived" is bounded by an
-// event rather than by a duration, and a silent pipeline fails instead of
-// passing. Neither test below sleeps.
+// A "nothing arrived" assertion bounded by wall time passes on a slow machine and against a dead pipeline, so each
+// test here bounds it by a positive control on the same channel instead.
 
 import (
 	"testing"
@@ -27,21 +10,11 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// TestAnUnchangedRecordingStateIsNotPushedAndTheNextChangeIs is the de-dupe
-// assertion bounded by the change that follows it rather than by a stopwatch.
-//
-// The adapter draws the REC indicator from these pushes, so a repeat is a
-// redraw for nothing, and attach pushes the current state unconditionally --
-// which is only affordable if it de-dupes. The control is the stop: the very
-// next recording_state the adapter receives must be the change to false. If a
-// duplicate `true` had been pushed it is that duplicate that arrives here, and
-// if the push path were dead altogether nothing arrives and the test fails
-// too -- which is the case the 200 ms version could not distinguish from
-// success.
+// TestAnUnchangedRecordingStateIsNotPushedAndTheNextChangeIs: attach pushes the recording state unconditionally,
+// which is only affordable if a repeat is dropped. The control is the stop: the next recording_state must be the
+// change to false, and a dead push path fails too.
 func TestAnUnchangedRecordingStateIsNotPushedAndTheNextChangeIs(t *testing.T) {
-	// ReplayDir is set BEFORE the bridge serves: StartReplays reads it on the
-	// attach path, on the bridge goroutine, and setting it afterwards is a
-	// data race CI's -race run caught on 2026-09-05.
+	// Before the bridge serves: StartReplays reads ReplayDir on the bridge goroutine's attach path.
 	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) { c.ReplayDir = t.TempDir() })
 
 	if _, err := c.StartRecording(); err != nil {
@@ -49,15 +22,12 @@ func TestAnUnchangedRecordingStateIsNotPushedAndTheNextChangeIs(t *testing.T) {
 	}
 	waitRecordingState(t, fa, true)
 
-	// Three pushes of the same state, as a reconnect's attach path would do.
-	// None may reach the adapter.
+	// Repeats, as a reconnect's attach path would push them; none may reach the adapter.
 	c.pushRecordingState()
 	c.pushRecordingState()
 	c.pushRecordingState()
 
-	// THE CONTROL. A real change, queued behind those three on the same
-	// single-writer queue, so whatever arrives first says which of them was
-	// actually sent.
+	// The control, queued behind those on the same single-writer queue, so whatever arrives first says which was sent.
 	if _, _, err := c.StopRecording(); err != nil {
 		t.Fatalf("stop recording: %v", err)
 	}
@@ -75,21 +45,9 @@ func TestAnUnchangedRecordingStateIsNotPushedAndTheNextChangeIs(t *testing.T) {
 	}
 }
 
-// TestAnUnnamedPeerIsStoredNowhileANamedOneIs replaces a sleep-then-assert-empty
-// with an ordering argument.
-//
-// A peer with no name must produce no entry at all rather than an entry with an
-// empty name: the adapter answers "should I draw a label?" by absence, and no
-// name is the shipped default. Asserting that after a fixed sleep passes just
-// as happily against a core that stores no nametags whatsoever, which is a
-// live failure mode -- 2026-08-28's defect was precisely a nametag that the
-// core knew and the adapter never heard about.
-//
-// The control is a named peer in the same room. Both peers are already in the
-// room before the watcher joins, so both reach it in the SAME Welcome roster,
-// on one connection, in one message: when the named one is known, the unnamed
-// one has been processed too, and nothing about the machine's speed enters
-// into it.
+// TestAnUnnamedPeerIsStoredNowhileANamedOneIs: a peer with no name gets no entry at all, since the adapter decides
+// whether to draw a label by absence. The control is a named peer: both reach the watcher in one Welcome roster, so
+// once the named one is known the unnamed one has been processed, whatever the machine's speed.
 func TestAnUnnamedPeerIsStoredNowhileANamedOneIs(t *testing.T) {
 	addr := startRelay(t)
 
@@ -117,8 +75,6 @@ func TestAnUnnamedPeerIsStoredNowhileANamedOneIs(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	// Same roster, same message: if the named peer is in, the unnamed one has
-	// been considered and rejected.
 	if tag, ok := names[unnamedID]; ok {
 		t.Fatalf("a peer who set no name was stored as %+v -- the adapter decides whether to draw "+
 			"a label by absence, so an empty entry is a blank label rather than none", tag)

@@ -8,8 +8,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/bridge"
 )
 
-// sendReplayControl sends a replay_control on this connection, bypassing the
-// helpers so it can be sent from a connection that has no business sending one.
+// sendReplayControl sends a replay_control on this connection, bypassing the helpers so a connection with no
+// business sending one can.
 func (fa *fakeAdapter) sendReplayControl(action ReplayAction) {
 	fa.t.Helper()
 	payload, err := json.Marshal(bridge.ReplayControl{Action: string(action)})
@@ -25,22 +25,10 @@ func (fa *fakeAdapter) sendReplayControl(action ReplayAction) {
 	}
 }
 
-// A second bridge connection must not be able to act while a real adapter holds
-// the slot.
-//
-// Admission was checked in the hello case ONLY, so every other bridge message
-// was dispatched off any connection that reached the socket -- including one
-// whose hello had just been answered "busy". The bridge binds loopback with no
-// authentication (deliberately, and documented), so "any connection" means any
-// process on the machine, and on a shared Windows box any other user.
-//
-// replay_control is the assertion here because its effect is unambiguous and
-// observable in-process: before this fix, a second connection could start and
-// stop the player's recording. The same gate covers local_state (speaking to
-// the room as the player, under their player_id and seq), the render_remote
-// stream that came back on that unauthenticated connection, and the relayOwner
-// claim in onAdapterFrame that let such a connection's close send the real
-// player's Goodbye.
+// TestASecondBridgeConnectionCannotActWhileAnAdapterIsAttached: the bridge binds loopback with no authentication, so
+// any local process can connect, and none may act while a real adapter holds the slot. replay_control is the probe
+// because its effect is observable in-process; the same gate covers local_state, the render_remote stream and the
+// relayOwner claim whose close would send the player's Goodbye.
 func TestASecondBridgeConnectionCannotActWhileAnAdapterIsAttached(t *testing.T) {
 	dir := t.TempDir()
 	c, bridgeAddr := startCoreLazyWith(t, "", "room", "p1", func(c *Core) {
@@ -52,12 +40,7 @@ func TestASecondBridgeConnectionCannotActWhileAnAdapterIsAttached(t *testing.T) 
 	real.hello("emerald")
 	real.awaitReady()
 
-	// NO HELLO. Sending one would be answered "busy" and rejectBridge closes the
-	// socket, so nothing after it could arrive -- an earlier draft of this test
-	// did exactly that and passed with the gate removed, which is the
-	// can't-fail shape this whole review pass exists to find. A process that
-	// wants to act as the adapter has no reason to announce itself first: the
-	// bridge never required a hello to accept a frame, which is the gap.
+	// No hello: one would be answered "busy" and rejectBridge closes the socket, so nothing after it could arrive.
 	impostor := dialFakeAdapter(t, bridgeAddr)
 
 	if c.Recording() {
@@ -65,8 +48,7 @@ func TestASecondBridgeConnectionCannotActWhileAnAdapterIsAttached(t *testing.T) 
 	}
 	impostor.sendReplayControl(ReplayRecordStart)
 
-	// Give the core longer than it needs: the assertion is that nothing happens,
-	// so a short wait would pass for the wrong reason on a slow machine.
+	// Longer than the core needs: nothing should happen, and a short wait would pass on a slow machine.
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		if c.Recording() {
@@ -77,8 +59,7 @@ func TestASecondBridgeConnectionCannotActWhileAnAdapterIsAttached(t *testing.T) 
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// And the real adapter is unaffected -- the gate must refuse the impostor,
-	// not wedge the bridge.
+	// The gate must refuse the impostor, not wedge the bridge.
 	real.sendReplayControl(ReplayRecordStart)
 	started := false
 	deadline = time.Now().Add(testTimeout)
@@ -98,8 +79,7 @@ func TestASecondBridgeConnectionCannotActWhileAnAdapterIsAttached(t *testing.T) 
 	}
 }
 
-// sendInputSample sends an input_sample on this connection, bypassing the
-// helpers for the same reason sendReplayControl does.
+// sendInputSample sends an input_sample on this connection, bypassing the helpers as sendReplayControl does.
 func (fa *fakeAdapter) sendInputSample(s bridge.InputSample) {
 	fa.t.Helper()
 	payload, err := json.Marshal(s)
@@ -115,14 +95,9 @@ func (fa *fakeAdapter) sendInputSample(s bridge.InputSample) {
 	}
 }
 
-// The input track inherits the admission gate, and this is the test that says
-// so rather than assuming it. It matters more here than for most messages: the
-// track records what the player pressed, so a second process able to write into
-// it can put input in a player's own record that the player never performed.
-//
-// The gate is inherited by CONSTRUCTION -- the case sits inside the same switch,
-// below the impostor check -- which is exactly the kind of thing that survives
-// until a refactor moves a case out of the switch. So it is pinned.
+// TestASecondBridgeConnectionCannotWriteTheInputTrack: the track records what the player pressed, so a second process
+// could put input in it the player never performed. The gate holds only because the case sits inside the same switch,
+// which a refactor could undo.
 func TestASecondBridgeConnectionCannotWriteTheInputTrack(t *testing.T) {
 	dir := t.TempDir()
 	c, bridgeAddr := startCoreLazyWith(t, "", "room", "p1", func(c *Core) {
@@ -139,7 +114,7 @@ func TestASecondBridgeConnectionCannotWriteTheInputTrack(t *testing.T) {
 		t.Fatalf("StartInputRecording: %v", err)
 	}
 
-	// No hello, for the reason the test above spells out.
+	// No hello, as in the test above.
 	impostor := dialFakeAdapter(t, bridgeAddr)
 	impostor.sendInputSample(bridge.InputSample{
 		Labels: []string{"impostor"},
@@ -158,8 +133,7 @@ func TestASecondBridgeConnectionCannotWriteTheInputTrack(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// And the real adapter still works -- the gate must refuse the impostor,
-	// not wedge the track.
+	// The gate must refuse the impostor, not wedge the track.
 	real.sendInputSample(bridge.InputSample{
 		Labels: []string{"jump"},
 		Edges:  []bridge.InputEdge{{F: 10, T: 160, M: 1}},

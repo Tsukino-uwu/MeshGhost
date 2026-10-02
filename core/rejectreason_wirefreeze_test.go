@@ -11,47 +11,28 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// WHY THIS FILE EXISTS (2026-09-08). Nothing in the suite asserted that the relay emits any
-// reject reason BY VALUE. The two halves each tested their own side of the seam and neither
-// tested the seam: relay's own test asserts only that reject.Reason != "", and core's
-// classification test feeds the protocol CONSTANT into isPermanentRejectReason, which is a
-// mapping test over constants and cannot notice the relay sending a different string.
-//
-// The consequence is not cosmetic. isPermanentRejectReason classifies anything it does not
-// recognise as PERMANENT (deliberately -- an unknown reason from a future relay must not be
-// retried forever), and "server full" is one of the two reasons that must be RETRYABLE. So if
-// the relay's literal for ReasonServerFull ever drifts -- a reworded string, or a constant at
-// one call site and a hand-typed literal at another -- a client refused because a room was
-// momentarily full caches that as permanent, stops reconnecting, and tells the player the relay
-// refused them for good. Every test in the repo stays green while it happens, because no test
-// ever compared what the relay sent with what the core recognises.
-//
-// So this drives a REAL relay into each refusal and compares the reason it actually put on the
-// wire against the constant, then asserts the permanence the core would derive from that exact
-// string. Both halves matter: the value pins the wire, and the classification pins the
-// behavioural consequence of that value.
-
-// rejectCase is one refusal the relay can be driven into, its expected wire reason, and the
-// permanence the core must derive from it.
+// rejectCase is one refusal the relay can be driven into, its expected wire reason, and the permanence the core must
+// derive from it.
 type rejectCase struct {
 	name string
 	// setup configures a Server for this refusal (nil means the shipped defaults).
 	setup func(s *relay.Server)
-	// prior is a hello that must be accepted first, when the refusal depends on state a member
-	// already in the room established: a taken slot, or the room's sticky game_version.
+	// prior is a hello accepted first, for a refusal that depends on a member already in the room: a taken slot, or
+	// the room's sticky game_version.
 	prior *protocol.Hello
-	// hello is the one that must be refused; code, if set, is proven with it
-	// (ADR 0067), which is how a wrong code reaches the relay now.
+	// hello is the one that must be refused; code, if set, is proven with it.
 	hello protocol.Hello
 	code  string
-	// wantReason is compared to the wire byte for byte -- the whole point of the test.
+	// wantReason is compared to the wire byte for byte.
 	wantReason string
-	// wantPermanent is what core's own classifier must say about the string that came back, not
-	// about the constant. ServerFull is the one that must be retryable.
+	// wantPermanent is what the core's classifier must say about the string that came back, not the constant.
 	wantPermanent bool
 	why           string
 }
 
+// TestRelayRejectReasonsMatchTheConstantsTheCoreClassifies drives a real relay into each refusal and compares the
+// reason on the wire with the constant, then classifies that exact string. An unknown reason classifies as
+// permanent, so a drifted ReasonServerFull would make a momentarily full room refuse a player for good.
 func TestRelayRejectReasonsMatchTheConstantsTheCoreClassifies(t *testing.T) {
 	cases := []rejectCase{
 		{
@@ -115,23 +96,16 @@ func TestRelayRejectReasonsMatchTheConstantsTheCoreClassifies(t *testing.T) {
 					"A reason string is a wire value shared by two packages that never see each "+
 					"other's code: %s", got, tc.wantReason, tc.why)
 			}
-			// Deliberately classifying the string that ARRIVED, not the constant. Feeding the
-			// constant back in is the tautology this test exists to replace.
+			// The string that arrived, not the constant: classifying the constant would be a tautology.
 			if permanent := isPermanentRejectReason(got); permanent != tc.wantPermanent {
 				t.Fatalf("isPermanentRejectReason(%q) = %v, want %v -- %s", got, permanent, tc.wantPermanent, tc.why)
 			}
-			// And the exported predicate a caller with its own retry loop actually uses
-			// (cmd/meshghost's eager -game path), over the wire string wrapped exactly as
-			// relaysession.go wraps it.
+			// The exported predicate cmd/meshghost's eager -game path uses, wrapped as relaysession.go wraps it.
 			if permanent := IsPermanentRejectErr(&RejectError{Reason: got}); permanent != tc.wantPermanent {
 				t.Fatalf("IsPermanentRejectErr(RejectError{%q}) = %v, want %v", got, permanent, tc.wantPermanent)
 			}
 
-			// THE CODE AND THE FLAG, added with them on 2026-09-08. A code is what
-			// adapters branch on, so a code that disagrees with its own prose is the
-			// one drift that would be invisible to everything else here: the prose
-			// assertion above would still pass while every adapter read the refusal
-			// backwards.
+			// Adapters branch on the code, so a code that disagrees with its prose would pass the checks above.
 			wantCode := protocol.CodeForReason(tc.wantReason)
 			if reject.Code != wantCode {
 				t.Fatalf("the relay refused with code %q, want %q for reason %q -- the code is what "+
@@ -143,9 +117,7 @@ func TestRelayRejectReasonsMatchTheConstantsTheCoreClassifies(t *testing.T) {
 					"flag is what a client falls back to for a code it does not know, so it must be "+
 					"the opposite of permanence", reject.Retryable, got, tc.wantPermanent)
 			}
-			// The classifier must reach the same verdict through the code path as it
-			// does through the prose, or an adapter and the core disagree about the
-			// same refusal.
+			// The same verdict through the code as through the prose, or an adapter and the core disagree.
 			if permanent := isPermanentReject(got, reject.Code, reject.Retryable); permanent != tc.wantPermanent {
 				t.Fatalf("isPermanentReject(%q, %q, %v) = %v, want %v", got, reject.Code, reject.Retryable, permanent, tc.wantPermanent)
 			}
@@ -153,16 +125,8 @@ func TestRelayRejectReasonsMatchTheConstantsTheCoreClassifies(t *testing.T) {
 	}
 }
 
-// TestReasonGameMismatchIsClassifiedEvenThoughNoRelaySendsIt records the one reason in this
-// group that the table above cannot drive a real relay into, so its absence there is a stated
-// fact rather than an oversight the next reader has to re-derive.
-//
-// Since rooms became keyed by (game_id, room) on 2026-08-17, a client only ever reaches its own
-// game's room, so joinOrCreateRoom cannot return ReasonGameMismatch -- relay.go says so in as
-// many words and keeps the constant "only for the wire", because an OLDER relay still sends it
-// and a client must still understand it. That is exactly why the classification still has to be
-// pinned: it is a string that arrives from a peer this build cannot produce, which is the case
-// least likely to be noticed if it changed.
+// TestReasonGameMismatchIsClassifiedEvenThoughNoRelaySendsIt: rooms are keyed by (game_id, room), so this relay never
+// sends ReasonGameMismatch and the table above cannot drive it, but an older relay still does.
 func TestReasonGameMismatchIsClassifiedEvenThoughNoRelaySendsIt(t *testing.T) {
 	if protocol.ReasonGameMismatch != "game mismatch for this room" {
 		t.Errorf("ReasonGameMismatch = %q -- an older relay on the network still sends the old string, "+
@@ -173,10 +137,8 @@ func TestReasonGameMismatchIsClassifiedEvenThoughNoRelaySendsIt(t *testing.T) {
 	}
 }
 
-// rejectClient is the smallest relay client that can be refused: a dial, a hello, and a channel
-// of whatever came back. Deliberately not core_test.go's fakeAdapter or a whole Core -- a Core
-// retries, backs off and turns the reason into an error on the way past, and this test needs the
-// bytes the relay actually wrote.
+// rejectClient is the smallest relay client that can be refused: a dial, a hello, and a channel of what came back.
+// Not a whole Core, which retries and turns the reason into an error; this needs the bytes the relay wrote.
 type rejectClient struct {
 	conn *transport.NDJSONConn
 	envs chan protocol.Envelope
@@ -238,9 +200,8 @@ func (rc *rejectClient) next(t *testing.T) protocol.Envelope {
 
 func (rc *rejectClient) expectWelcome(t *testing.T) {
 	t.Helper()
-	// The slot and the room's sticky game_version are established by the WELCOME, not by the
-	// dial, so a case whose refusal depends on either must wait for it. Racing it would make
-	// the refusal the flaky kind that passes on a fast box.
+	// The welcome, not the dial, takes the slot and sets the sticky game_version, so a refusal that depends on
+	// either waits for it.
 	if env := rc.next(t); env.Type != protocol.TypeWelcome {
 		t.Fatalf("the member that must be accepted first got %q, not a welcome", env.Type)
 	}
@@ -256,7 +217,6 @@ func (rc *rejectClient) expectReject(t *testing.T) protocol.Reject {
 	if err := json.Unmarshal(env.Payload, &rej); err != nil {
 		t.Fatalf("unmarshal reject: %v", err)
 	}
-	// The WHOLE refusal, not just its prose: since 2026-09-08 the code and the
-	// retryable flag are the half a client actually branches on.
+	// The whole refusal: the code and the retryable flag are what a client branches on.
 	return rej
 }

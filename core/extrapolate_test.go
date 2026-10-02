@@ -1,12 +1,8 @@
 package core
 
-// Prediction: drawing a ghost past its newest sample by continuing the last
-// measured velocity. Opt-in (Core.Extrapolate / -extrapolate), off by default.
-//
-// These tests fix the SHAPE of the prediction -- that it is off unless asked
-// for, that it is capped, and that it refuses to measure a velocity it cannot
-// trust. Whether it LOOKS better than holding the last sample is a per-game
-// question that only a screen can answer, and this file cannot.
+// Prediction: drawing a ghost past its newest sample by continuing the last measured velocity, opt-in and off by
+// default. These tests fix its shape: off unless asked for, capped, and refusing a velocity it cannot trust. Whether it
+// looks better than holding the last sample is a per-game question only a screen can answer.
 
 import (
 	"testing"
@@ -18,7 +14,7 @@ func sample(ts int64, x float64) protocol.State {
 	return protocol.State{AreaID: "a", Position: []float64{x, 0}, Anim: "walk", Timestamp: ts}
 }
 
-// The default must be exactly what it always was: hold the newest sample.
+// The default holds the newest sample.
 func TestWithoutExtrapolationTheNewestSampleIsHeld(t *testing.T) {
 	var b remoteBuffer
 	b.add(sample(1000, 0))
@@ -82,9 +78,8 @@ func TestExtrapolationRefusesToMeasureOverTheResumeBracket(t *testing.T) {
 	}
 }
 
-// The same two guards lerp applies, for the same reason: a blend or a
-// prediction across an area change is a blend across two unrelated coordinate
-// spaces (see the 2026-08-13 cross-area ADR).
+// The same two guards lerp applies, for the same reason: a blend or a prediction across an area change spans two
+// unrelated coordinate spaces.
 func TestExtrapolationRefusesToCrossAnAreaChange(t *testing.T) {
 	var b remoteBuffer
 	older := sample(1000, 0)
@@ -124,10 +119,9 @@ func TestExtrapolationNeedsTwoSamples(t *testing.T) {
 	}
 }
 
-// A JUMP IS AN ACCELERATING BODY, and predicting one along a straight line is
-// what made a ghost lag on the way up and sink through the floor on the way
-// down (user, 2026-08-28, over a simulated bad link). With three samples the
-// prediction includes acceleration, so a parabola is predicted as a parabola.
+// A jump is an accelerating body, and predicting one along a straight line makes a ghost lag on the way up and sink
+// through the floor on the way down. With three samples the prediction includes acceleration, so a parabola is
+// predicted as a parabola.
 func TestPredictionFollowsAnAcceleratingBody(t *testing.T) {
 	var b remoteBuffer
 	// y = 100 - 5t^2 in units of 10ms steps: a body falling under gravity.
@@ -154,11 +148,8 @@ func TestPredictionFollowsAnAcceleratingBody(t *testing.T) {
 	}
 }
 
-// PredictDamped: predict what is predictable, per axis. A ghost running
-// steadily sideways while falling should have its horizontal motion predicted
-// in full and its vertical motion barely at all -- which is the shape of the
-// complaint that produced this mode (user, 2026-08-28: left/right fine, up/down
-// a "constant snap/drag").
+// PredictDamped predicts what is predictable, per axis: a ghost running steadily sideways while falling has its
+// horizontal motion predicted in full and its vertical motion barely at all.
 func TestDampedPredictionTrustsASteadyAxisAndNotAChangingOne(t *testing.T) {
 	var b remoteBuffer
 	// x advances 10 per step (steady); y falls with acceleration.
@@ -178,12 +169,9 @@ func TestDampedPredictionTrustsASteadyAxisAndNotAChangingOne(t *testing.T) {
 	if dx := got.Position[0] - last.Position[0]; dx < 8 {
 		t.Fatalf("steady axis advanced by %v over 10ms, want close to 10 -- damping is suppressing a predictable axis", dx)
 	}
-	// Vertical: the velocity is changing every step, so most of the prediction
-	// is withheld. THIS CONTRACT WAS FLIPPED AND FLIPPED BACK on 2026-08-28:
-	// a consistency-gated acceleration followed this parabola beautifully in
-	// the test and produced chop and a stopping snap on screen, because the
-	// gate's contribution fluctuates under jitter. Velocity-only damping is
-	// the measured winner; the jump's residual lag is the accepted price.
+	// Vertical: the velocity changes every step, so most of the prediction is withheld. Damping is velocity-only: a
+	// gated acceleration's contribution fluctuates under jitter and chops on screen, and the jump's residual lag is the
+	// accepted price.
 	if dy := last.Position[1] - got.Position[1]; dy > 15 {
 		t.Fatalf("changing axis was predicted %v further down, want it heavily damped", dy)
 	}
@@ -204,20 +192,16 @@ func TestDampedPredictionRefusesInconsistentCurvature(t *testing.T) {
 	}
 	last, _ := b.at(1030)
 	got, _ := b.atAhead(1040, 100, CurveLinear, PredictDamped, nil)
-	// The velocity here is genuinely downward, so some prediction is fine; what
-	// must NOT happen is the noisy curvature being extended into a plunge.
+	// The velocity here is genuinely downward, so some prediction is fine; what must not happen is the noisy curvature
+	// being extended into a plunge.
 	if dy := last.Position[1] - got.Position[1]; dy > 12 {
 		t.Fatalf("inconsistent curvature was extended %v further down -- the accelerated mode's failure is back", dy)
 	}
 }
 
-// The apex of a jump: the velocity reverses, so there is almost nothing worth
-// extending -- but not NOTHING. Refusing outright was the first version and it
-// was wrong on screen: spam-tapping left and right reverses an axis constantly,
-// and a ghost that stops predicting there falls back to a full interpolation
-// delay behind, which the user read as "slow/delayed" while long runs looked
-// fine (2026-08-28). minPredictConfidence is the floor that answers it, and
-// this test pins the trade: heavily damped, never zero.
+// The apex of a jump: the velocity reverses, so there is almost nothing worth extending, but not nothing. Spam-tapping
+// left and right reverses an axis constantly, and a ghost that stops predicting there falls a full interpolation delay
+// behind; minPredictConfidence is the floor, and this pins the trade: heavily damped, never zero.
 func TestDampedPredictionHeavilyDampsAReversingAxis(t *testing.T) {
 	var b remoteBuffer
 	b.add(protocol.State{AreaID: "a", Position: []float64{0, 0}, Timestamp: 1000})

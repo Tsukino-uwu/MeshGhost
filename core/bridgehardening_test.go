@@ -1,19 +1,7 @@
 package core
 
-// Section F of the 2026-09-12 adversarial review: a hostile LOCAL process
-// against the bridge.
-//
-// The P4a agent's own calibration, which this file keeps because it decides how
-// much any of it is worth: against a same-user attacker the loopback + no-auth
-// design grants almost nothing new -- that actor can read config.json, kill the
-// core and run their own client. What is below is real for ANOTHER local
-// account, a sandboxed process, or a web origin, and no further.
-//
-// Not covered here, deliberately: the adapter slot being claimable without a
-// hello (P4a-2/-4/-6, and the connect-before-the-game hole core/bridgeserve.go
-// already flags in its own comment). Every candidate fix there changes the
-// adapter contract and the autostart flow, so it wants an ADR and the user's
-// call rather than a test asserting whichever way somebody guessed.
+// A hostile local process against the bridge. A same-user attacker gains almost nothing new here (it can read
+// config.json and run its own client); these matter for another local account, a sandboxed process or a web origin.
 
 import (
 	"encoding/json"
@@ -26,9 +14,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// bridgePipe runs handleBridgeConn over an in-memory pipe and hands back the
-// caller's end plus a channel closed when the core hangs up. No socket, so
-// nothing here depends on a port being free or on loopback policy.
+// bridgePipe runs handleBridgeConn over an in-memory pipe and returns the caller's end plus a channel closed when
+// the core hangs up.
 func bridgePipe(t *testing.T, c *Core) (net.Conn, <-chan struct{}) {
 	t.Helper()
 	server, client := net.Pipe()
@@ -40,8 +27,7 @@ func bridgePipe(t *testing.T, c *Core) (net.Conn, <-chan struct{}) {
 		defer close(done)
 		buf := make([]byte, 256)
 		for {
-			// The core closing its end is what ends this read. A deadline keeps
-			// a test that is going to fail from hanging the package instead.
+			// The deadline keeps a failing test from hanging the package.
 			_ = client.SetReadDeadline(time.Now().Add(testTimeout))
 			if _, err := client.Read(buf); err != nil {
 				return
@@ -51,11 +37,8 @@ func bridgePipe(t *testing.T, c *Core) (net.Conn, <-chan struct{}) {
 	return client, done
 }
 
-// bridgePipeReadable is bridgePipe for a test that wants to READ the core's
-// reply. bridgePipe spawns a goroutine that drains the connection so it can
-// tell when the core hangs up, and that goroutine consumes exactly the bytes a
-// test like this is looking for -- which cost one debugging cycle before it was
-// split out.
+// bridgePipeReadable is bridgePipe for a test that reads the core's reply: bridgePipe's drain goroutine would consume
+// those bytes.
 func bridgePipeReadable(t *testing.T, c *Core) net.Conn {
 	t.Helper()
 	server, client := net.Pipe()
@@ -64,8 +47,7 @@ func bridgePipeReadable(t *testing.T, c *Core) net.Conn {
 	return client
 }
 
-// bridgeEnvelopeFor builds one bridge envelope with an arbitrary payload, so a
-// test can send a hello without depending on the Hello struct's field set.
+// bridgeEnvelopeFor builds one bridge envelope with an arbitrary payload, independent of the Hello struct's fields.
 func bridgeEnvelopeFor(t *testing.T, kind string, payload map[string]any) bridge.Envelope {
 	t.Helper()
 	b, err := json.Marshal(payload)
@@ -75,23 +57,19 @@ func bridgeEnvelopeFor(t *testing.T, kind string, payload map[string]any) bridge
 	return bridge.Envelope{Type: bridge.MessageType(kind), Payload: b}
 }
 
-// P4a-1, the half that is a bound. maxInputRingEdges -- the same bound on the
-// ring beside this one -- says the lesson and names THIS buffer as the one that
-// only got half of it: a time-bounded buffer fed at an uncapped rate is an
-// unbounded buffer. The bridge applies no rate limit to inbound frames.
+// TestTheStateRingIsBoundedByCountAndNotOnlyBySpan: a time-bounded buffer fed at an uncapped rate is unbounded, and
+// the bridge does not rate-limit inbound frames.
 func TestTheStateRingIsBoundedByCountAndNotOnlyBySpan(t *testing.T) {
 	r := &sampleRing{}
 	r.setSpan(maxRingSpan)
 
-	// Every sample inside the span, so the span cutoff never fires: this is
-	// exactly the case the span bound cannot see.
+	// Every sample inside the span, so the span cutoff never fires.
 	base := time.Now().UnixMilli()
 	for i := 0; i < maxRingSamples+5_000; i++ {
 		r.add(protocol.State{PlayerID: "p", Timestamp: base + int64(i%1000), Position: []float64{1, 2}})
 	}
 
 	held := len(r.snapshot())
-	// Before the fix: 205,000, and it keeps going for as long as the sender does.
 	if held > maxRingSamples {
 		t.Fatalf("the ring holds %d samples, %d past its cap -- span alone bounds nothing when the "+
 			"rate is the sender's to choose", held, held-maxRingSamples)
@@ -101,9 +79,8 @@ func TestTheStateRingIsBoundedByCountAndNotOnlyBySpan(t *testing.T) {
 	}
 }
 
-// And the ring keeps its NEWEST samples, because "the last N of play" is what
-// SaveLast writes -- a count bound that dropped the newest would quietly turn
-// save-last into save-first.
+// TestTheStateRingDropsItsOldestWhenTheCountBounds: SaveLast writes the last of play, so the count bound must drop
+// the oldest.
 func TestTheStateRingDropsItsOldestWhenTheCountBounds(t *testing.T) {
 	r := &sampleRing{}
 	r.setSpan(maxRingSpan)
@@ -121,9 +98,8 @@ func TestTheStateRingDropsItsOldestWhenTheCountBounds(t *testing.T) {
 	}
 }
 
-// P4a-1, the half that is a teardown. The input ring is disarmed when the
-// adapter goes; the state ring beside it was not, so it stayed armed -- and fed
-// by any bridge connection that sends -- for the life of the core process.
+// TestTheStateRingIsDisarmedWhenTheAdapterGoes: an armed ring with no adapter would be fed by any bridge connection
+// that sends, for the life of the process.
 func TestTheStateRingIsDisarmedWhenTheAdapterGoes(t *testing.T) {
 	c := New()
 	c.SaveLastSpan = 30 * time.Second
@@ -142,8 +118,7 @@ func TestTheStateRingIsDisarmedWhenTheAdapterGoes(t *testing.T) {
 	if held := len(c.ring.snapshot()); held != 0 {
 		t.Errorf("the ring still holds %d sample(s) after the adapter went away", held)
 	}
-	// Still armed is the part that matters: a freed buffer that refills is not
-	// disarmed, it is merely empty.
+	// A freed buffer that refills is not disarmed, merely empty.
 	c.ring.add(protocol.State{PlayerID: "p", Timestamp: base + 100, Position: []float64{1, 2}})
 	if held := len(c.ring.snapshot()); held != 0 {
 		t.Errorf("the ring accepted %d sample(s) with no adapter attached -- it is fed by any bridge "+
@@ -151,15 +126,13 @@ func TestTheStateRingIsDisarmedWhenTheAdapterGoes(t *testing.T) {
 	}
 }
 
-// P4a-3. A browser on any page can POST to 127.0.0.1:7778 without reading the
-// reply. Ignoring an unparseable line and keeping the connection is what lets
-// the request's headers be skipped until its BODY -- which the page chooses --
-// arrives as a line this bridge does parse.
+// TestABridgeConnectionThatOpensWithSomethingElseIsHungUpOn: any web page can POST to the bridge port, and skipping
+// unparseable lines would let its headers pass until the page-chosen body arrives as a line the bridge parses.
 func TestABridgeConnectionThatOpensWithSomethingElseIsHungUpOn(t *testing.T) {
 	c := New()
 	client, done := bridgePipe(t, c)
 
-	// Exactly what a cross-origin form POST puts on the wire first.
+	// What a cross-origin form POST puts on the wire first.
 	if _, err := client.Write([]byte("POST / HTTP/1.1\r\n")); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -172,10 +145,8 @@ func TestABridgeConnectionThatOpensWithSomethingElseIsHungUpOn(t *testing.T) {
 	}
 }
 
-// The converse, so the rule is "not NDJSON" and not "anything unexpected": an
-// adapter that has proved it speaks the protocol keeps its connection through a
-// bad line, because dropping it would cost the player their ghosts over one
-// bad frame.
+// TestABadLineMidSessionDoesNotDropAnAdapter: an adapter that has said hello keeps its connection through one bad
+// line, which would otherwise cost the player their ghosts.
 func TestABadLineMidSessionDoesNotDropAnAdapter(t *testing.T) {
 	c := New()
 	client, done := bridgePipe(t, c)
@@ -187,7 +158,6 @@ func TestABadLineMidSessionDoesNotDropAnAdapter(t *testing.T) {
 	if _, err := client.Write(append(hello, '\n')); err != nil {
 		t.Fatalf("write hello: %v", err)
 	}
-	// Give the hello time to be read before the garbage follows it.
 	time.Sleep(100 * time.Millisecond)
 	if _, err := client.Write([]byte("not json at all\n")); err != nil {
 		t.Fatalf("write garbage: %v", err)
@@ -200,22 +170,14 @@ func TestABadLineMidSessionDoesNotDropAnAdapter(t *testing.T) {
 	}
 }
 
-// P4a-2/-4/-6, the user's decision on 2026-09-12: a hello is mandatory.
-//
-// The window that settled it is the one BEFORE the game starts. Nothing held
-// the adapter slot then, so a process that merely connected first had the core
-// dial the relay with ITS room, room code and name, had the player's states
-// forwarded under an id it was given, and received the render_remote stream --
-// without ever saying who it was.
-//
-// What this buys, stated as the code states it: it does not stop a hostile
-// local process, which can send a hello of its own. It stops it being SILENT.
+// TestTheBridgeIgnoresAConnectionThatNeverSaidHello: before the game starts nothing holds the adapter slot, so a
+// silent connection could otherwise send and receive as the player. A hostile process can still say hello; it
+// cannot stay silent.
 func TestTheBridgeIgnoresAConnectionThatNeverSaidHello(t *testing.T) {
 	c := New()
 	client, _ := bridgePipe(t, c)
 
-	// local_state is the message that matters: it is the one forwarded to the
-	// relay under the real player's identity.
+	// local_state is what the relay receives under the player's identity.
 	line, err := json.Marshal(bridgeEnvelopeFor(t, "local_state", map[string]any{
 		"state": map[string]any{"area_id": "town", "position": []float64{1, 2}},
 	}))
@@ -227,12 +189,7 @@ func TestTheBridgeIgnoresAConnectionThatNeverSaidHello(t *testing.T) {
 	}
 	time.Sleep(150 * time.Millisecond)
 
-	// ASSERTED ON THE RENDER TICK, not on attachedAdapter. A first draft checked
-	// the latter and passed against the unfixed code, because the old path never
-	// set it either -- it simply ACTED on the frame. A frame that is acted on
-	// drives tickRenders, which is the observable difference and is also the
-	// thing the abuse needs: the tick is what forwards the player's state and
-	// what answers with everybody else's.
+	// The render tick, not attachedAdapter: acting on a frame never set attachedAdapter, but it drives tickRenders.
 	if ticks := c.ticksBegun(); ticks != 0 {
 		t.Fatalf("a local_state from a connection that never sent a hello drove %d render tick(s) -- "+
 			"that tick forwards the player's own state to the relay and hands back every peer's", ticks)
@@ -245,8 +202,7 @@ func TestTheBridgeIgnoresAConnectionThatNeverSaidHello(t *testing.T) {
 	}
 }
 
-// The converse, and the reason the fix is worth having rather than merely
-// tighter: a squatter now has to CLAIM the slot, so the real game's hello is
+// TestASecondHelloIsRefusedOutLoudRatherThanSilently: a squatter has to claim the slot, so the real game's hello is
 // refused out loud instead of the takeover being invisible.
 func TestASecondHelloIsRefusedOutLoudRatherThanSilently(t *testing.T) {
 	c := New()

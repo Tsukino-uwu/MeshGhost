@@ -13,28 +13,10 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// TestARejectWinsARaceAgainstTheSocketClosing is the regression test for the
-// refusal that told the player nothing (found in the 2026-09-07 review pass,
-// fixed 2026-09-08).
-//
-// The relay writes the Reject and closes immediately after (rejectAndClose),
-// so by the time ConnectRelay reaches its handshake select, the buffered reject
-// channel holds a value AND the gone channel is already closed. A select with
-// two ready cases picks uniformly at random, so roughly half of all refusals
-// returned a plain "dropped before the welcome arrived" instead of a
-// *RejectError -- IsPermanentRejectErr never saw it, and a wrong room code was
-// redialled every 15 s for the life of the process while the log never once
-// named the reason the player had to fix.
-//
-// The relay here half-closes (CloseWrite) rather than closing outright: that
-// puts the reject bytes and the FIN on the wire together, which is what makes
-// both channels ready before the select is reached, while leaving the client's
-// own hello write able to complete. A hard close would race the hello send and
-// turn some attempts into a transport error, testing nothing.
-//
-// Repeated, because a select is free to take either branch: one attempt only
-// ever exercises one ordering. With the fix removed this fails within a
-// handful of attempts.
+// TestARejectWinsARaceAgainstTheSocketClosing: the relay rejects and closes, so the handshake select can find the
+// reject channel and the gone channel both ready, and a select picks either at random. The reject must win, or
+// IsPermanentRejectErr never sees it. The relay half-closes so its reject and FIN arrive together while the client's
+// hello write still completes; repeated, since one attempt exercises one ordering.
 func TestARejectWinsARaceAgainstTheSocketClosing(t *testing.T) {
 	ln := listenTLS(t)
 
@@ -60,29 +42,22 @@ func TestARejectWinsARaceAgainstTheSocketClosing(t *testing.T) {
 			}
 			go func(conn net.Conn) {
 				defer conn.Close()
-				// Written before the hello is read, on purpose: the refusal
-				// and the end of the stream have to be in flight while the
-				// client is still on its way to the select.
+				// Before the hello is read, so the refusal is in flight while the client heads for the select.
 				if _, err := conn.Write(line); err != nil {
 					return
 				}
-				// A *tls.Conn: its CloseWrite sends close_notify, which is
-				// the end of the stream as the client's reader sees it.
+				// A *tls.Conn's CloseWrite sends close_notify, the end of the stream to the client's reader.
 				if cw, ok := conn.(interface{ CloseWrite() error }); ok {
 					_ = cw.CloseWrite()
 				}
-				// Drain whatever the client says so the deferred Close is not
-				// what ends the client's hello write.
+				// Drain, so the deferred Close does not end the client's hello write.
 				_, _ = bufio.NewReader(conn).ReadString('\n')
 			}(conn)
 		}
 	}()
 
-	// Holds the connecting goroutine back until the refusal and the FIN have
-	// both landed, so the select really does see two ready cases. Without it
-	// the reject is almost always handed straight to an already-parked select
-	// and the ordering under test is never reproduced -- measured 2026-09-08:
-	// 40 attempts with the fix removed all passed.
+	// Holds the client back until the refusal and the FIN have both landed, or the reject almost always reaches an
+	// already-parked select and the ordering under test never happens.
 	hook := func() { time.Sleep(20 * time.Millisecond) }
 	beforeHandshakeSelectHook.Store(&hook)
 	t.Cleanup(func() { beforeHandshakeSelectHook.Store(nil) })
@@ -108,15 +83,8 @@ func TestARejectWinsARaceAgainstTheSocketClosing(t *testing.T) {
 	}
 }
 
-// TestAMidSessionRejectReasonReachesTheLog is the regression test for E8 of the
-// 2026-09-07 review (fixed 2026-09-08): a Reject that arrives AFTER the
-// handshake was written into the buffered reject channel that nobody reads any
-// more, so the send succeeded, the logging branch behind it was dead code, and
-// a player thrown out mid-session (ReasonRateLimited, say) saw only
-// "core: relay disconnected: EOF" with no reason and nothing to act on.
-//
-// Asserts the Code as well as the Reason: the reason is the sentence for a
-// human, the code is the stable name anything reading the log can match on.
+// TestAMidSessionRejectReasonReachesTheLog: a Reject after the handshake must be logged with its reason, for a
+// person, and its code, the stable name a log reader matches on, not lost in a channel nobody reads.
 func TestAMidSessionRejectReasonReachesTheLog(t *testing.T) {
 	var logged lockedBuffer
 	prevOut := log.Writer()
@@ -129,9 +97,7 @@ func TestAMidSessionRejectReasonReachesTheLog(t *testing.T) {
 	})
 
 	c := New()
-	// A joined session: playerID is what the handshake leaves behind, and it is
-	// how a post-handshake Reject is told apart from one the connect is still
-	// waiting on.
+	// playerID is how a post-handshake Reject is told apart from one the connect is still waiting on.
 	c.mu.Lock()
 	c.playerID = "p1"
 	c.mu.Unlock()
@@ -149,8 +115,7 @@ func TestAMidSessionRejectReasonReachesTheLog(t *testing.T) {
 		t.Fatalf("marshal envelope: %v", err)
 	}
 
-	// The channels the handshake would have owned: both empty and buffered,
-	// exactly as they are once ConnectRelay has returned.
+	// The handshake's channels as ConnectRelay leaves them: empty and buffered.
 	c.handleRelayMessage(nil, env, make(chan protocol.Welcome, 1), make(chan protocol.Reject, 1))
 
 	got := logged.linesMentioning("relay closed this connection")
@@ -165,22 +130,9 @@ func TestAMidSessionRejectReasonReachesTheLog(t *testing.T) {
 	}
 }
 
-// TestTheEmittedClockDoesNotStepBackWhenTheRelayDrops is the regression test
-// for E9 of the 2026-09-07 review (fixed 2026-09-08).
-//
-// forgetRelaySessionLocked cleared the clock offset and the monotonic clamp
-// (lastNowMs) in the same breath, so in a clock.v1 room with a +5 s offset the
-// emitted clock fell five seconds at the instant the relay dropped. nowMsLocked
-// spells out why that must never happen: remoteBuffer.add requires
-// non-decreasing timestamps and does not re-sort, and a rewound render time can
-// flip an opaque field back to a previous value, manufacturing a state edge the
-// core is forbidden to interpret. On screen it cost a despawn/respawn of the
-// whole chaser pack -- recordLocal stamps five seconds in the past, no chaser
-// is fed anything it considers new for five wall seconds, and every one of them
-// crosses replayGapSeamMs.
-//
-// The offset itself must still be reset, or a new relay's clock is answered
-// with the old one's, so both halves are asserted.
+// TestTheEmittedClockDoesNotStepBackWhenTheRelayDrops: a relay drop resets the clock offset, or a new relay's clock
+// is answered with the old one's, but keeps the monotonic clamp, since a rewound clock leaves remote buffers
+// unsorted and seams the whole chaser pack.
 func TestTheEmittedClockDoesNotStepBackWhenTheRelayDrops(t *testing.T) {
 	c := New()
 	c.activeFeatures = []string{protocol.FeatureClockV1}
@@ -198,8 +150,7 @@ func TestTheEmittedClockDoesNotStepBackWhenTheRelayDrops(t *testing.T) {
 			"answered with this one's")
 	}
 
-	// Sampled repeatedly rather than once: the clamp has to hold for as long as
-	// real time takes to catch up, not just for the first call after the drop.
+	// Repeatedly: the clamp must hold until real time catches up, not only on the first call.
 	deadline := time.Now().Add(50 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		if got := c.nowMs(); got < before {

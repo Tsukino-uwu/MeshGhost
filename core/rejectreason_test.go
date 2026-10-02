@@ -11,41 +11,9 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
-// THE REJECT REASON IS A CONTRACT WITH FOUR ADAPTERS, AND NOTHING PINNED IT UNTIL NOW.
-//
-// REWRITTEN 2026-09-03, because the behaviour it pinned changed on purpose: a relay that is merely
-// DOWN no longer refuses the adapter at all (bridgeserve.go -- the game attaches, plays solo, and
-// the relay is retried in the background), so the first test below now asserts the opposite of
-// what this file used to. What survives unchanged is the WORD contract for the refusals that are
-// left, which the second test carries.
-//
-// The original note, still the reason the word matters: when a core refuses an adapter, the reason
-// text is what all four shipped adapters branch on. All four shipped adapters branch on that text: each looks
-// for the substring "relay" to tell "this core cannot reach the relay" apart from "this core
-// already has a game", because the correct response to the two is opposite -- wait on the same
-// core, versus walk to the next port.
-//
-// Getting that distinction wrong is not theoretical. Three of the four adapters lacked it until
-// 2026-08-28 and the symptom reached a real user: with the relay down, each rejection cooled
-// another port until the whole range was marked and the sweep reported "NO free port to start a
-// core on". Crystal had the guard since 2026-08-19; the other three did not.
-//
-// So the WORD matters now. Reword core's dial error to "could not connect to the server" and all
-// four adapters silently revert to the behaviour that broke that user's session -- with every
-// other Go test still green, because nothing else looks at this string. This test is what makes
-// that rewording fail loudly instead.
-//
-// It deliberately asserts the weakest useful thing: that the reason mentions the relay at all,
-// case-insensitively. It is not a golden-string test and must not become one -- the message is
-// meant to stay human-readable and improvable. What may not change is that it says "relay".
-// TestARelayThatIsMerelyDownDoesNotRejectTheAdapter is the 2026-09-03 behaviour change, pinned
-// from the adapter's side: with nothing listening, the hello is ACCEPTED and the game plays solo.
-//
-// It is the same defect the file's own history describes, cured at the source rather than worked
-// around in four adapters: a refusal per hello is what cooled port after port until a real user's
-// sweep reported "NO free port to start a core on". A core that accepts cannot start that
-// cascade. It also unblocks the solo features Phase 11 added -- with the old refusal,
-// record_on_launch with no relay running wrote nothing at all, which is how this was found.
+// TestARelayThatIsMerelyDownDoesNotRejectTheAdapter: with nothing listening, the hello is accepted and the game plays
+// solo while the relay is retried in the background. A refusal per hello would cool port after port in an adapter's
+// port walk, and recording and replays need no relay at all.
 func TestARelayThatIsMerelyDownDoesNotRejectTheAdapter(t *testing.T) {
 	dead := deadAddr(t)
 	c := &Core{RelayAddr: dead, DialTimeout: 500 * time.Millisecond}
@@ -70,15 +38,13 @@ func TestARelayThatIsMerelyDownDoesNotRejectTheAdapter(t *testing.T) {
 	}
 }
 
-// TestAPermanentRelayRefusalStillSaysRelay: the refusals that REMAIN keep the word. A wrong room
-// code or a version mismatch is not something retrying fixes, so the adapter is still refused --
-// and the reason must still identify the relay as the cause, because that is what tells an adapter
-// to wait on this core rather than walk to the next port.
+// TestAPermanentRelayRefusalStillSaysRelay: a refusal retrying cannot fix (a wrong room code, a version mismatch) still
+// names the relay, since all four adapters match the substring "relay" to wait on this core rather than walk to the
+// next port. It asserts only that the word appears, case-insensitively: the message stays readable and improvable.
 func TestAPermanentRelayRefusalStillSaysRelay(t *testing.T) {
 	c := &Core{RelayAddr: deadAddr(t), DialTimeout: 500 * time.Millisecond}
-	// A permanent refusal this core has already been told about, which is exactly what a second
-	// hello for the same game hits -- and it needs no relay, which keeps this test about the
-	// message rather than about a handshake.
+	// A permanent refusal this core already knows, as a second hello for the same game hits; it needs no relay, which
+	// keeps this test about the message.
 	c.permanentRejectGame = "anygame"
 	c.permanentRejectReason = "wrong room code"
 
@@ -102,9 +68,8 @@ func TestAPermanentRelayRefusalStillSaysRelay(t *testing.T) {
 	}
 }
 
-// deadAddr is a port nothing is listening on: bind one, learn its number, release it. Better than
-// a hardcoded "surely nothing is here" port, which is exactly the assumption that makes a test
-// flaky on somebody else's machine.
+// deadAddr is a port nothing listens on: bind one, learn its number, release it, rather than assume a hardcoded port is
+// free.
 func deadAddr(t *testing.T) string {
 	t.Helper()
 	probe, err := net.Listen("tcp", "127.0.0.1:0")
@@ -118,15 +83,8 @@ func deadAddr(t *testing.T) string {
 	return addr
 }
 
-// TestASoloSessionUpgradesWhenARelayAppears is the other half of accepting an adapter with no
-// relay, and it is the test that stops "solo" from becoming a silent resting state: the session
-// must JOIN when a relay turns up, without the game doing anything.
-//
-// It also answers the question the user asked when this was built (2026-09-03) -- make sure
-// nothing starts reading a solo session as success. Two things enforce that, and both are here:
-// a solo core has no player id (so every test that waits for one still measures a real relay, and
-// none of them can pass without one), and this test proves the solo state is temporary rather
-// than terminal.
+// TestASoloSessionUpgradesWhenARelayAppears: a solo session joins once a relay turns up, with the game doing nothing,
+// so solo is never a resting state. A solo core has no player id, so no test waiting for one passes without a relay.
 func TestASoloSessionUpgradesWhenARelayAppears(t *testing.T) {
 	// A port reserved and released, then bound by a relay later -- the same shape as a player
 	// starting the game before the host starts the server.
@@ -152,8 +110,7 @@ func TestASoloSessionUpgradesWhenARelayAppears(t *testing.T) {
 	fa.hello("anygame")
 	fa.awaitReady() // accepted with no relay in existence
 
-	// A SOLO CORE HAS NO IDENTITY. This is what keeps every other test honest: waitForPlayerID
-	// and everything built on it still cannot pass without a relay having answered.
+	// A solo core has no identity, which keeps waitForPlayerID and everything built on it honest.
 	if id := c.PlayerID(); id != "" {
 		t.Fatalf("a core that never reached a relay reported player id %q -- a solo session must "+
 			"not look like a joined one to anything that checks", id)
@@ -169,16 +126,9 @@ func TestASoloSessionUpgradesWhenARelayAppears(t *testing.T) {
 	waitForPlayerID(t, c)
 }
 
-// TestASessionFlapsBetweenSoloAndJoinedAndTheRecordingSurvivesIt answers the two questions the
-// user asked when solo sessions landed (2026-09-03): does it go BACK to solo when the server
-// disappears, can it go back and forth, and what happens to a recording that is running across
-// all of it.
-//
-// The answers this pins: solo -> joined -> solo -> joined, driven only by the server appearing and
-// disappearing, with the game attached and none the wiser; and a recording that spans the whole
-// thing is ONE continuous clip, because the recorder taps the local frame before anything about
-// the relay is consulted (sending.go). The clip must have no gap big enough to be a playback seam
-// (replayGapSeamMs), or a rejoin would show up as the ghost teleporting mid-replay.
+// TestASessionFlapsBetweenSoloAndJoinedAndTheRecordingSurvivesIt: solo, joined, solo, joined, driven only by the server
+// coming and going with the game attached throughout, and a recording spanning it all is one clip with no gap playback
+// would treat as a seam, since the recorder taps the local frame before the relay is consulted.
 func TestASessionFlapsBetweenSoloAndJoinedAndTheRecordingSurvivesIt(t *testing.T) {
 	// One address, bound and unbound as the "server" comes and goes.
 	probe, err := net.Listen("tcp", "127.0.0.1:0")
@@ -283,7 +233,7 @@ func TestASessionFlapsBetweenSoloAndJoinedAndTheRecordingSurvivesIt(t *testing.T
 		t.Fatalf("StopRecording = %d samples, %v", n, err)
 	}
 
-	// THE RECORDING IS ONE CLIP, and the flapping is invisible in it.
+	// The recording is one clip, and the flapping is invisible in it.
 	clip, err := loadReplay(path, true)
 	if err != nil {
 		t.Fatalf("the recording made across the flap does not load: %v", err)

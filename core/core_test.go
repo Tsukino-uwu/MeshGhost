@@ -20,31 +20,17 @@ import (
 
 const testTimeout = 2 * time.Second
 
-// startRelay starts a real relay.Server on an ephemeral port, per
-// relay — this test exercises Core against the actual relay
-// implementation, not a mock.
+// startRelay starts a real relay.Server on an ephemeral port, so Core runs against the actual relay, not a mock.
 func startRelay(t *testing.T) string {
 	t.Helper()
 	s := relay.NewServer()
-	// Since the send/receive rate-control feature (see the ADR in
-	// agent_docs/architecture.md), a relay's advertised send_hz is
-	// prescriptive: effectiveSendInterval takes the SLOWER of the relay's
-	// rate and a Core's own explicit MinSendInterval. Left at the relay's
-	// own 20Hz default, that would silently override every existing test
-	// that sets a fast MinSendInterval (e.g. 1ms) purely so its own
-	// assertions land inside testTimeout — exactly the same class of
-	// regression flagged for dev-scripts (a fast local override getting
-	// slowed down by a default-rate relay). protocol.MaxSendHz here means
-	// the relay is never the bottleneck in a test; a test that specifically
-	// wants to exercise a slower or unconfigured relay uses startRelayWith
-	// with its own Server instead.
+	// A relay's send_hz wins when it is slower than a Core's MinSendInterval, so MaxSendHz keeps the relay from slowing
+	// a test's fast MinSendInterval; a test of a slower relay uses startRelayWith.
 	s.SendHz = protocol.MaxSendHz
 	return startRelayWith(t, s)
 }
 
-// startRelayWith is startRelay's more general form, for tests that need a
-// non-default Server (e.g. RoomCode set) — added alongside relay-safety
-// hardening, agent_docs/architecture.md's room-code/version ADR.
+// startRelayWith is startRelay for a test that needs a non-default Server, such as one with a room code.
 func startRelayWith(t *testing.T, s *relay.Server) string {
 	t.Helper()
 	ln := listenTLS(t)
@@ -53,46 +39,32 @@ func startRelayWith(t *testing.T, s *relay.Server) string {
 	return ln.Addr().String()
 }
 
-// fakeAdapter stands in for a real adapter (BizHawk Lua, etc.) by dialing
-// a Core's bridge listener directly and speaking the bridge wire protocol
-// — the same thing a real adapter would do, minus the game.
+// fakeAdapter stands in for a real adapter: it dials a Core's bridge listener and speaks the bridge protocol.
 type fakeAdapter struct {
 	t    *testing.T
 	conn *transport.NDJSONConn
 
 	mu       sync.Mutex
 	rendered map[string]protocol.State
-	// renderMsgs is the WHOLE render_remote per peer, so a test can assert on
-	// the orientation bracket -- which sits beside State, not inside it (ADR 0043).
+	// renderMsgs is the whole render_remote per peer, for the orientation bracket that sits beside State.
 	renderMsgs map[string]bridge.RenderRemote
-	// names is every remote_name this adapter was told, keyed by player id. A real adapter
-	// draws from exactly this, and a test that only inspects the Core's own map cannot see the
-	// handover -- which is where the 2026-08-28 ordering bug actually lived.
+	// names is every remote_name this adapter was told; a test reading only the Core's map misses the handover.
 	names    map[string]bridge.RemoteName
 	despawns chan string
-	// ready/rejects capture the Core's two possible answers to a hello. Buffered
-	// so a test that never reads them cannot wedge the receive callback.
+	// ready and rejects are the Core's two answers to a hello, buffered so an unread one cannot wedge the callback.
 	ready   chan struct{}
 	rejects chan string
-	// policies receives every session_policy the core pushes, in order, so a
-	// test can assert both the value and that a re-push did or did not happen.
-	policies chan bridge.SessionPolicy
-	// recordings receives every recording_state push, in order.
+	// policies receives every session_policy in order, so a test can assert whether a re-push happened.
+	policies   chan bridge.SessionPolicy
 	recordings chan bridge.RecordingState
-	// inputs receives every remote_input (ADR 0057), each stamped with what
-	// this adapter had seen for that player at the moment it arrived: the
-	// newest rendered state.timestamp (so a test can prove the edges came
-	// AHEAD of the frames they are due on) and how many despawns (so a test
-	// can prove a seam's first line carried a reset).
+	// inputs receives every remote_input, stamped with the newest rendered timestamp for that player (edges must arrive
+	// ahead of their frames) and its despawn count (a seam's first line carries a reset).
 	inputs chan receivedInput
 	// lastRenderTs and despawnCount are the per-player stamps above.
 	lastRenderTs map[string]int64
 	despawnCount map[string]int
-	// order records the sequence of message types as they actually arrive, so
-	// a test can assert bridge_ready precedes session_policy. The two are
-	// produced on DIFFERENT goroutines inside the Core (the adapter read loop
-	// and the relay read loop), so their order is a real property worth
-	// pinning rather than an implementation detail.
+	// order records message types as they arrive: bridge_ready and session_policy come from different goroutines in the
+	// Core, so their order is a real property.
 	order chan bridge.MessageType
 }
 
@@ -105,11 +77,8 @@ func dialFakeAdapter(t *testing.T, bridgeAddr string) *fakeAdapter {
 	return fa
 }
 
-// dialFakeAdapterErr is dialFakeAdapter for a caller that dials repeatedly and
-// must not treat a refused dial as a failed test: a fuzz target attaching and
-// detaching across many workers runs Windows out of ephemeral ports long
-// before it runs out of schedules, and "the OS would not give us a socket" is
-// not a fact about the code under test.
+// dialFakeAdapterErr is dialFakeAdapter for a caller that dials repeatedly: a fuzz target can run Windows out of
+// ephemeral ports, which is not a fact about the code under test.
 func dialFakeAdapterErr(t *testing.T, bridgeAddr string) (*fakeAdapter, error) {
 	t.Helper()
 	conn, err := transport.Dial(bridgeAddr)
@@ -119,9 +88,7 @@ func dialFakeAdapterErr(t *testing.T, bridgeAddr string) (*fakeAdapter, error) {
 	return newFakeAdapter(t, conn), nil
 }
 
-// newFakeAdapter wires the receive callbacks onto an already-open bridge
-// connection, whatever carried it -- a real TCP dial, or the in-memory pipe the
-// fuzz target uses (see pipeListener).
+// newFakeAdapter wires the receive callbacks onto an open bridge connection, a TCP dial or the fuzz target's pipe.
 func newFakeAdapter(t *testing.T, conn *transport.NDJSONConn) *fakeAdapter {
 	t.Helper()
 	fa := &fakeAdapter{
@@ -135,8 +102,7 @@ func newFakeAdapter(t *testing.T, conn *transport.NDJSONConn) *fakeAdapter {
 		policies:   make(chan bridge.SessionPolicy, 8),
 		recordings: make(chan bridge.RecordingState, 8),
 		order:      make(chan bridge.MessageType, 32),
-		// Deep, and never blocking (below): a dense track at 4x can send a
-		// few hundred lines in a short test.
+		// Deep and never blocking: a dense track at 4x can send a few hundred lines in a short test.
 		inputs:       make(chan receivedInput, 4096),
 		lastRenderTs: map[string]int64{},
 		despawnCount: map[string]int{},
@@ -175,12 +141,8 @@ func newFakeAdapter(t *testing.T, conn *transport.NDJSONConn) *fakeAdapter {
 			delete(fa.rendered, dr.PlayerID)
 			fa.despawnCount[dr.PlayerID]++
 			fa.mu.Unlock()
-			// Non-blocking, like every sibling channel in this callback. A blocking
-			// send here stalls the bridge READ LOOP once the buffer fills, which
-			// grows the core queue until the stuck-adapter verdict tears the session
-			// down -- while the test's remaining assertions still pass. StopChasers
-			// drops one peer per chaser, and chaser_test.go stops packs of 99 and
-			// 512, so this is reachable today rather than theoretical (2026-09-08).
+			// Non-blocking like its siblings: once the buffer fills, a blocking send stalls the bridge read loop until
+			// the stuck-adapter verdict tears the session down, while the test's assertions still pass.
 			select {
 			case fa.despawns <- dr.PlayerID:
 			default:
@@ -253,16 +215,13 @@ func newFakeAdapter(t *testing.T, conn *transport.NDJSONConn) *fakeAdapter {
 	return fa
 }
 
-// hello sends a bridge.Hello declaring gameID -- must be the first message
-// on a fresh connection per agent_docs/contract.md, same as a real adapter.
+// hello sends a bridge.Hello declaring gameID, the first message on a fresh connection.
 func (fa *fakeAdapter) hello(gameID string) {
 	fa.t.Helper()
 	fa.helloWithVersion(gameID, "")
 }
 
-// helloWithVersion is hello's more general form, for tests exercising the
-// game-version check — added alongside relay-safety hardening,
-// agent_docs/architecture.md's room-code/version ADR.
+// helloWithVersion is hello with a game version, for tests of the game-version check.
 func (fa *fakeAdapter) helloWithVersion(gameID, gameVersion string) {
 	fa.t.Helper()
 	payload, err := json.Marshal(bridge.Hello{GameID: gameID, GameVersion: gameVersion})
@@ -278,9 +237,7 @@ func (fa *fakeAdapter) helloWithVersion(gameID, gameVersion string) {
 	}
 }
 
-// helloAllAreas is hello with render_all_areas set -- the adapter declaring
-// it owns area visibility (bridge.Hello's comment; Emerald's cross-map
-// ghosts are the first real caller).
+// helloAllAreas is hello with render_all_areas set: the adapter owns area visibility.
 func (fa *fakeAdapter) helloAllAreas(gameID string) {
 	fa.t.Helper()
 	payload, err := json.Marshal(bridge.Hello{GameID: gameID, RenderAllAreas: true})
@@ -296,8 +253,7 @@ func (fa *fakeAdapter) helloAllAreas(gameID string) {
 	}
 }
 
-// frame simulates one adapter frame tick: sends the given local state (or
-// none, for state == nil) to the core.
+// frame simulates one adapter frame tick: it sends state to the core, or none for nil.
 func (fa *fakeAdapter) frame(state *protocol.State) {
 	fa.t.Helper()
 	payload, err := json.Marshal(bridge.LocalState{State: state})
@@ -320,8 +276,7 @@ func (fa *fakeAdapter) rendersOf(playerID string) (protocol.State, bool) {
 	return st, ok
 }
 
-// renderMsgOf is rendersOf for the whole bridge message, used where the
-// assertion is about a field that sits beside State rather than in it.
+// renderMsgOf is rendersOf for the whole bridge message, for a field that sits beside State.
 func (fa *fakeAdapter) renderMsgOf(playerID string) (bridge.RenderRemote, bool) {
 	fa.mu.Lock()
 	defer fa.mu.Unlock()
@@ -329,16 +284,14 @@ func (fa *fakeAdapter) renderMsgOf(playerID string) (bridge.RenderRemote, bool) 
 	return rr, ok
 }
 
-// receivedInput is one remote_input as the fake adapter saw it, with the
-// per-player stamps it had at that moment (see fakeAdapter.inputs).
+// receivedInput is one remote_input with the per-player stamps the fake adapter had when it arrived.
 type receivedInput struct {
 	msg      bridge.RemoteInput
 	renderTs int64
 	despawns int
 }
 
-// helloInputTracks is the opt-in an adapter that can draw or drive with a
-// replay's input track sends -- see bridge.Hello's input_tracks (ADR 0057).
+// helloInputTracks is hello with input_tracks, the opt-in of an adapter that can use a replay's input track.
 func (fa *fakeAdapter) helloInputTracks(gameID string) {
 	fa.t.Helper()
 	payload, err := json.Marshal(bridge.Hello{GameID: gameID, InputTracks: true})
@@ -354,8 +307,7 @@ func (fa *fakeAdapter) helloInputTracks(gameID string) {
 	}
 }
 
-// helloInterpolateOrientation is the opt-in an adapter with CONTINUOUS rotation
-// sends -- see bridge.Hello's interpolate_orientation.
+// helloInterpolateOrientation is hello with interpolate_orientation, the opt-in of an adapter with continuous rotation.
 func (fa *fakeAdapter) helloInterpolateOrientation(gameID string) {
 	fa.t.Helper()
 	payload, err := json.Marshal(bridge.Hello{GameID: gameID, InterpolateOrientation: true})
@@ -392,9 +344,7 @@ func startCore(t *testing.T, relayAddr, gameID, room, name string) (*Core, strin
 	return c, ln.Addr().String()
 }
 
-// startCoreLazy starts a Core the way cmd/meshghost does with no -game set:
-// no relay connection yet, only the fields ConnectRelayOnAdapterHello needs
-// to dial once a bridge.Hello actually arrives.
+// startCoreLazy starts a Core as cmd/meshghost does with no -game: no relay connection until a bridge.Hello arrives.
 func startCoreLazy(t *testing.T, relayAddr, room, name string) (*Core, string) {
 	t.Helper()
 	c := New()
@@ -413,8 +363,7 @@ func startCoreLazy(t *testing.T, relayAddr, room, name string) (*Core, string) {
 	return c, ln.Addr().String()
 }
 
-// waitForPlayerID polls until Core.PlayerID() is non-empty (i.e. ConnectRelay
-// has completed) or testTimeout elapses.
+// waitForPlayerID polls until ConnectRelay has completed or testTimeout elapses.
 func waitForPlayerID(t *testing.T, c *Core) {
 	t.Helper()
 	deadline := time.Now().Add(testTimeout)
@@ -427,10 +376,7 @@ func waitForPlayerID(t *testing.T, c *Core) {
 	t.Fatal("timed out waiting for core to connect to the relay")
 }
 
-// TestBridgeHelloConnectsToRelay confirms Core.ConnectRelayOnAdapterHello --
-// the deferred-connect path used when -game/the config file didn't already
-// supply one (agent_docs/architecture.md's 2026-08-12 ADR) -- actually
-// connects once a real bridge.Hello arrives.
+// TestBridgeHelloConnectsToRelay: a core started with no game dials the relay once a bridge.Hello arrives.
 func TestBridgeHelloConnectsToRelay(t *testing.T) {
 	relayAddr := startRelay(t)
 	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
@@ -441,8 +387,7 @@ func TestBridgeHelloConnectsToRelay(t *testing.T) {
 	waitForPlayerID(t, c)
 }
 
-// awaitReady fails the test unless the Core answers this adapter's hello with
-// bridge_ready inside testTimeout.
+// awaitReady fails the test unless the Core answers this adapter's hello with bridge_ready inside testTimeout.
 func (fa *fakeAdapter) awaitReady() {
 	fa.t.Helper()
 	select {
@@ -454,8 +399,7 @@ func (fa *fakeAdapter) awaitReady() {
 	}
 }
 
-// awaitReject returns the reason, failing unless the Core rejects this
-// adapter's hello inside testTimeout.
+// awaitReject returns the reason, failing unless the Core rejects this adapter's hello inside testTimeout.
 func (fa *fakeAdapter) awaitReject() string {
 	fa.t.Helper()
 	select {
@@ -469,17 +413,8 @@ func (fa *fakeAdapter) awaitReject() string {
 	return ""
 }
 
-// TestSecondAdapterForTheSameGameIsRejected is the important one, and it covers
-// a bug rather than a feature. Two adapters running the SAME game_id both used
-// to get a successful hello -- ConnectRelayOnAdapterHello returns nil early when
-// the game already matches -- and nothing limited adapters per Core, so both
-// then drove ONE relay session: one playerID, one seq, one send-rate budget, one
-// localAreaID, two games fighting over a single ghost. Neither side logged
-// anything unusual.
-//
-// It matters most in exactly the case that motivated the port walk: two copies
-// of one game on one machine, which is also how nearly every adapter in this
-// repo got tested.
+// TestSecondAdapterForTheSameGameIsRejected: two adapters with one game_id must not share one relay session (one
+// player_id, seq and send budget), and nothing would log it.
 func TestSecondAdapterForTheSameGameIsRejected(t *testing.T) {
 	relayAddr := startRelay(t)
 	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
@@ -496,20 +431,15 @@ func TestSecondAdapterForTheSameGameIsRejected(t *testing.T) {
 		t.Error("rejected with an empty reason, want one an adapter can log")
 	}
 
-	// The first adapter must be entirely undisturbed -- the old failure mode
-	// was not an error but a silent hijack of its session.
+	// The failure mode is a silent hijack of the first adapter's session, not an error.
 	if got := c.PlayerID(); got != idBefore {
 		t.Errorf("player_id changed to %q after a second adapter attached, want %q kept", got, idBefore)
 	}
 	first.frame(&protocol.State{AreaID: "a", Position: []float64{1, 2}, Anim: "idle"})
 }
 
-// TestSecondAdapterForADifferentGameIsRejectedWithAReason covers the case that
-// merely failed rather than corrupting: a Core serves one game, and a second
-// game's hello was answered by closing the socket with no explanation. An
-// adapter cannot tell that apart from a crashed core, a core still binding its
-// port, or an unrelated program, which is why "two games at once" failed
-// invisibly and why the reason now goes over the wire.
+// TestSecondAdapterForADifferentGameIsRejectedWithAReason: the reason goes over the wire, since a bare close looks the
+// same as a crashed core, a core still binding its port, or an unrelated program.
 func TestSecondAdapterForADifferentGameIsRejectedWithAReason(t *testing.T) {
 	relayAddr := startRelay(t)
 	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
@@ -526,11 +456,8 @@ func TestSecondAdapterForADifferentGameIsRejectedWithAReason(t *testing.T) {
 	}
 }
 
-// TestCoreAcceptsANewAdapterAfterTheFirstLeaves is the other half of admission
-// control, and the one that keeps autostart's reuse working: a Core whose
-// adapter has gone must be available again. Without this a relaunched game
-// would walk to a new port every time and leave a trail of dead cores behind
-// it, each still holding its own port.
+// TestCoreAcceptsANewAdapterAfterTheFirstLeaves: a Core whose adapter left is available again, so a relaunched game
+// reuses it rather than walking to a new port and leaving dead cores behind.
 func TestCoreAcceptsANewAdapterAfterTheFirstLeaves(t *testing.T) {
 	relayAddr := startRelay(t)
 	_, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
@@ -543,32 +470,15 @@ func TestCoreAcceptsANewAdapterAfterTheFirstLeaves(t *testing.T) {
 	reattachFakeAdapter(t, bridgeAddr, "emerald")
 }
 
-// reattachFakeAdapter models a relaunched game: dial, say hello, and retry
-// while the Core is still finishing with the connection that just went away.
-//
-// The Core frees its admission slot from the DEPARTING connection's own read
-// loop (see attachedAdapter in core.go), so "this core is available again" is
-// an EVENTUAL guarantee, not an instant one — closing a socket and dialling in
-// the same breath can beat the EOF, and the new hello is then answered with
-// "busy: this core already has a game attached". In the real case the window is
-// microseconds and relaunching a game takes seconds, so nothing about the
-// product is wrong; a test that closes and redials with zero delay is simply
-// asserting something stronger than the design offers.
-//
-// THIS EXISTED INLINE IN TestCoreAcceptsANewAdapterAfterTheFirstLeaves AND
-// NOWHERE ELSE, which is why TestGhostCollisionRepeatedForANewAdapter flaked:
-// same close-then-redial shape, no retry. It went red in a release build on
-// 2026-08-22 while the identical commit passed CI, and 200 local runs of the
-// test alone never reproduced it. Shared rather than copied a second time —
-// the copy is how the first one failed to reach the second.
+// reattachFakeAdapter models a relaunched game: dial, say hello, and retry while the Core finishes with the connection
+// that just went away. The Core frees its admission slot from the departing connection's read loop, so a close and a
+// redial in the same breath can be answered "busy"; a real relaunch takes seconds.
 func reattachFakeAdapter(t *testing.T, bridgeAddr, gameID string) *fakeAdapter {
 	t.Helper()
 	return reattachFakeAdapterWith(t, gameID, func() *fakeAdapter { return dialFakeAdapter(t, bridgeAddr) })
 }
 
-// reattachFakeAdapterWith is reattachFakeAdapter over any way of opening a
-// connection, so a caller on the in-memory pipe gets the same retry-until-the
-// -core-accepts-us loop as one on a socket.
+// reattachFakeAdapterWith is reattachFakeAdapter over any way of opening a connection, the in-memory pipe included.
 func reattachFakeAdapterWith(t *testing.T, gameID string, dial func() *fakeAdapter) *fakeAdapter {
 	t.Helper()
 	deadline := time.Now().Add(testTimeout)
@@ -591,10 +501,7 @@ func reattachFakeAdapterWith(t *testing.T, gameID string, dial func() *fakeAdapt
 	}
 }
 
-// TestLocalStateBeforeHelloDoesNotSendOrCrash confirms local_state frames
-// arriving before any hello (or with no hello at all) are harmless no-ops --
-// forwardLocalState's nil-relay check -- and that a late hello still works
-// normally afterward, i.e. the earlier frames didn't leave the core wedged.
+// TestLocalStateBeforeHelloDoesNotSendOrCrash: a hello after early local_state frames still connects.
 func TestLocalStateBeforeHelloDoesNotSendOrCrash(t *testing.T) {
 	relayAddr := startRelay(t)
 	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
@@ -613,10 +520,8 @@ func TestLocalStateBeforeHelloDoesNotSendOrCrash(t *testing.T) {
 	waitForPlayerID(t, c)
 }
 
-// TestSecondHelloWithDifferentGameIsRefused confirms a single Core serves
-// exactly one game per process: once connected to the relay for one
-// game_id, ConnectRelayOnAdapterHello for a different game_id is refused
-// rather than silently switching (agent_docs/architecture.md's ADR).
+// TestSecondHelloWithDifferentGameIsRefused: a Core serves one game per process, so a different game_id is refused
+// rather than switched to, and the same one is a no-op.
 func TestSecondHelloWithDifferentGameIsRefused(t *testing.T) {
 	relayAddr := startRelay(t)
 	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
@@ -633,25 +538,13 @@ func TestSecondHelloWithDifferentGameIsRefused(t *testing.T) {
 		t.Fatalf("core's relay connection changed after a refused second hello: got player id %q, want unchanged %q", c.PlayerID(), firstPlayerID)
 	}
 
-	// The original game_id must still be a no-op, not also refused.
 	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err != nil {
 		t.Fatalf("re-hello for the same game_id should be a no-op, got error: %v", err)
 	}
 }
 
-// TestMismatchedSecondAdapterDoesNotKillFirstAdaptersRelaySession is a
-// regression test for a bug found in a review pass: handleBridgeConn's
-// OnDisconnect used to close c.relay for *any* bridge connection dropping,
-// including one that never became the adapter at all. A second real
-// adapter connecting to the same bridge port with a different game_id gets
-// refused (TestSecondHelloWithDifferentGameIsRefused above already covers
-// that) and its bridge connection closed — that used to also tear down the
-// *first* adapter's completely unrelated, already-working relay session,
-// since the close handler didn't check which bridge connection actually
-// owned it. Proven here by exchanging real state with a second, genuinely
-// separate Core/peer after the mismatched second adapter is refused — not
-// just checking PlayerID() stayed the same, which could pass even with a
-// silently-dead relay connection.
+// TestMismatchedSecondAdapterDoesNotKillFirstAdaptersRelaySession: a refused second adapter's disconnect must not close
+// the first adapter's relay session. Real state through a second peer proves it, since PlayerID survives a dead link.
 func TestMismatchedSecondAdapterDoesNotKillFirstAdaptersRelaySession(t *testing.T) {
 	relayAddr := startRelay(t)
 	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
@@ -676,12 +569,8 @@ func TestMismatchedSecondAdapterDoesNotKillFirstAdaptersRelaySession(t *testing.
 		t.Fatalf("first adapter's relay session was disrupted: player id changed from %q to %q", firstPlayerID, c.PlayerID())
 	}
 
-	// Prove the relay connection is genuinely still alive, not just that
-	// PlayerID() happens to hold a stale value: bring in a real second
-	// peer and confirm state sent by the first adapter still reaches it.
 	core2, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
-	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	adapter2.hello("emerald")
 	time.Sleep(50 * time.Millisecond)
 
@@ -703,17 +592,8 @@ func TestMismatchedSecondAdapterDoesNotKillFirstAdaptersRelaySession(t *testing.
 	_ = core2
 }
 
-// TestAdapterHelloAfterStartupConnectIsNoOp confirms the *other* -game/config
-// startup path (startCore, direct ConnectRelay -- used by every dev-scripts
-// run-core*.bat that passes -game explicitly) also records which game_id it
-// connected as, so a real adapter's hello for that same game_id arriving
-// afterward is a no-op, not treated as a second, conflicting game. Found
-// live 2026-08-12 testing Phase 7's Pseudoregalia probe: ConnectRelay never
-// set relayGame, so ConnectRelayOnAdapterHello always compared the real
-// hello's game_id against "", refused it as a mismatch, and closed the
-// bridge connection -- a regression hitting any adapter sending hello
-// (Emerald and TEVI both do, per agent_docs/architecture.md's 2026-08-12
-// ADR) against a core started with an explicit -game.
+// TestAdapterHelloAfterStartupConnectIsNoOp: a core started with -game records its game, so a real adapter's hello for
+// that game is a no-op, not a mismatch that closes the bridge.
 func TestAdapterHelloAfterStartupConnectIsNoOp(t *testing.T) {
 	relayAddr := startRelay(t)
 	c, bridgeAddr := startCore(t, relayAddr, "pseudoregalia", "room1", "alice")
@@ -740,10 +620,6 @@ func TestAdapterHelloAfterStartupConnectIsNoOp(t *testing.T) {
 	}
 }
 
-// TestTwoCoresExchangeStateOverRealRelay is the Phase 3/4 milestone in
-// miniature: two Core instances, each driven by a fake adapter standing in
-// for a real one, connect to one real relay and a state sent by one
-// player's adapter shows up as a render_remote on the other's.
 func TestTwoCoresExchangeStateOverRealRelay(t *testing.T) {
 	relayAddr := startRelay(t)
 
@@ -751,16 +627,11 @@ func TestTwoCoresExchangeStateOverRealRelay(t *testing.T) {
 	core2, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
-	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	adapter1.hello("emerald")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
-	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	adapter2.hello("emerald")
 
-	// Give core2's join a moment to land at the relay before core1 sends
-	// state, so the relay's room already has both members (this is what
-	// the loopback/two-player milestone actually exercises: both are
-	// already in the room, not racing to join).
+	// Let core2's join land, so the room has both members before core1 sends.
 	time.Sleep(50 * time.Millisecond)
 
 	sent := protocol.State{
@@ -793,8 +664,7 @@ func TestTwoCoresExchangeStateOverRealRelay(t *testing.T) {
 	_ = core2 // core2 is exercised entirely through adapter2's frames above
 }
 
-// TestDisconnectDespawnsRemote confirms a player's bridge connection sees
-// a despawn_remote once the relay reports the peer left.
+// TestDisconnectDespawnsRemote: a peer leaving the relay reaches this adapter as a despawn_remote.
 func TestDisconnectDespawnsRemote(t *testing.T) {
 	relayAddr := startRelay(t)
 
@@ -802,10 +672,8 @@ func TestDisconnectDespawnsRemote(t *testing.T) {
 	_, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
-	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	adapter1.hello("emerald")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
-	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	adapter2.hello("emerald")
 	time.Sleep(50 * time.Millisecond)
 
@@ -825,16 +693,12 @@ func TestDisconnectDespawnsRemote(t *testing.T) {
 	}
 	firstPlayerID := core1.PlayerID() // captured before disconnect clears it
 
-	// Closing core1's relay connection (not the bridge) is what makes the
-	// relay observe a disconnect and broadcast a Leave — that's the signal
-	// that should flow through to adapter2 as a despawn_remote.
+	// Closing core1's relay connection, not its bridge, makes the relay broadcast a Leave.
 	if err := core1.relay.Close(); err != nil {
 		t.Fatalf("close core1 relay connection: %v", err)
 	}
 
-	// despawn_remote is only pushed in response to an adapter frame call
-	// (the adapter always drives, per the tick model), so keep ticking
-	// frames until the Leave has propagated through the relay to core2.
+	// despawn_remote is pushed only in answer to an adapter frame, so keep ticking until the Leave arrives.
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	deadline2 := time.After(testTimeout)
@@ -853,14 +717,8 @@ func TestDisconnectDespawnsRemote(t *testing.T) {
 	}
 }
 
-// TestOwnRelayDisconnectDespawnsRemotes covers a different failure than
-// TestDisconnectDespawnsRemote: there, a *peer* disconnects and the relay
-// tells everyone else via Leave. Here, *this Core's own* connection to the
-// relay is lost (found live during Phase 3 verification: killing the relay
-// process left a loopback ghost frozen in place forever, tracking nothing,
-// because nothing cleared its last known snapshot). No Leave can ever
-// arrive once the relay itself is gone, so the Core must proactively clear
-// its remotes on its own disconnect rather than waiting for one.
+// TestOwnRelayDisconnectDespawnsRemotes: when this Core's own relay connection is lost no Leave can arrive, so the Core
+// clears its remotes itself.
 func TestOwnRelayDisconnectDespawnsRemotes(t *testing.T) {
 	relayAddr := startRelay(t)
 
@@ -868,10 +726,8 @@ func TestOwnRelayDisconnectDespawnsRemotes(t *testing.T) {
 	core2, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
-	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	adapter1.hello("emerald")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
-	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	adapter2.hello("emerald")
 	time.Sleep(50 * time.Millisecond)
 
@@ -890,9 +746,6 @@ func TestOwnRelayDisconnectDespawnsRemotes(t *testing.T) {
 		t.Fatal("setup failed: adapter2 never saw core1 rendered before disconnect test")
 	}
 
-	// Close core2's OWN relay connection this time (not core1's) — no Leave
-	// message is possible after this, since core2 has no relay connection
-	// left to receive one on.
 	if err := core2.relay.Close(); err != nil {
 		t.Fatalf("close core2 relay connection: %v", err)
 	}
@@ -915,14 +768,8 @@ func TestOwnRelayDisconnectDespawnsRemotes(t *testing.T) {
 	}
 }
 
-// TestBridgeDisconnectDespawnsForPeer covers a third disconnect shape, found
-// live 2026-08-13 during the first real two-player TEVI test: a player
-// backing out to the main menu (or closing the game) left their ghost frozen
-// in the other player's world forever, because nothing told the relay this
-// player was gone. Closing the *bridge* connection (the adapter/game side,
-// not the relay side covered by the two tests above) must now cascade into
-// closing this Core's relay connection, which the relay turns into a real
-// Leave for the peer.
+// TestBridgeDisconnectDespawnsForPeer: closing the bridge (the game exiting) closes this Core's relay connection, which
+// the relay turns into a Leave for the peer.
 func TestBridgeDisconnectDespawnsForPeer(t *testing.T) {
 	relayAddr := startRelay(t)
 
@@ -930,10 +777,8 @@ func TestBridgeDisconnectDespawnsForPeer(t *testing.T) {
 	_, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
-	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	adapter1.hello("emerald")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
-	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	adapter2.hello("emerald")
 
 	sent := protocol.State{AreaID: "a", Position: []float64{1, 1}, Anim: "idle"}
@@ -952,9 +797,7 @@ func TestBridgeDisconnectDespawnsForPeer(t *testing.T) {
 	}
 	firstPlayerID := core1.PlayerID() // captured before disconnect clears it
 
-	// Close adapter1's BRIDGE connection -- the adapter/game side, simulating
-	// the game exiting or its BridgeClient socket dropping. Not core1.relay
-	// directly, which is what the two tests above already cover.
+	// Close adapter1's bridge connection, as when the game exits, not core1.relay as the two tests above do.
 	if err := adapter1.conn.Close(); err != nil {
 		t.Fatalf("close adapter1 bridge connection: %v", err)
 	}
@@ -977,18 +820,11 @@ func TestBridgeDisconnectDespawnsForPeer(t *testing.T) {
 	}
 }
 
-// TestReconnectAfterBridgeDisconnectGetsFreshPlayerID confirms the other
-// half of the same fix: a bridge disconnect must not leave the Core wedged.
-// After the adapter/game reconnects (a fresh bridge connection sending a new
-// hello), the Core must redial the relay and be assigned a new player_id --
-// one live ghost on reconnect, not a stale one plus a new one.
+// TestReconnectAfterBridgeDisconnectGetsFreshPlayerID: after a bridge disconnect a fresh hello redials the relay and
+// gets a new player_id, so one live ghost remains, not a stale one plus a new one.
 func TestReconnectAfterBridgeDisconnectGetsFreshPlayerID(t *testing.T) {
 	relayAddr := startRelay(t)
 
-	// startCoreLazy, not startCore: reconnecting via ConnectRelayOnAdapterHello
-	// needs RelayAddr/Room/DisplayName/DialTimeout set on the Core, which only
-	// the lazy path populates (see cmd/meshghost/main.go -- both -game and
-	// no-game startup set these fields before ServeBridge either way).
 	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
 
 	adapter := dialFakeAdapter(t, bridgeAddr)
@@ -1017,15 +853,8 @@ func TestReconnectAfterBridgeDisconnectGetsFreshPlayerID(t *testing.T) {
 	}
 }
 
-// TestRelayDisconnectAutoReconnects confirms the 2026-08-14 fix found during
-// live two-TEVI testing: a relay that drops *after* a successful connect
-// (crash, restart, network blip) — while the adapter's own bridge connection
-// stays healthy the whole time — must not leave the Core wedged forever. No
-// new bridge Hello is sent here (the opposite of
-// TestReconnectAfterBridgeDisconnectGetsFreshPlayerID above, which covers the
-// bridge-driven case and must NOT auto-reconnect); this only closes the
-// relay side, the same simulated-drop shape as
-// TestOwnRelayDisconnectDespawnsRemotes.
+// TestRelayDisconnectAutoReconnects: a relay that drops after a connect, with the bridge healthy, is redialled with no
+// new hello and a fresh player_id.
 func TestRelayDisconnectAutoReconnects(t *testing.T) {
 	relayAddr := startRelay(t)
 
@@ -1053,13 +882,8 @@ func TestRelayDisconnectAutoReconnects(t *testing.T) {
 	t.Fatalf("core did not auto-reconnect with a fresh player id after a relay-side drop (still %q)", c.PlayerID())
 }
 
-// TestCrossAreaFiltersRemote confirms the 2026-08-13 cross-area filtering
-// fix: a remote whose area_id differs from this Core's own current area is
-// excluded from rendering, and reappears once areas match again. Found live
-// during a real two-player TEVI test: without this, a remote's ghost kept
-// rendering at its own zone's raw world coordinates regardless of which zone
-// the local player was actually in -- invisible only by coincidence when the
-// two zones' coordinate ranges didn't happen to overlap on screen.
+// TestCrossAreaFiltersRemote: a remote in a different area from this Core's own is not rendered, and reappears once the
+// areas match again.
 func TestCrossAreaFiltersRemote(t *testing.T) {
 	relayAddr := startRelay(t)
 
@@ -1068,15 +892,11 @@ func TestCrossAreaFiltersRemote(t *testing.T) {
 	_, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
-	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	adapter1.hello("emerald")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
-	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	adapter2.hello("emerald")
 
-	// adapter2 must establish its own core's local area before filtering
-	// engages at all -- see remoteStatesAt's comment on the empty-
-	// localAreaID passthrough case.
+	// Filtering engages only once adapter2's own area is known.
 	self := protocol.State{AreaID: "zone-a", Position: []float64{0, 0}, Anim: "idle"}
 	adapter2.frame(&self)
 
@@ -1094,14 +914,8 @@ func TestCrossAreaFiltersRemote(t *testing.T) {
 		t.Fatal("setup failed: adapter2 never saw core1 rendered while in the same area")
 	}
 
-	// core1 moves to a different area -- adapter2 must despawn it.
-	// Re-sent every iteration, not once: forwardLocalState DROPS a frame that
-	// arrives inside MinSendInterval rather than deferring it, so a state the
-	// adapter sends exactly once can legitimately never reach the wire -- and
-	// nothing would ever resend it. The core sees both frames back to back
-	// whenever its read loop is descheduled between them, which is how this
-	// timed out in CI's race job (2026-08-22) and never locally. A real adapter
-	// sends its current state continuously; so does this one now.
+	// Re-sent every iteration: forwardLocalState drops a frame inside MinSendInterval rather than deferring it, so a
+	// state sent once may never reach the wire. A real adapter sends its current state continuously.
 	zoneB := protocol.State{AreaID: "zone-b", Position: []float64{1, 1}, Anim: "idle"}
 	adapter1.frame(&zoneB)
 
@@ -1127,10 +941,7 @@ func TestCrossAreaFiltersRemote(t *testing.T) {
 		t.Fatal("core1 still rendered for adapter2 after moving to a different area")
 	}
 
-	// core1 returns to adapter2's area -- must reappear. Re-sent every
-	// iteration for the same reason as zoneB above, and here it is not even
-	// timing-dependent: the loop above left lastSendAt milliseconds old, so a
-	// single frame now is dropped by MinSendInterval every time.
+	// Re-sent every iteration as above, and here every time: the loop above left lastSendAt milliseconds old.
 	back := protocol.State{AreaID: "zone-a", Position: []float64{2, 2}, Anim: "idle"}
 	adapter1.frame(&back)
 
@@ -1146,12 +957,8 @@ func TestCrossAreaFiltersRemote(t *testing.T) {
 	t.Fatal("core1 did not reappear for adapter2 after returning to the same area")
 }
 
-// TestRenderAllAreasDeliversCrossArea is TestCrossAreaFiltersRemote's
-// mirror: an adapter whose Hello sets render_all_areas keeps receiving a
-// remote that moves to a different area, with no despawn_remote -- the
-// adapter has declared it owns area visibility (Emerald's cross-map ghosts:
-// the core's equality filter despawned every follower for the delivery a
-// crossing's echoed area_id lags by, a visible pop at every seam).
+// TestRenderAllAreasDeliversCrossArea: an adapter whose hello sets render_all_areas keeps receiving a remote that moves
+// to a different area, with no despawn_remote.
 func TestRenderAllAreasDeliversCrossArea(t *testing.T) {
 	relayAddr := startRelay(t)
 
@@ -1160,7 +967,6 @@ func TestRenderAllAreasDeliversCrossArea(t *testing.T) {
 	_, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
-	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	adapter1.hello("emerald")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
 	adapter2.helloAllAreas("emerald")
@@ -1181,15 +987,7 @@ func TestRenderAllAreasDeliversCrossArea(t *testing.T) {
 		t.Fatal("setup failed: adapter2 never saw core1 rendered while in the same area")
 	}
 
-	// core1 moves to a different area. With render_all_areas the state must
-	// KEEP FLOWING -- new positions from zone-b arrive, and no despawn.
-	// Re-sent every iteration, not once: forwardLocalState DROPS a frame that
-	// arrives inside MinSendInterval rather than deferring it, so a state the
-	// adapter sends exactly once can legitimately never reach the wire -- and
-	// nothing would ever resend it. The core sees both frames back to back
-	// whenever its read loop is descheduled between them, which is how this
-	// timed out in CI's race job (2026-08-22) and never locally. A real adapter
-	// sends its current state continuously; so does this one now.
+	// With render_all_areas the zone-b state keeps flowing, with no despawn. Re-sent every iteration, as above.
 	zoneB := protocol.State{AreaID: "zone-b", Position: []float64{7, 7}, Anim: "idle"}
 	adapter1.frame(&zoneB)
 
@@ -1213,11 +1011,8 @@ func TestRenderAllAreasDeliversCrossArea(t *testing.T) {
 	}
 }
 
-// inProcessAdapter is Phase 5's proof shape: a type satisfying core.Adapter
-// with no bridge socket at all, no game, and — critically — this test file
-// imports nothing under adapters/. If the core had a game-specific leak,
-// driving it purely through this interface (RunAdapter) rather than the
-// bridge wire protocol is where it would surface.
+// inProcessAdapter satisfies core.Adapter with no bridge socket and no game, and this file imports nothing under
+// adapters/: a game-specific leak in the core would surface when driven through it.
 type inProcessAdapter struct {
 	localState protocol.State
 	sendLocal  bool
@@ -1248,9 +1043,8 @@ func (a *inProcessAdapter) DespawnRemote(playerID string) {
 	a.mu.Lock()
 	delete(a.rendered, playerID)
 	a.mu.Unlock()
-	// Same reason as the other double in this file (2026-09-08): a blocking
-	// send stalls whatever goroutine delivers the despawn once the buffer
-	// fills, and StopChasers drops one peer per chaser.
+	// Non-blocking, as in fakeAdapter: once the buffer fills, a blocking send stalls whatever goroutine delivers the
+	// despawn, and StopChasers drops one peer per chaser.
 	select {
 	case a.despawns <- playerID:
 	default:
@@ -1264,12 +1058,8 @@ func (a *inProcessAdapter) rendersOf(playerID string) (protocol.State, bool) {
 	return st, ok
 }
 
-// TestRunAdapterInProcess is the Phase 5 milestone: the same
-// state-exchange-over-a-real-relay behavior as
-// TestTwoCoresExchangeStateOverRealRelay, but with both Cores driven by
-// RunAdapter against an in-process core.Adapter instead of a bridge socket
-// — confirming the core works standalone, with no game and no adapter
-// process attached.
+// TestRunAdapterInProcess: two Cores driven by RunAdapter against an in-process core.Adapter exchange state over a real
+// relay, with no game and no adapter process.
 func TestRunAdapterInProcess(t *testing.T) {
 	relayAddr := startRelay(t)
 
@@ -1311,9 +1101,7 @@ func TestRunAdapterInProcess(t *testing.T) {
 	}
 }
 
-// countingTransport is a minimal transport.Transport stand-in that just
-// counts Send calls, for testing forwardLocalState's rate cap without a
-// real relay in the loop.
+// countingTransport counts Send calls, to test forwardLocalState's rate cap without a relay.
 type countingTransport struct {
 	mu    sync.Mutex
 	sends int
@@ -1337,10 +1125,8 @@ func (ct *countingTransport) count() int {
 	return ct.sends
 }
 
-// waitForSendCount blocks until ct's count has stopped moving, so a test can
-// assert on a total that an asynchronous writer is still producing. Bounded:
-// it gives up rather than hanging, and the assertions that follow report the
-// count they actually saw.
+// waitForSendCount blocks until ct's count stops moving, for a total an asynchronous writer is still producing. It
+// gives up rather than hangs; the assertions that follow report what they saw.
 func waitForSendCount(t *testing.T, ct *countingTransport) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -1360,14 +1146,8 @@ func waitForSendCount(t *testing.T, ct *countingTransport) {
 	}
 }
 
-// TestForwardLocalStateRespectsMinSendInterval is a regression test for the
-// Phase 6 (TEVI) bug found live: a Unity adapter's Update() calls in well
-// above the relay's 120 messages/second limit, and forwardLocalState used to
-// send to the relay on every single call, getting the connection closed by
-// the relay after a couple of minutes (agent_docs/verified.md's Phase
-// 6.4/6.5 entry). This drives forwardLocalState far faster than
-// MinSendInterval and checks the actual send count stays capped rather than
-// tracking the call count 1:1.
+// TestForwardLocalStateRespectsMinSendInterval: calls far faster than MinSendInterval send a capped number of times,
+// not one per call.
 func TestForwardLocalStateRespectsMinSendInterval(t *testing.T) {
 	c := New()
 	c.MinSendInterval = 20 * time.Millisecond
@@ -1384,20 +1164,10 @@ func TestForwardLocalStateRespectsMinSendInterval(t *testing.T) {
 	}
 	elapsed := time.Since(start)
 
-	// WAIT FOR THE WRITER BEFORE COUNTING. Until 2026-09-11 forwardLocalState
-	// wrote the relay socket on this goroutine, so the counter was exact the
-	// moment the loop ended. It is now enqueued and drained by relayWriter's
-	// goroutine (core/relaywriter.go), so reading the count here races it --
-	// under CPU contention the writer has not been scheduled yet and every
-	// assertion below sees 0. The rate cap is still decided during the loop, so
-	// waiting changes none of the numbers; it only lets the writes land.
+	// relayWriter's goroutine drains the queue, so wait for it before counting; the cap was decided during the loop.
 	waitForSendCount(t, ct)
 
-	// A tight loop of 1000 calls with no sleep should complete in well under
-	// one MinSendInterval, so this is really checking "far fewer sends than
-	// calls", not timing precision -- generous upper bound (10) so this
-	// isn't flaky on a slow CI machine, while still failing hard against the
-	// original 1:1 bug (which would report sends == 1000).
+	// The loop takes under one interval; the slack of 10 absorbs a slow CI machine and still fails a send per call.
 	maxExpectedSends := int(elapsed/c.MinSendInterval) + 10
 	got := ct.count()
 	if got >= callCount {
@@ -1411,11 +1181,8 @@ func TestForwardLocalStateRespectsMinSendInterval(t *testing.T) {
 	}
 }
 
-// TestConnectRelayWithWrongRoomCodeReturnsReadableError confirms a Core
-// refused by a room-code-enabled relay gets a real, readable error back
-// promptly — not the "timed out waiting for welcome" message it would have
-// gotten before the relay sent a Reject, which is indistinguishable from a
-// slow or down relay. agent_docs/architecture.md's room-code/version ADR.
+// TestConnectRelayWithWrongRoomCodeReturnsReadableError: a refused Core gets a readable error promptly, not a welcome
+// timeout that looks like a slow or down relay.
 func TestConnectRelayWithWrongRoomCodeReturnsReadableError(t *testing.T) {
 	s := relay.NewServer()
 	s.RoomCode = "letmein"
@@ -1439,8 +1206,6 @@ func TestConnectRelayWithWrongRoomCodeReturnsReadableError(t *testing.T) {
 	}
 }
 
-// TestConnectRelayWithCorrectRoomCodeSucceeds confirms the matching case:
-// the right code still connects normally through the same path.
 func TestConnectRelayWithCorrectRoomCodeSucceeds(t *testing.T) {
 	s := relay.NewServer()
 	s.RoomCode = "letmein"
@@ -1460,14 +1225,8 @@ func TestConnectRelayWithCorrectRoomCodeSucceeds(t *testing.T) {
 	}
 }
 
-// TestBridgeHelloGameVersionReachesRelay confirms an adapter-reported
-// game_version (over bridge.Hello) actually propagates all the way through
-// Core.ConnectRelayOnAdapterHello into the relay's own Hello, by driving two
-// real Cores whose adapters declare different versions for the same room
-// and confirming the second is refused — the same real end-to-end path a
-// live game would use, not just the relay-level unit test
-// (TestGameVersionMismatchRejected in relay). See the ADR in
-// agent_docs/architecture.md.
+// TestBridgeHelloGameVersionReachesRelay: an adapter's game_version reaches the relay's hello end to end, so a second
+// Core whose adapter declares another version is refused.
 func TestBridgeHelloGameVersionReachesRelay(t *testing.T) {
 	relayAddr := startRelay(t)
 
@@ -1493,12 +1252,8 @@ func TestBridgeHelloGameVersionReachesRelay(t *testing.T) {
 	}
 }
 
-// TestStateForUnknownPlayerIDIsIgnored confirms a State arriving for a
-// player_id this Core never saw via Welcome/Join is dropped rather than
-// silently creating a remote. Before this, the Core trusted any player_id
-// arriving in a State completely and discarded Welcome.Roster entirely, so
-// a hostile or compromised relay could inject state for an arbitrary id.
-// See the ADR in agent_docs/architecture.md.
+// TestStateForUnknownPlayerIDIsIgnored: a State for a player_id no Welcome or Join announced is dropped, so a hostile
+// relay cannot inject state for an arbitrary id.
 func TestStateForUnknownPlayerIDIsIgnored(t *testing.T) {
 	c := New()
 	c.playerID = "self"
@@ -1529,29 +1284,15 @@ func TestStateForUnknownPlayerIDIsIgnored(t *testing.T) {
 	}
 }
 
-// TestJoinArrivingBeforeWelcomeIsNotErased is the regression test for a bug
-// with real gameplay consequences, found 2026-08-16 by a relay test written
-// for a different race.
-//
-// The relay adds a joining client to the room BEFORE sending that client's
-// Welcome, so a player joining in that window has its Join forwarded to us
-// ahead of our own Welcome. Welcome used to assign the roster map outright,
-// which erased that player — and because states from anyone outside the
-// roster are dropped by design (see Core.roster), we would never render them
-// again for the rest of the session. Two people launching at the same moment
-// could therefore simply never see each other, which is exactly the "both
-// happen to have it on" case the whole thing exists for.
-//
-// Welcome now merges instead. The ordering itself is left alone deliberately:
-// fixing it relay-side would mean holding the room lock across a network
-// write to a brand-new connection, and tolerating the order here is both
-// cheaper and more robust to any relay that does the same.
+// TestJoinArrivingBeforeWelcomeIsNotErased: the relay adds a joining client to the room before sending its Welcome, so
+// a peer's Join can arrive ahead of ours. Welcome merges into the roster; replacing it would drop that peer's states
+// for the session. The order is tolerated here rather than fixed in the relay, which would hold the room lock across a
+// network write.
 func TestJoinArrivingBeforeWelcomeIsNotErased(t *testing.T) {
 	c := New()
 	welcome := make(chan protocol.Welcome, 1)
 	reject := make(chan protocol.Reject, 1)
 
-	// The peer's join lands first, before this Core has been told who it is.
 	joinPayload, err := json.Marshal(protocol.Join{PlayerID: "p-early"})
 	if err != nil {
 		t.Fatalf("marshal join: %v", err)
@@ -1562,8 +1303,7 @@ func TestJoinArrivingBeforeWelcomeIsNotErased(t *testing.T) {
 	}
 	c.handleRelayMessage(nil, joinEnv, welcome, reject)
 
-	// Our own welcome follows, and its roster does not mention that peer --
-	// it was snapshotted before they joined.
+	// The welcome's roster was snapshotted before that peer joined.
 	welcomePayload, err := json.Marshal(protocol.Welcome{PlayerID: "self", Roster: []string{"p-other"}})
 	if err != nil {
 		t.Fatalf("marshal welcome: %v", err)
@@ -1588,27 +1328,9 @@ func TestJoinArrivingBeforeWelcomeIsNotErased(t *testing.T) {
 	}
 }
 
-// TestCoreDependsOnOrderedLifecycleDelivery pins down an assumption this
-// package makes but cannot enforce: lifecycle messages arrive in the order
-// the relay sent them.
-//
-// There is deliberately no guard here. delete on an absent key is a no-op,
-// so a Leave processed before its own Join leaves that peer in the roster
-// with nothing remaining to remove them -- their ghost would stay on screen
-// for the rest of the session. This test asserts that cost rather than
-// pretending it away, so the coupling is visible from this side.
-//
-// The guarantee is provided one layer down, by every transport: tcp is an
-// ordered stream, quic's reliable path is an ordered stream, and udpconn
-// resequences (netx/udpconn's TestReliableWritesArriveInOrderUnderLoss).
-// udpconn did NOT do that until 2026-08-16, and this scenario was reachable
-// and confirmed on udp -- the client default -- before it was fixed.
-//
-// So: if this test ever starts failing, a guard was added here and the
-// comment above needs rewriting. If a transport ever stops delivering
-// lifecycle messages in order, this test keeps passing and a ghost strands
-// in the field instead -- which is exactly why the ordering property is
-// tested down there rather than defended up here.
+// TestCoreDependsOnOrderedLifecycleDelivery pins an assumption the core cannot enforce: lifecycle messages arrive in
+// the order the relay sent them. A Leave before its Join strands the peer in the roster. Every transport guarantees the
+// order (udpconn resequences), so if this test fails, a guard was added here and this comment needs rewriting.
 func TestCoreDependsOnOrderedLifecycleDelivery(t *testing.T) {
 	c := New()
 	welcome := make(chan protocol.Welcome, 1)
@@ -1627,7 +1349,6 @@ func TestCoreDependsOnOrderedLifecycleDelivery(t *testing.T) {
 		c.handleRelayMessage(nil, env, welcome, reject)
 	}
 
-	// In order, the normal case: the peer joins, then leaves, and is gone.
 	deliver(protocol.TypeJoin, protocol.Join{PlayerID: "p-ordered"})
 	deliver(protocol.TypeLeave, protocol.Leave{PlayerID: "p-ordered"})
 
@@ -1638,8 +1359,7 @@ func TestCoreDependsOnOrderedLifecycleDelivery(t *testing.T) {
 		t.Error("a peer that joined and then left is still in the roster")
 	}
 
-	// Out of order, which no transport may produce: the Leave lands first
-	// and the Join resurrects a peer who is already gone.
+	// Out of order, which no transport may produce: the Join resurrects a peer who is already gone.
 	deliver(protocol.TypeLeave, protocol.Leave{PlayerID: "p-reordered"})
 	deliver(protocol.TypeJoin, protocol.Join{PlayerID: "p-reordered"})
 
@@ -1653,17 +1373,12 @@ func TestCoreDependsOnOrderedLifecycleDelivery(t *testing.T) {
 	}
 }
 
-// TestSecondWelcomeIgnored confirms a second Welcome mid-connection doesn't
-// reset this Core's roster or get pushed to the handshake's welcome
-// channel — Welcome is protocol-illegal outside the initial handshake, and
-// a hostile relay resending one (e.g. with a roster naming an id it wants
-// this Core to trust) must not be able to reset state. agent_docs/architecture.md's ADR.
+// TestSecondWelcomeIgnored: a Welcome mid-connection neither resets the roster nor reaches the handshake's channel, so
+// a hostile relay cannot reset state with it.
 func TestSecondWelcomeIgnored(t *testing.T) {
 	c := New()
 	c.playerID = "p1"
-	// What a real first Welcome sets, and since 2026-09-12 the field the guard
-	// actually reads: "is playerID non-empty" was a test the RELAY could fail
-	// on purpose by naming this client "". See Core.welcomed.
+	// The guard reads welcomed, not playerID, which a relay could defeat by naming this client "".
 	c.welcomed = true
 	c.roster["p2"] = 0
 
@@ -1697,13 +1412,8 @@ func TestSecondWelcomeIgnored(t *testing.T) {
 	}
 }
 
-// TestOversizedInboundStateFieldsDropped confirms a State arriving from the
-// relay with a field over its cap is dropped rather than stored, mirroring
-// the relay's own checks — defense in depth against a hostile or
-// compromised relay, which was previously trusted completely on the
-// receive side. agent_docs/architecture.md's ADR. Covers all three arms of
-// protocol.ValidateState's combined length check — only AreaID had a test
-// before this.
+// TestOversizedInboundStateFieldsDropped: a State from the relay with any of ValidateState's length-checked fields over
+// its cap is dropped, mirroring the relay's own checks.
 func TestOversizedInboundStateFieldsDropped(t *testing.T) {
 	cases := map[string]protocol.State{
 		"AreaID":      {AreaID: strings.Repeat("a", protocol.MaxAreaIDLen+1), Position: []float64{1, 2}, Anim: "idle"},
@@ -1729,13 +1439,8 @@ func TestOversizedInboundStateFieldsDropped(t *testing.T) {
 	}
 }
 
-// TestNonFiniteInboundPositionDropped confirms a State arriving from the
-// relay with a non-finite position component (NaN, +Inf, or a magnitude
-// past MaxPositionComponent) is dropped rather than stored —
-// protocol.IsValidPosition/ValidateState had no test anywhere before this,
-// despite being the newest limit added. A syntactically valid JSON number
-// like 1e308 survives []float64 unmarshaling and becomes +Inf the moment an
-// adapter narrows it to float32.
+// TestNonFiniteInboundPositionDropped: a NaN, infinite or out-of-bound position component is dropped. A JSON number
+// like 1e308 survives []float64 unmarshaling and becomes +Inf once an adapter narrows it to float32.
 func TestNonFiniteInboundPositionDropped(t *testing.T) {
 	cases := map[string][]float64{
 		"NaN":            {math.NaN(), 0},
@@ -1761,10 +1466,8 @@ func TestNonFiniteInboundPositionDropped(t *testing.T) {
 	}
 }
 
-// TestKnownPlayerIDStateIsAccepted is TestStateForUnknownPlayerIDIsIgnored's
-// converse: a State for a player_id actually in the roster (as a real
-// Welcome/Join would populate it) must still be stored normally — the
-// roster check must not become a second, redundant despawn mechanism.
+// TestKnownPlayerIDStateIsAccepted: a State for a rostered player_id is stored; the roster check must not become a
+// second despawn mechanism.
 func TestKnownPlayerIDStateIsAccepted(t *testing.T) {
 	c := New()
 	c.playerID = "self"
@@ -1780,15 +1483,10 @@ func TestKnownPlayerIDStateIsAccepted(t *testing.T) {
 	}
 }
 
-// TestConnectRelayOnAdapterHelloRetriesUntilRelayUp confirms a Core can be
-// pointed at a relay address before anything is listening there, get a
-// (non-permanent) dial failure, and succeed on a later retry once a real
-// relay actually starts on that same address — the scenario behind
-// cmd/meshghost's connectRelayWithRetry, added after the user asked
-// whether the client and relay had to be started in a specific order.
+// TestConnectRelayOnAdapterHelloRetriesUntilRelayUp: a Core pointed at an address nothing listens on yet gets a
+// retryable dial failure, then connects once a relay starts there.
 func TestConnectRelayOnAdapterHelloRetriesUntilRelayUp(t *testing.T) {
-	// Reserve an address, then free it immediately so nothing is actually
-	// listening there yet.
+	// Reserve an address, then free it so nothing listens there yet.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("reserve address: %v", err)
@@ -1808,7 +1506,7 @@ func TestConnectRelayOnAdapterHelloRetriesUntilRelayUp(t *testing.T) {
 		t.Fatalf("a plain dial failure was misclassified as permanent: %v", err)
 	}
 
-	// Now actually start the relay on the same address and retry.
+	// Start the relay on the same address and retry.
 	ln2 := listenTLSOn(t, addr)
 	t.Cleanup(func() { ln2.Close() })
 	go relay.NewServer().Serve(ln2)
@@ -1822,15 +1520,9 @@ func TestConnectRelayOnAdapterHelloRetriesUntilRelayUp(t *testing.T) {
 	}
 }
 
-// TestConnectRelayOnAdapterHelloCachesPermanentReject confirms a permanent
-// rejection (e.g. a wrong room code) is cached after the first attempt — a
-// later retry for the same gameID returns the identical cached error
-// without re-dialing the relay, proven here by shutting the relay down
-// entirely between the two calls: a real second dial would fail
-// differently (connection refused), not with the same reject reason. This
-// is what stops a retrying adapter from spamming the relay (and this
-// process's own log) with an identical, hopeless connection attempt every
-// couple of seconds forever.
+// TestConnectRelayOnAdapterHelloCachesPermanentReject: a permanent rejection is cached per gameID, so a retrying
+// adapter does not redial a hopeless relay every few seconds. The relay is shut down between the calls, where a real
+// dial would fail differently.
 func TestConnectRelayOnAdapterHelloCachesPermanentReject(t *testing.T) {
 	s := relay.NewServer()
 	s.RoomCode = "letmein"
@@ -1853,8 +1545,6 @@ func TestConnectRelayOnAdapterHelloCachesPermanentReject(t *testing.T) {
 		t.Fatalf("wrong room code should be classified as a permanent rejection, got: %v", err)
 	}
 
-	// Shut the relay down entirely -- a real second dial would now fail
-	// differently (connection refused), not with the same reject reason.
 	ln.Close()
 
 	err2 := c.ConnectRelayOnAdapterHello("emerald", "", nil)
@@ -1866,26 +1556,9 @@ func TestConnectRelayOnAdapterHelloCachesPermanentReject(t *testing.T) {
 	}
 }
 
-// TestRejectedConnectLeavesNoRelayBehind pins the invariant that makes the
-// test above reliable: when ConnectRelay returns a rejection, the Core must
-// ALREADY hold no relay connection by the time it returns — not "shortly
-// after, once a goroutine gets scheduled".
-//
-// ConnectRelay assigns c.relay right after the dial, before it knows whether
-// the answer will be Welcome or Reject. The failure paths used to just Close
-// the connection and leave the cleanup to the OnDisconnect callback, which
-// runs on readLoop's own goroutine. In the gap, c.relay is non-nil while
-// c.relayGame is still "", which is precisely the state
-// ConnectRelayOnAdapterHello's already-connected guard reads — so a retry
-// landing in that gap is told it is "already connected to the relay as game
-// \"\"" instead of being given the real, permanent reject reason.
-//
-// Asserted with no sleep and no polling on purpose. A sleep here would pass
-// with or without the fix and prove nothing; checking synchronously is what
-// makes this fail against the unfixed code, where the readLoop goroutine has
-// had no opportunity to run. CI's race job caught the original as an
-// intermittent failure of the test above on 2026-08-17; this is the
-// deterministic version of the same claim.
+// TestRejectedConnectLeavesNoRelayBehind: when ConnectRelay returns a rejection the Core already holds no relay
+// connection, or a retry in the gap is told "already connected" instead of the reject reason. Asserted with no sleep
+// on purpose: a sleep would pass without the fix.
 func TestRejectedConnectLeavesNoRelayBehind(t *testing.T) {
 	s := relay.NewServer()
 	s.RoomCode = "letmein"
@@ -1918,9 +1591,7 @@ func TestRejectedConnectLeavesNoRelayBehind(t *testing.T) {
 	}
 }
 
-// recordingTransport is a transport.Transport stand-in that records every
-// sent envelope's raw bytes, for tests that need to inspect what was sent
-// (not just count calls, unlike countingTransport above).
+// recordingTransport records every sent envelope's raw bytes, for tests that inspect what was sent.
 type recordingTransport struct {
 	mu   sync.Mutex
 	sent [][]byte
@@ -1954,12 +1625,8 @@ func (rt *recordingTransport) all() [][]byte {
 	return out
 }
 
-// TestSendHeartbeatsSendsPeriodicPings is a unit test for sendHeartbeats
-// itself, bypassing the network: confirms it actually sends "ping" envelopes
-// on a fixed cadence, and stops once c.relay is replaced (the same signal
-// ConnectRelay's OnDisconnect/reconnect path uses to supersede an old
-// connection). See DefaultHeartbeatInterval's doc comment for the live
-// idle-timeout-churn bug this exists to prevent.
+// TestSendHeartbeatsSendsPeriodicPings: sendHeartbeats sends pings on a fixed cadence and stops once c.relay is
+// replaced, as a reconnect supersedes a connection.
 func TestSendHeartbeatsSendsPeriodicPings(t *testing.T) {
 	c := New()
 	c.HeartbeatInterval = 5 * time.Millisecond
@@ -1987,8 +1654,6 @@ func TestSendHeartbeatsSendsPeriodicPings(t *testing.T) {
 		}
 	}
 
-	// Superseding the connection (as a real reconnect does) must stop
-	// further sends.
 	c.mu.Lock()
 	c.relay = &recordingTransport{}
 	c.mu.Unlock()
@@ -1999,9 +1664,8 @@ func TestSendHeartbeatsSendsPeriodicPings(t *testing.T) {
 	}
 }
 
-// TestSendHeartbeatsDisabledByNonPositiveInterval confirms the <= 0 opt-out
-// used by TestWithoutHeartbeatIdleRelayConnectionDrops actually works at the
-// mechanism level, not just "the relay dropped it eventually".
+// TestSendHeartbeatsDisabledByNonPositiveInterval: the <= 0 opt-out holds at the mechanism, not only as an eventual
+// relay drop.
 func TestSendHeartbeatsDisabledByNonPositiveInterval(t *testing.T) {
 	c := New()
 	c.HeartbeatInterval = 0
@@ -2017,14 +1681,8 @@ func TestSendHeartbeatsDisabledByNonPositiveInterval(t *testing.T) {
 	}
 }
 
-// TestHeartbeatKeepsIdleRelayConnectionAlive is the positive, end-to-end
-// counterpart to relay's TestIdleConnectionWithoutPingIsDroppedByIdleTimeout:
-// with the same shrunk relay IdleTimeout, a real Core with heartbeats
-// enabled and zero forwardLocalState calls the whole time stays connected
-// well past the point an unheartbeated connection would have been dropped
-// (proven by the control test below). This is the 2026-08-14 live incident
-// from agent_docs/verified.md — a core with no adapter attached went idle,
-// got killed by the relay's IdleTimeout, and reconnected under a brand-new
+// TestHeartbeatKeepsIdleRelayConnectionAlive: with a shrunk relay IdleTimeout and no adapter traffic, a Core with
+// heartbeats stays connected past the point the control below is dropped, rather than reconnecting under a new
 // player_id every cycle.
 func TestHeartbeatKeepsIdleRelayConnectionAlive(t *testing.T) {
 	s := relay.NewServer()
@@ -2043,8 +1701,7 @@ func TestHeartbeatKeepsIdleRelayConnectionAlive(t *testing.T) {
 		t.Fatal("expected a non-empty player id after a successful connect")
 	}
 
-	// Several multiples of IdleTimeout, with no forwardLocalState call at
-	// all — the exact "no adapter attached" scenario that surfaced the bug.
+	// Several multiples of IdleTimeout with no forwardLocalState call, as with no adapter attached.
 	time.Sleep(10 * s.IdleTimeout)
 
 	if got := c.PlayerID(); got != firstPlayerID {
@@ -2052,18 +1709,15 @@ func TestHeartbeatKeepsIdleRelayConnectionAlive(t *testing.T) {
 	}
 }
 
-// TestWithoutHeartbeatIdleRelayConnectionDrops is
-// TestHeartbeatKeepsIdleRelayConnectionAlive's control: same shrunk relay
-// IdleTimeout, heartbeats explicitly disabled, zero forwardLocalState calls
-// — the connection must actually die, proving this test harness really
-// exercises the bug rather than trivially passing regardless of the fix.
+// TestWithoutHeartbeatIdleRelayConnectionDrops is the control: with heartbeats off the connection dies, so the harness
+// exercises the drop.
 func TestWithoutHeartbeatIdleRelayConnectionDrops(t *testing.T) {
 	s := relay.NewServer()
 	s.IdleTimeout = 50 * time.Millisecond
 	relayAddr := startRelayWith(t, s)
 
 	c := New()
-	c.HeartbeatInterval = 0 // disabled -- pre-fix behavior
+	c.HeartbeatInterval = 0 // disabled
 	c.RelayAddr = relayAddr
 	c.DialTimeout = testTimeout
 	if err := c.ConnectRelay("emerald"); err != nil {
@@ -2084,13 +1738,10 @@ func TestWithoutHeartbeatIdleRelayConnectionDrops(t *testing.T) {
 	t.Fatalf("connection was not dropped by IdleTimeout with heartbeats disabled — test harness assumption is wrong (still connected as %q)", firstPlayerID)
 }
 
-// --- Send/receive rate control (agent_docs/architecture.md's ADR) ---
+// --- Send/receive rate control ---
 
-// TestClientAdoptsRelayAdvertisedSendRateWhenItHasNoPreference confirms a
-// Core with no local MinSendInterval genuinely speeds up past its own
-// built-in 20Hz default when a relay advertises a faster rate — the
-// "prescriptive" half of the design: the relay's number IS the room's rate
-// for a client that hasn't expressed a preference.
+// TestClientAdoptsRelayAdvertisedSendRateWhenItHasNoPreference: with no local MinSendInterval the relay's advertised
+// rate is the room's rate, even past the built-in default.
 func TestClientAdoptsRelayAdvertisedSendRateWhenItHasNoPreference(t *testing.T) {
 	s := relay.NewServer()
 	s.SendHz = 100
@@ -2108,10 +1759,8 @@ func TestClientAdoptsRelayAdvertisedSendRateWhenItHasNoPreference(t *testing.T) 
 	}
 }
 
-// TestExplicitMinSendIntervalIsNeverSpedUpByTheRelay confirms a Core that
-// deliberately set a slower MinSendInterval keeps it even against a fast
-// relay — the user's own "bad internet, don't want to send faster" scenario
-// this feature was designed around.
+// TestExplicitMinSendIntervalIsNeverSpedUpByTheRelay: a slower MinSendInterval holds against a fast relay, for a player
+// on a bad connection.
 func TestExplicitMinSendIntervalIsNeverSpedUpByTheRelay(t *testing.T) {
 	s := relay.NewServer()
 	s.SendHz = 100
@@ -2135,10 +1784,7 @@ func TestExplicitMinSendIntervalIsNeverSpedUpByTheRelay(t *testing.T) {
 	}
 }
 
-// TestRelayAdvertisedRateWinsWhenSlowerThanTheLocalPreference confirms the
-// other half of "slower always wins": a local preference faster than the
-// relay's own rate does NOT let this Core exceed the room's configured
-// speed — the relay's rate is a ceiling too, not just a floor.
+// TestRelayAdvertisedRateWinsWhenSlowerThanTheLocalPreference: the relay's rate is a ceiling as well as a floor.
 func TestRelayAdvertisedRateWinsWhenSlowerThanTheLocalPreference(t *testing.T) {
 	s := relay.NewServer()
 	s.SendHz = 10
@@ -2163,10 +1809,8 @@ func TestRelayAdvertisedRateWinsWhenSlowerThanTheLocalPreference(t *testing.T) {
 	}
 }
 
-// TestUnadvertisedSendRateFallsBackToTheBuiltInDefault confirms a Welcome
-// with no send_hz at all (an older relay that predates this field) is read
-// as "nothing advertised," not as an advertised 0Hz — this Core falls back
-// to DefaultMinSendInterval instead of never sending at all.
+// TestUnadvertisedSendRateFallsBackToTheBuiltInDefault: a Welcome with no send_hz (an older relay) advertises nothing,
+// not 0Hz, so the Core falls back to DefaultMinSendInterval.
 func TestUnadvertisedSendRateFallsBackToTheBuiltInDefault(t *testing.T) {
 	c := New()
 	payload, err := json.Marshal(protocol.Welcome{PlayerID: "p1"})
@@ -2189,10 +1833,8 @@ func TestUnadvertisedSendRateFallsBackToTheBuiltInDefault(t *testing.T) {
 	}
 }
 
-// TestAbsurdAdvertisedSendRateIsClampedNotBelieved confirms a hostile or
-// buggy relay cannot conscript this Core into flooding by advertising an
-// absurd send_hz — defense in depth on receive, the same trust-boundary
-// posture as the roster cross-check and ValidateState.
+// TestAbsurdAdvertisedSendRateIsClampedNotBelieved: a hostile or buggy relay cannot make this Core flood by advertising
+// an absurd send_hz.
 func TestAbsurdAdvertisedSendRateIsClampedNotBelieved(t *testing.T) {
 	c := New()
 	payload, err := json.Marshal(protocol.Welcome{PlayerID: "p1", SendHz: 100000})
@@ -2216,11 +1858,8 @@ func TestAbsurdAdvertisedSendRateIsClampedNotBelieved(t *testing.T) {
 	}
 }
 
-// TestAdvertisedSendRateIsForgottenOnRelayDisconnect confirms
-// serverSendInterval is cleared when the relay connection drops, so a
-// reconnect (to this relay again, or a different one) starts from
-// effectiveSendInterval's "nothing advertised yet" fallback instead of
-// inheriting a stale rate from the connection that just died.
+// TestAdvertisedSendRateIsForgottenOnRelayDisconnect: a reconnect starts from the nothing-advertised fallback, not a
+// rate from the connection that died.
 func TestAdvertisedSendRateIsForgottenOnRelayDisconnect(t *testing.T) {
 	s := relay.NewServer()
 	s.SendHz = 100
@@ -2251,14 +1890,8 @@ func TestAdvertisedSendRateIsForgottenOnRelayDisconnect(t *testing.T) {
 	t.Fatal("serverSendInterval was not cleared after the relay connection disconnected")
 }
 
-// TestMaxReceiveHzReachesTheRelayInHello confirms Core.MaxReceiveHz
-// actually reaches the wire as Hello.MaxReceiveHz — a minimal fake relay
-// (a raw listener, not a real relay.Server) that just observes
-// the first Hello it receives, since there's no relay-side rejection
-// behavior to hang an indirect proof on the way
-// TestBridgeHelloGameVersionReachesRelay does for game_version. The relay
-// side's own actual throttling behavior is covered end-to-end by
-// relay's TestReceiveCapThrottlesOnlyTheClientThatAskedForIt.
+// TestMaxReceiveHzReachesTheRelayInHello: Core.MaxReceiveHz reaches the wire as Hello.MaxReceiveHz, observed by a raw
+// listener because no relay-side refusal can prove it indirectly.
 func TestMaxReceiveHzReachesTheRelayInHello(t *testing.T) {
 	ln := listenTLS(t)
 
@@ -2268,12 +1901,7 @@ func TestMaxReceiveHzReachesTheRelayInHello(t *testing.T) {
 		if err != nil {
 			return
 		}
-		// No defer conn.Close() here: registering OnReceive doesn't block,
-		// so this goroutine would otherwise return and close the connection
-		// immediately after registering the callback -- before Core's Hello
-		// could ever arrive. Left open for the rest of the test process;
-		// closing ln in the caller (defer ln.Close() above) is enough
-		// cleanup for a short-lived test.
+		// No defer conn.Close(): OnReceive does not block, so closing on return would close before the Hello arrives.
 		nd := transport.FromConn(conn)
 		nd.OnReceive(func(payload []byte) {
 			var env protocol.Envelope
@@ -2292,8 +1920,6 @@ func TestMaxReceiveHzReachesTheRelayInHello(t *testing.T) {
 			default:
 			}
 		})
-		// Deliberately never replies with a Welcome -- this test only needs
-		// to observe what Core actually sent, not complete the handshake.
 	}()
 
 	c := New()
@@ -2302,9 +1928,7 @@ func TestMaxReceiveHzReachesTheRelayInHello(t *testing.T) {
 	c.DisplayName = "alice"
 	c.DialTimeout = 200 * time.Millisecond
 	c.MaxReceiveHz = 15
-	// Expected to time out waiting for a Welcome that never comes -- the
-	// Hello has already been sent by the time that happens, which is all
-	// this test needs.
+	// Times out waiting for a Welcome that never comes, after the Hello has been sent.
 	_ = c.ConnectRelay("emerald")
 
 	select {
@@ -2317,11 +1941,8 @@ func TestMaxReceiveHzReachesTheRelayInHello(t *testing.T) {
 	}
 }
 
-// TestRateLimitedRejectIsRetryableUnlikeAConfigReject confirms
-// isPermanentRejectReason's classification: ReasonRateLimited (like
-// ReasonServerFull) is retryable, while every config-driven reason stays
-// permanent, including a reason this build doesn't recognize — the
-// conservative default a future relay's new reason should get.
+// TestRateLimitedRejectIsRetryableUnlikeAConfigReject: rate-limited and server-full are retryable, while every config
+// reason stays permanent, an unrecognised one included, the conservative default for a future relay's new reason.
 func TestRateLimitedRejectIsRetryableUnlikeAConfigReject(t *testing.T) {
 	retryable := []string{protocol.ReasonRateLimited, protocol.ReasonServerFull}
 	for _, reason := range retryable {
@@ -2345,10 +1966,8 @@ func TestRateLimitedRejectIsRetryableUnlikeAConfigReject(t *testing.T) {
 	}
 }
 
-// lockedBuffer is the log sink for tests that redirect the global log package:
-// Core logs through it from goroutines, and reconnect loops leaked by earlier
-// tests in the package keep writing into whatever log.SetOutput points at.
-// CI's race detector caught a bare bytes.Buffer in that role on 2026-09-01.
+// lockedBuffer is the log sink for tests that redirect the global log package: Core logs through it from goroutines,
+// and reconnect loops leaked by earlier tests keep writing into whatever log.SetOutput points at.
 type lockedBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -2375,24 +1994,11 @@ func (b *lockedBuffer) linesMentioning(addr string) string {
 	return out.String()
 }
 
-// TestReconnectKeepsSayingItCannotReachTheRelay is the regression test for a
-// core that retries a relay address nothing answers on any more: it used to
-// log once and then go completely silent, because the log line was gated
-// purely on the error message CHANGING and a dead address produces a
-// byte-identical error every time.
-//
-// Found live 2026-08-19 (see lastConnectErrLoggedAt on Core): one of four
-// cores had been pointed at a crowd-test relay on a private port by a
-// config.json that was later deleted, that relay was killed, and the core
-// then dialed it for ten minutes without a word — which read from outside as
-// a broken reconnect loop rather than a wrong address. The loop was fine; the
-// reporting was not.
-//
-// Assertions are scoped to lines naming THIS test's relay address (see
-// lockedBuffer) so stray reconnect loops from other tests cannot flake them.
+// TestReconnectKeepsSayingItCannotReachTheRelay: a core retrying an address nothing answers on keeps saying so, though
+// a dead address gives a byte-identical error every time. Assertions read only lines naming this test's relay address,
+// so other tests' reconnect loops cannot flake them.
 func TestReconnectKeepsSayingItCannotReachTheRelay(t *testing.T) {
-	// Reserve an address and free it, so dialing it is refused rather than
-	// hanging — the same shape as a relay that has exited.
+	// Reserve an address and free it, so a dial is refused rather than hangs, as for a relay that has exited.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("reserve address: %v", err)
@@ -2426,8 +2032,7 @@ func TestReconnectKeepsSayingItCannotReachTheRelay(t *testing.T) {
 		t.Fatalf("first failure should log once, got %d:\n%s", got, logged.linesMentioning(addr))
 	}
 
-	// An immediate retry inside the interval must stay quiet — that part of
-	// the old behaviour is deliberate and must not regress into a flood.
+	// A retry inside the interval stays quiet rather than flooding the log.
 	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err == nil {
 		t.Fatal("expected the retry to fail too, got nil")
 	}
@@ -2439,17 +2044,14 @@ func TestReconnectKeepsSayingItCannotReachTheRelay(t *testing.T) {
 	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err == nil {
 		t.Fatal("expected the retry to fail too, got nil")
 	}
-	// Naming the address is the whole point: the live incident was a core
-	// dialing a port nobody expected it to be dialing — so the assertion
-	// only accepts the repeat on a line that names this relay's address.
+	// The repeat must name the address, since a core dialing an unexpected port is what it exposes.
 	out := logged.linesMentioning(addr)
 	if !strings.Contains(out, "still cannot reach the relay") {
 		t.Fatalf("a retry past the interval should say so again and name %s, log was:\n%s", addr, out)
 	}
 
-	// Once a relay is actually there, the complaining stops and the outage
-	// clock resets — otherwise a later blip would report a duration measured
-	// from the first outage of the session.
+	// Once a relay is there the complaining stops and the outage clock resets, or a later blip would report a duration
+	// measured from the session's first outage.
 	ln2 := listenTLSOn(t, addr)
 	t.Cleanup(func() { ln2.Close() })
 	go relay.NewServer().Serve(ln2)
@@ -2465,30 +2067,10 @@ func TestReconnectKeepsSayingItCannotReachTheRelay(t *testing.T) {
 	}
 }
 
-// TestRelayOwnershipMovesToARelaunchedAdapter pins the rule a relaunched game
-// depends on: the connection allowed to tear down the relay session is the
-// CURRENT adapter, never one that has been replaced.
-//
-// The bug. ConnectRelayOnAdapterHello's already-connected fast path returned nil
-// without touching c.relayOwner, so ownership stayed with the DEPARTING bridge
-// connection. handleBridgeConn's OnDisconnect tears the relay session down when
-// c.relayOwner == nd, which was still true for a connection already replaced --
-// so the old adapter killed the session its replacement had just been handed and
-// disarmed auto-retry on the way out, leaving an attached adapter with no relay
-// and nothing to redial it. CI found it on 2026-08-27 as a one-in-two
-// intermittent failure of internal/e2e's TestARelaunchedGameGetsAWorkingSessionAgain.
-//
-// WHY THIS CALLS ConnectRelayOnAdapterHello DIRECTLY. The first version of this
-// test closed the first adapter and reattached a real one -- and PASSED without
-// the fix, which makes it worse than no test. reattachFakeAdapter retries until
-// the core accepts, and by then the departing connection's teardown has already
-// closed the relay session, so the second hello takes the ordinary
-// not-connected path and dials fresh. That exercises the safe path and never
-// reaches the branch the bug lives in. The bug needs the relay session STILL UP
-// when the replacement says hello, which at process scale is a window
-// microseconds wide -- racing for it would be the flaky test that hid the bug.
-// Calling the method with a second bridge connection while the first session is
-// live reaches that branch exactly, every time.
+// TestRelayOwnershipMovesToARelaunchedAdapter: the connection allowed to tear down the relay session is the current
+// adapter, never a replaced one, or the old adapter's disconnect kills its replacement's session and disarms
+// auto-retry. It calls ConnectRelayOnAdapterHello directly while the first session is live: reattaching a real adapter
+// waits out the teardown and never reaches the fast path the rule lives in.
 func TestRelayOwnershipMovesToARelaunchedAdapter(t *testing.T) {
 	relayAddr := startRelay(t)
 	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
@@ -2505,10 +2087,8 @@ func TestRelayOwnershipMovesToARelaunchedAdapter(t *testing.T) {
 		t.Fatal("the first adapter's hello established a relay session but claimed no ownership of it")
 	}
 
-	// A stand-in for the relaunched game's bridge connection. It needs to be a
-	// distinct transport.Transport and nothing more: the assertion is about
-	// which connection the Core considers responsible for the relay session,
-	// not about anything sent over it.
+	// A stand-in for the relaunched game's bridge connection: only a distinct transport.Transport, since the assertion
+	// is about which connection the Core holds responsible.
 	mine, theirs := net.Pipe()
 	defer mine.Close()
 	defer theirs.Close()
@@ -2533,30 +2113,13 @@ func TestRelayOwnershipMovesToARelaunchedAdapter(t *testing.T) {
 			"now, the redial goes through a dead socket")
 	}
 
-	// The session must still work afterwards, which is what the e2e test was
-	// asserting at process scale when it timed out.
+	// The session must still work afterwards.
 	waitForPlayerID(t, c)
 }
 
-// pipeListener is a net.Listener that hands out in-memory net.Pipe connections
-// instead of sockets, so a caller can drive the REAL bridge -- ServeBridge,
-// handleBridgeConn, the NDJSON framing, every callback -- with no operating
-// system involved.
-//
-// WHY IT EXISTS, and it is a real failure rather than tidiness: FuzzEverything
-// stands up a bridge and attaches an adapter on every iteration, twelve workers
-// at a time. On Windows that exhausts the ephemeral port range in ten to
-// fifteen seconds of a real campaign, and the target then fails with "dial
-// bridge: Only one usage of each socket address is normally permitted" and
-// writes the schedule that happened to be running into the seed corpus as if it
-// had found something. It had not: that input passes when re-run on its own.
-// Reproduced on an unmodified tree 2026-09-03, so it was never about the code
-// under test -- a fuzz target must not be able to fail for a reason that has
-// nothing to do with what it is fuzzing.
-//
-// A pipe costs no port, no TIME_WAIT and no kernel round trip, so the target
-// also runs faster. It is not a mock: the bytes still cross a net.Conn and are
-// still framed, parsed and dispatched by the shipped code.
+// pipeListener is a net.Listener that hands out in-memory net.Pipe connections, so a caller drives the real bridge
+// (ServeBridge, the NDJSON framing, every callback) with no sockets: FuzzEverything attaching on every iteration
+// exhausts Windows' ephemeral ports. It is not a mock: the bytes still cross a net.Conn into the shipped code.
 type pipeListener struct {
 	conns chan net.Conn
 	done  chan struct{}
@@ -2576,10 +2139,8 @@ func (l *pipeListener) Accept() (net.Conn, error) {
 	}
 }
 
-// Close stops Accept and every pending dial. Closing `done` rather than the
-// conns channel on purpose: a dial racing a Close would panic on a send to a
-// closed channel, and a listener being closed while something dials it is
-// exactly what a detach step does.
+// Close stops Accept and every pending dial. It closes done rather than conns: a dial racing a Close would panic
+// sending on a closed channel, and a detach step does exactly that.
 func (l *pipeListener) Close() error {
 	l.once.Do(func() { close(l.done) })
 	return nil
@@ -2587,9 +2148,8 @@ func (l *pipeListener) Close() error {
 
 func (l *pipeListener) Addr() net.Addr { return pipeAddr{} }
 
-// dial opens one connection to whoever is serving this listener, returning the
-// caller's end. It blocks until Accept takes the other end, which is the same
-// contract a TCP dial has against a listening socket.
+// dial opens one connection to whoever serves this listener and returns the caller's end. It blocks until Accept takes
+// the other end, as a TCP dial does against a listening socket.
 func (l *pipeListener) dial() (net.Conn, error) {
 	server, client := net.Pipe()
 	select {
@@ -2617,17 +2177,15 @@ func dialFakeAdapterPipe(t *testing.T, l *pipeListener) *fakeAdapter {
 	return fa
 }
 
-// dialFakeAdapterPipeErr is the non-fatal form. Unlike a socket dial this can
-// only fail one way -- the listener is closed, i.e. the test is tearing down --
-// so a caller that swallows the error is not swallowing a resource problem.
+// dialFakeAdapterPipeErr is the non-fatal form. It fails only when the listener is closed, as the test tears down, so a
+// caller that swallows the error hides no resource problem.
 func dialFakeAdapterPipeErr(t *testing.T, l *pipeListener) (*fakeAdapter, error) {
 	t.Helper()
 	return dialThrottledFakeAdapterPipeErr(t, l, 0, 0)
 }
 
-// dialThrottledFakeAdapterPipeErr is the same dial with the adapter's end
-// capped at drainBytes per drainEvery (throttledconn_test.go). Zero means
-// unlimited, which is what every caller but FuzzEverything wants.
+// dialThrottledFakeAdapterPipeErr is the same dial with the adapter's end capped at drainBytes per drainEvery; zero
+// means unlimited, which every caller but FuzzEverything wants.
 func dialThrottledFakeAdapterPipeErr(t *testing.T, l *pipeListener, drainBytes int, drainEvery time.Duration) (*fakeAdapter, error) {
 	t.Helper()
 	conn, err := l.dial()
@@ -2637,20 +2195,9 @@ func dialThrottledFakeAdapterPipeErr(t *testing.T, l *pipeListener, drainBytes i
 	return newFakeAdapter(t, transport.FromConn(newThrottledConn(conn, drainBytes, drainEvery))), nil
 }
 
-// TestSecondGameOnOneCoreIsAPermanentRefusal pins the classification of a
-// bridge hello for a game_id this Core is not the one it is already serving.
-//
-// A Core holds exactly one relay session with one game identity (the
-// 2026-08-16 one-adapter ADR), so this can never succeed and no amount of
-// retrying changes that. The classification is what the whole behaviour hangs
-// on: bridgeserve.go refuses a hello only when IsPermanentRejectErr says the
-// failure is final, so while this returned a plain fmt.Errorf the mismatched
-// adapter was ACCEPTED -- it took the adapter slot, was sent bridge_ready, and
-// retryRelayForSoloAdapter then span forever on an error that could never
-// clear. bridgeserve.go's own comment already assumed this case reached
-// rejectBridge; it did not. Found and fixed 2026-09-07.
-//
-// Fails without the fix: IsPermanentRejectErr is false for a plain error.
+// TestSecondGameOnOneCoreIsAPermanentRefusal: a hello for a second game_id on a Core already serving one can never
+// succeed, so it must classify as permanent. bridgeserve.go refuses a hello only then; otherwise it accepts the adapter
+// and retries forever.
 func TestSecondGameOnOneCoreIsAPermanentRefusal(t *testing.T) {
 	s := relay.NewServer()
 	ln := listenTLS(t)
@@ -2680,14 +2227,11 @@ func TestSecondGameOnOneCoreIsAPermanentRefusal(t *testing.T) {
 			serving.Connected, serving.Requested)
 	}
 
-	// The property the defect actually turned on: without this, bridgeserve.go
-	// accepts the adapter and retryRelayForSoloAdapter never terminates.
 	if !IsPermanentRejectErr(err) {
 		t.Fatalf("a second game_id must classify as permanent, or the bridge accepts it and retries forever: %v", err)
 	}
 
-	// And it must NOT claim the relay refused anything -- the relay was never
-	// asked. This string reaches the adapter through rejectBridge.
+	// The relay was never asked, and this string reaches the adapter through rejectBridge.
 	if strings.Contains(err.Error(), "relay refused") {
 		t.Errorf("message blames the relay for a local refusal: %q", err.Error())
 	}

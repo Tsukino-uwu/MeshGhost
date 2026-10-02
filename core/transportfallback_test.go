@@ -10,17 +10,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
-// A transport this machine cannot dial must not be chosen again in AUTOMATIC mode.
-//
-// Found in a real session, not by reasoning: a Windows client running under Wine picked quic --
-// the top automatic preference -- and quic-go's UDP setup returned WSAEOPNOTSUPP, surfaced as
-// "winapi error #10045", because Wine does not implement the socket option it needs. Selection was
-// stateless, so every retry re-picked quic and failed identically, forever, while tcp sat there
-// working. The user's own workaround was to force tcp by hand.
-//
-// The relay is not at fault and neither is the offer: the transport is genuinely offered and
-// genuinely undiallable HERE. That is a property of the machine, so the client is the only side
-// that can learn it.
+// TestAutoModeStopsChoosingATransportThatCannotBeDialled: a transport offered by the relay but undiallable on this
+// machine (quic under Wine) is a property of the machine, so only the client can learn to skip it in auto mode.
 func TestAutoModeStopsChoosingATransportThatCannotBeDialled(t *testing.T) {
 	offers := []protocol.TransportOffer{
 		{Kind: "tcp", Port: 7777},
@@ -30,13 +21,11 @@ func TestAutoModeStopsChoosingATransportThatCannotBeDialled(t *testing.T) {
 
 	c := &Core{Transport: netx.Auto}
 
-	// Before any failure, automatic selection prefers quic -- unchanged behaviour.
 	kind, _ := c.chooseTransport("127.0.0.1:7777", offers)
 	if kind != netx.QUIC {
 		t.Fatalf("automatic mode first picked %v, want quic (the top preference)", kind)
 	}
 
-	// The dial failed, the way it does under Wine.
 	c.mu.Lock()
 	c.unusableTransports = map[string]bool{netx.QUIC.String(): true}
 	c.mu.Unlock()
@@ -54,8 +43,8 @@ func TestAutoModeStopsChoosingATransportThatCannotBeDialled(t *testing.T) {
 	}
 }
 
-// Everything unusable must still leave a working session, because the handshake already proved
-// tcp reaches this relay. Falling back to nothing would turn a degraded session into no session.
+// TestAutoModeFallsAllTheWayToTCP: with everything else unusable the session stays on tcp, which the handshake
+// already proved reaches this relay.
 func TestAutoModeFallsAllTheWayToTCP(t *testing.T) {
 	offers := []protocol.TransportOffer{
 		{Kind: "tcp", Port: 7777},
@@ -76,12 +65,8 @@ func TestAutoModeFallsAllTheWayToTCP(t *testing.T) {
 	}
 }
 
-// AN EXPLICIT PREFERENCE IS NOT SILENTLY MOVED, and that asymmetry is deliberate.
-//
-// chooseTransport already refuses to let an explicit quic land on plain udp, because it would swap
-// an encrypted session for one that cannot be encrypted. The same reasoning applies here: someone
-// who asked for quic and cannot have it should keep seeing the failure rather than be quietly
-// downgraded. Only netx.Auto -- which is a request to pick something that works -- may skip.
+// TestAnExplicitPreferenceIsNeverSkipped: a player who asked for quic and cannot have it keeps seeing the failure
+// rather than being quietly downgraded; only netx.Auto may skip.
 func TestAnExplicitPreferenceIsNeverSkipped(t *testing.T) {
 	offers := []protocol.TransportOffer{
 		{Kind: "tcp", Port: 7777},
@@ -111,19 +96,15 @@ func deadPort(t *testing.T) int {
 	return port
 }
 
-// relayAdvertisingADeadQUICPort is the RESTARTING-RELAY shape, and the only shape that can
-// reach the dial-failure path at all: a relay whose tcp listener is up and answering the
-// handshake, while the quic port it advertises accepts nothing.
-//
-// A relay that is entirely down cannot produce this -- resolveTransport's tcp handshake fails
-// first and returns before any transport is dialled -- which is what bounds this whole risk.
+// relayAdvertisingADeadQUICPort is a restarting relay: its tcp listener answers the handshake while the quic port it
+// advertises accepts nothing. A relay entirely down never reaches the dial, since the tcp handshake fails first.
 func relayAdvertisingADeadQUICPort(t *testing.T) string {
 	t.Helper()
 	ln := listenTLS(t)
 
 	s := relay.NewServer()
 	s.SendHz = protocol.MaxSendHz
-	// Set BEFORE Serve: the offers are read by the handshake goroutine.
+	// Set before Serve: the handshake goroutine reads the offers.
 	s.Offers = []protocol.TransportOffer{
 		{Kind: "tcp", Port: ln.Addr().(*net.TCPAddr).Port},
 		{Kind: "quic", Port: deadPort(t)},
@@ -132,15 +113,8 @@ func relayAdvertisingADeadQUICPort(t *testing.T) string {
 	return ln.Addr().String()
 }
 
-// ONE FAILED DIAL MUST NOT CONDEMN A TRANSPORT FOR THE WHOLE SESSION.
-//
-// This is the regression test for a defect introduced by the fallback itself, on the exact path
-// a restarting relay takes. A relay coming back up has its tcp listener accepting before its quic
-// listener does; a client reconnecting inside that window succeeds at the handshake and then fails
-// the quic dial. Condemning on that single failure pins the rest of the session to tcp -- silently,
-// with a working session and nothing visible on screen, so nobody would ever report it.
-//
-// Without the consecutive-failure requirement this test fails on the FIRST attempt.
+// TestOneFailedDialDoesNotCondemnATransport: a restarting relay accepts tcp before quic, so one failed quic dial would
+// otherwise pin the session to tcp, silently.
 func TestOneFailedDialDoesNotCondemnATransport(t *testing.T) {
 	addr := relayAdvertisingADeadQUICPort(t)
 
@@ -149,7 +123,6 @@ func TestOneFailedDialDoesNotCondemnATransport(t *testing.T) {
 	c.Transport = netx.Auto
 	c.DialTimeout = testTimeout
 
-	// First attempt: quic is chosen, and cannot be dialled.
 	if err := c.ConnectRelay("faketest"); err == nil {
 		t.Fatal("connecting over a dead quic port succeeded, so this test proves nothing")
 	}
@@ -169,10 +142,8 @@ func TestOneFailedDialDoesNotCondemnATransport(t *testing.T) {
 	}
 }
 
-// ...but a transport that keeps failing IS given up on, and the session still works.
-//
-// The pair matters: the test above alone could be satisfied by never condemning anything, which
-// would restore the Wine loop this whole mechanism exists to break.
+// TestARepeatedlyFailingTransportIsGivenUpOnAndTheSessionSurvivesOnTCP is the converse of the test above, which
+// alone a core that never condemns anything would pass.
 func TestARepeatedlyFailingTransportIsGivenUpOnAndTheSessionSurvivesOnTCP(t *testing.T) {
 	addr := relayAdvertisingADeadQUICPort(t)
 
@@ -181,8 +152,7 @@ func TestARepeatedlyFailingTransportIsGivenUpOnAndTheSessionSurvivesOnTCP(t *tes
 	c.Transport = netx.Auto
 	c.DialTimeout = testTimeout
 
-	// Attempt until quic is condemned, bounded so a failure to condemn shows up as this
-	// assertion rather than as a hang.
+	// Bounded, so a failure to condemn shows as this assertion rather than a hang.
 	var connected bool
 	for attempt := 1; attempt <= transportDialFailuresBeforeGivingUp+2; attempt++ {
 		if err := c.ConnectRelay("faketest"); err == nil {
@@ -203,22 +173,9 @@ func TestARepeatedlyFailingTransportIsGivenUpOnAndTheSessionSurvivesOnTCP(t *tes
 	}
 }
 
-// A SUCCESSFUL DIAL ENDS THE RUN: "two failures IN A ROW" must not mean "two failures ever".
-//
-// Core.transportDialFailures is documented as counting CONSECUTIVE failures and as being
-// "reset by a successful dial" -- and until 2026-09-11 nothing anywhere reset it, so the
-// counter was cumulative for the life of the process. The consequence is silent and is the
-// exact one the two-strike rule was added to prevent: a relay that restarts twice in a long
-// session (each restart costing one dial into the window where its tcp listener is back and
-// its datagram listener is not) condemns the datagram transport for the rest of that session,
-// with a working tcp session on screen and nothing to report.
-//
-// The shape here is that window itself, held still: one relay, one tcp port, and a quic
-// listener serving the SAME relay that goes down and comes back. udp rather than quic only
-// because a udp listener needs no certificate; the counter is keyed by transport kind, not by
-// what the kind is.
-//
-// Without the reset this test fails at the last assertion with a condemned transport.
+// TestASuccessfulDialResetsTheConsecutiveFailureCount: two failures in a row must not mean two failures ever, or a
+// relay that restarts twice in a long session condemns quic for the rest of it. The quic listener serves the same
+// relay and goes down and comes back.
 func TestASuccessfulDialResetsTheConsecutiveFailureCount(t *testing.T) {
 	tcpLn := listenTLS(t)
 
@@ -244,8 +201,7 @@ func TestASuccessfulDialResetsTheConsecutiveFailureCount(t *testing.T) {
 		return c.transportDialFailures[netx.QUIC.String()], c.unusableTransports[netx.QUIC.String()]
 	}
 
-	// 1. The quic listener is not up yet: the handshake succeeds over tcp and the quic dial
-	//    does not.
+	// The quic listener is not up yet.
 	if err := c.ConnectRelay("faketest"); err == nil {
 		t.Fatal("connecting to an unserved quic port succeeded, so this test proves nothing")
 	}
@@ -253,9 +209,7 @@ func TestASuccessfulDialResetsTheConsecutiveFailureCount(t *testing.T) {
 		t.Fatalf("after one failed quic dial: %d failures, condemned=%v; want 1, false", n, condemned)
 	}
 
-	// 2. The relay's quic listener comes up. This dial succeeds, which is what ends the run.
-	// The same identity as the tcp leg, as the real relay serves: the core's
-	// known-relays entry for this address must match on quic too.
+	// The same identity as the tcp leg, as a real relay serves, so the known-relays entry matches on quic too.
 	quicLn := listenQUICWithTestIdentity(t, quicAddr)
 	go s.Serve(quicLn)
 	if err := c.ConnectRelay("faketest"); err != nil {
@@ -265,9 +219,7 @@ func TestASuccessfulDialResetsTheConsecutiveFailureCount(t *testing.T) {
 		t.Fatalf("a successful quic dial left %d failures recorded, want the run cleared", n)
 	}
 
-	// 3. It goes away again. This is the SECOND failure overall and the FIRST in a row, so
-	//    quic must survive: a transport that worked a moment ago is not one this machine
-	//    cannot do.
+	// The second failure overall and the first in a row: a transport that just worked is one this machine can do.
 	quicLn.Close()
 	if err := c.ConnectRelay("faketest"); err == nil {
 		t.Fatal("connecting after the quic listener closed succeeded, so this test proves nothing")

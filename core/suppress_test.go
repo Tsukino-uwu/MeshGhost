@@ -1,12 +1,8 @@
 package core
 
-// Change suppression: an identical state is not worth a packet, and the
-// resume after a silence must be indistinguishable from never having stopped.
-//
-// The last test in this file is the one that matters most. The others check
-// that packets are saved; that one checks that saving them costs nothing on
-// screen, which is the only reason this feature is allowed to exist
-// (adapters/CLAUDE.md: never move a ghost slower than the game moves).
+// Change suppression: an identical state is not worth a packet, and the resume after a silence must be
+// indistinguishable from never having stopped. The last test matters most: it checks that saving packets costs nothing
+// on screen, since a ghost must never move slower than the game moves.
 
 import (
 	"encoding/json"
@@ -17,16 +13,14 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// capturingTransport keeps every state it was asked to send, in order, so a
-// test can ask what a RECEIVER would have had to work with.
+// capturingTransport keeps every state it was asked to send, in order, so a test can ask what a receiver would have had
+// to work with.
 type capturingTransport struct {
 	mu   sync.Mutex
 	sent []protocol.State
 
-	// core is whose outbound queue has to have drained before what this
-	// transport received is the whole answer. Since 2026-09-11 a send from the
-	// frame path is an ENQUEUE (core/relaywriter.go), so a test that asked
-	// immediately after one was reading a race, not a result.
+	// core's outbound queue must drain before what this transport received is the whole answer: a send from the frame
+	// path is an enqueue.
 	core *Core
 }
 
@@ -72,11 +66,8 @@ func suppressionCore(t *testing.T, keepalive time.Duration) (*Core, *capturingTr
 	return c, ct
 }
 
-// frame drives one adapter frame. The sleep is load-bearing rather than
-// decorative: MinSendInterval is a real mechanism and two forwardLocalState
-// calls inside one clock tick are rate-limited, not suppressed -- on Windows
-// the monotonic clock can return the same instant twice, so a tight loop with
-// a nanosecond interval measures the rate limiter instead of this feature.
+// frame drives one adapter frame. The sleep is load-bearing: two forwardLocalState calls inside one clock tick are
+// rate-limited, not suppressed, and on Windows the monotonic clock can return the same instant twice.
 func frame(c *Core, st protocol.State) {
 	time.Sleep(time.Millisecond)
 	s := st
@@ -122,10 +113,8 @@ func TestChangedStatesAreNeverSuppressed(t *testing.T) {
 	}
 }
 
-// A field that is not the position still counts as a change. This is the
-// core's whole-state comparison being honest about opaque fields: it does not
-// know what `anim` or `extras` mean and must never decide one of them is
-// unimportant.
+// TestAnOpaqueFieldChangingCountsAsAChange: the core compares the whole state and does not know what anim or extras
+// mean, so it must never decide one of them is unimportant.
 func TestAnOpaqueFieldChangingCountsAsAChange(t *testing.T) {
 	c, ct := suppressionCore(t, time.Hour)
 
@@ -185,16 +174,10 @@ func TestZeroKeepaliveDisablesSuppressionEntirely(t *testing.T) {
 	}
 }
 
-// THE ONE THAT MATTERS. Suppression is only acceptable if a receiver cannot
-// tell it happened. Without the bracket re-statement, the receiver's buffer
-// holds the standing sample and then the moving one with a long gap between
-// them, and core/interp.go's lerp blends across that whole gap -- so the ghost
-// creeps forward for the entire silence at a fraction of walking speed, which
-// is precisely what adapters/CLAUDE.md forbids.
-//
-// This test reconstructs what the receiver would see: it feeds exactly what
-// was sent into a real remoteBuffer and asks where the ghost renders midway
-// through the silence.
+// TestAResumeAfterSilenceDoesNotMakeAGhostCreep is the one that matters: suppression is acceptable only if a receiver
+// cannot tell it happened. Without the bracket re-statement the receiver's lerp blends across the whole silence, and
+// the ghost creeps forward at a fraction of walking speed. This feeds exactly what was sent into a real remoteBuffer
+// and asks where the ghost renders during the silence.
 func TestAResumeAfterSilenceDoesNotMakeAGhostCreep(t *testing.T) {
 	c, ct := suppressionCore(t, time.Hour)
 
@@ -225,9 +208,7 @@ func TestAResumeAfterSilenceDoesNotMakeAGhostCreep(t *testing.T) {
 		buf.add(st)
 	}
 
-	// Midway through the silence, the peer was standing perfectly still, so
-	// the ghost must be exactly where it stood. Before the bracket existed,
-	// this rendered partway to the new position.
+	// Midway through the silence the peer was standing perfectly still, so the ghost must be exactly where it stood.
 	mid := (sent[0].Timestamp + sent[1].Timestamp) / 2
 	at, ok := buf.at(mid)
 	if !ok {
@@ -238,22 +219,9 @@ func TestAResumeAfterSilenceDoesNotMakeAGhostCreep(t *testing.T) {
 			at.Position[0], standing.Position[0])
 	}
 
-	// And standing for the WHOLE silence, right up to the bracket -- every
-	// millisecond of it, not one sampled instant.
-	//
-	// This used to sample `sent[2].Timestamp - 1`, one millisecond before the
-	// move, and that made the test an assertion about the MACHINE: the bracket
-	// and the moving state are sent by the same call, so on a fast box they
-	// land in the same millisecond and "one before the move" IS the bracket,
-	// while on CI under -race they landed 2ms apart and the sample fell inside
-	// the bracket-to-move gap, where interpolating is not merely allowed but
-	// the entire point. It rendered the exact midpoint, x=104, and reported it
-	// as creep. Red on CI 2026-08-29, green on every local run.
-	//
-	// The gap between the bracket and the move is the one blend this feature
-	// deliberately leaves in place -- it is a single frame's worth, which is
-	// what the bracket exists to reduce it to. Everything BEFORE the bracket is
-	// the silence, and that is what must not creep.
+	// And standing for the whole silence, right up to the bracket. The bracket and the move are sent by one call but
+	// can land milliseconds apart, and the blend between them is the single frame this feature deliberately leaves;
+	// everything before the bracket is the silence, which must not creep.
 	for ts := sent[0].Timestamp; ts <= sent[1].Timestamp; ts++ {
 		at, ok = buf.at(ts)
 		if !ok {

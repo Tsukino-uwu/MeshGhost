@@ -1,23 +1,5 @@
 package core
 
-// A pause must not despawn the pack.
-//
-// ADR 0053 put the chaser on the GAMEPLAY clock so a pause menu costs it no
-// delay: it holds where it is and resumes the same distance behind. But
-// remoteStatesAt aged every buffer out on the WALL clock, with no exemption
-// for a ghost this core invents, and a frozen player feeds his chasers
-// nothing while the adapter keeps sending frames -- so render ticks kept
-// running, the cutoff kept advancing, and after RemoteStaleAfter the whole
-// pack was deleted. What the player saw: sit in a pause menu for longer than
-// the stale window (3s on the shipped default) and every chaser blinks out,
-// then pops back on the first frame after the resume.
-//
-// Reviewed 2026-09-08. TestChaserHoldsWhileThePlayerIsFrozen freezes for
-// 400ms, which is inside the window and so never saw this; the freeze here is
-// four times a deliberately short RemoteStaleAfter, which is the same
-// scenario as a four-second pause on the default without spending four
-// seconds to run it.
-
 import (
 	"encoding/json"
 	"testing"
@@ -27,9 +9,11 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
+// TestTheChaserPackSurvivesAPauseLongerThanTheStaleWindow: a frozen player feeds the chasers nothing while the adapter
+// keeps sending frames, so a wall-clock age-out would delete the pack after RemoteStaleAfter. The pause is four times
+// a short RemoteStaleAfter, a long pause without the wall time.
 func TestTheChaserPackSurvivesAPauseLongerThanTheStaleWindow(t *testing.T) {
-	// RemoteStaleAfter is read by the render goroutine, so it is set before
-	// the bridge serves rather than after the adapter attaches.
+	// Before the bridge serves: the render goroutine reads RemoteStaleAfter.
 	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) {
 		c.RemoteStaleAfter = 150 * time.Millisecond
 	})
@@ -54,8 +38,7 @@ func TestTheChaserPackSurvivesAPauseLongerThanTheStaleWindow(t *testing.T) {
 		}
 	}
 
-	// Walk until the chaser is on screen and behind, the state a pause has
-	// to leave untouched.
+	// Walk until the chaser is on screen and behind, the state a pause must leave untouched.
 	start := time.Now()
 	var x float64
 	deadline := time.Now().Add(testTimeout)
@@ -71,13 +54,10 @@ func TestTheChaserPackSurvivesAPauseLongerThanTheStaleWindow(t *testing.T) {
 	if !seen {
 		t.Fatalf("chaser never appeared behind the player")
 	}
-	// The spawn window itself despawns once on its way in; only what happens
-	// during the freeze is under test.
+	// The spawn window despawns once on its way in; only the freeze is under test.
 	drainDespawns(fa, id)
 
-	// PAUSE: the pawn holds still for four times the stale window while the
-	// adapter keeps sending the same frame, which is what a pause menu looks
-	// like from here.
+	// Four times the stale window, the adapter still sending the same frame as a pause menu does.
 	frozen(true)
 	held := x
 	until := time.Now().Add(600 * time.Millisecond)
@@ -91,10 +71,7 @@ func TestTheChaserPackSurvivesAPauseLongerThanTheStaleWindow(t *testing.T) {
 	if _, ok := fa.rendersOf(id); !ok {
 		t.Fatalf("the chaser stopped rendering during the pause")
 	}
-	// The other half of the same bug: the age-out took the roster seat and the
-	// nametag with the buffer, while the chaser goroutine still believed it
-	// was admitted -- so it re-fed through feedLocalPeer, which does not
-	// re-run admitLocalPeer, and the ghost came back nameless.
+	// Nor the seat and nametag: feedLocalPeer does not re-run admitLocalPeer, so the ghost would return nameless.
 	c.mu.Lock()
 	tag, named := c.remoteNames[id]
 	_, seated := c.roster[id]
@@ -106,8 +83,7 @@ func TestTheChaserPackSurvivesAPauseLongerThanTheStaleWindow(t *testing.T) {
 		t.Fatalf("the chaser lost its roster seat across the pause")
 	}
 
-	// RESUME: it follows again, which is what TestChaserHoldsWhileThePlayerIsFrozen
-	// pins for a short pause and is re-checked here for a long one.
+	// After a long pause it follows again, as TestChaserHoldsWhileThePlayerIsFrozen pins for a short one.
 	frozen(false)
 	base := time.Now()
 	moved := false

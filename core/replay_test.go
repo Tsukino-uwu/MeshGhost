@@ -56,12 +56,8 @@ func writeActive(t *testing.T, c *Core, name string, data []byte) string {
 	return path
 }
 
-// replayCore is startLocalPeerCore plus a replay folder -- set BEFORE the
-// adapter attaches, the way cmd/meshghost sets it before serving. The hello
-// handler reads ReplayDir on the bridge goroutine (StartReplays), so setting
-// it after the attach was a data race CI's race job caught on 2026-09-03
-// after two clean local runs: the write usually landed first here, and never
-// reliably anywhere.
+// replayCore is startLocalPeerCore plus a replay folder, set before the adapter attaches as cmd/meshghost does: the
+// hello handler reads ReplayDir on the bridge goroutine, so setting it after the attach is a data race.
 func replayCore(t *testing.T) (*Core, *fakeAdapter) {
 	t.Helper()
 	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) {
@@ -333,8 +329,7 @@ func TestParseReplayTrimAndSkipGaps(t *testing.T) {
 	}
 }
 
-// TestReplayNoCapAndPrefixNeverEscapeTheFolder: every file starts (the cap
-// of 16 came out 2026-09-06; this fails if one comes back), and the id is the
+// TestReplayNoCapAndPrefixNeverEscapeTheFolder: every file starts, with no cap on the file count, and the id is the
 // listing name, never anything from inside.
 func TestReplayNoCapAndPrefixNeverEscapeTheFolder(t *testing.T) {
 	c, _ := replayCore(t)
@@ -355,15 +350,9 @@ func TestReplayNoCapAndPrefixNeverEscapeTheFolder(t *testing.T) {
 	c.StopReplays()
 }
 
-// More replay clips than the roster has seats: the cap decides how many ghosts
-// exist, nothing panics, and the core still answers a frame afterwards.
-//
-// Written as an ordinary test rather than a fuzz step on purpose. The
-// everything-fuzzer reached this shape once (a zip of MaxRosterSize+40 clips)
-// and it cost ~10 s per execution -- 512 local ghosts rendering over the bridge
-// -- which took the target from 207 executions a second to none and got the
-// worker killed as hung. Scale that costs every iteration belongs in a test that
-// runs once (testing.md, 2026-09-04).
+// More replay clips than the roster has seats: the cap decides how many ghosts exist, nothing panics, and the core
+// still answers a frame afterwards. An ordinary test rather than a fuzz step: 512 local ghosts rendering over the
+// bridge cost seconds per execution, and scale that costs every iteration belongs in a test that runs once.
 func TestAZipOfMoreClipsThanTheRosterHasSeats(t *testing.T) {
 	c, fa := replayCore(t)
 
@@ -390,13 +379,8 @@ func TestAZipOfMoreClipsThanTheRosterHasSeats(t *testing.T) {
 	if loaded == 0 {
 		t.Fatal("a zip of clips loaded nothing at all")
 	}
-	// A replay ghost appears only once the PLAYER has sent a frame (a clip
-	// starts at the first in-game sample, never in the menu), so the frames
-	// drive the loop rather than following it.
-	//
-	// Every clip may load -- there is no cap on FILES since 2026-09-06 -- but
-	// the ROSTER is the bound on how many can ever be ADMITTED, and that is the
-	// invariant a crowd is here to test.
+	// A replay ghost appears only once the player has sent a frame, so the frames drive the loop rather than following
+	// it. Every clip may load, but the roster bounds how many are admitted, which is the invariant a crowd tests.
 	peak := 0
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {

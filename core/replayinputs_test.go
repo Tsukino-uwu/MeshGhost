@@ -1,7 +1,7 @@
 package core
 
-// The replay input stream (ADR 0057): a clip's track reaches an adapter that
-// asked, ahead of the frames, on the render clock, through every seam.
+// The replay input stream: a clip's track reaches an adapter that asked, ahead of the frames, on the render clock,
+// through every seam.
 
 import (
 	"bytes"
@@ -136,10 +136,9 @@ func awaitFinished(t *testing.T, fa *fakeAdapter, id string, lastX float64) {
 	pumpUntil(t, fa, func() bool { return drainDespawns(fa, id) > 0 }, "the finished replay to despawn")
 }
 
-// TestReplayStreamsItsTrackOnTheRenderClock: a clip with a track streams every
-// edge, the first line declares the tables with a reset, each edge's `at` is
-// exactly the due time its sample was fed on, and every edge arrives BEFORE
-// the render it is due on -- ahead by the window, not just in time.
+// TestReplayStreamsItsTrackOnTheRenderClock: a clip with a track streams every edge, the first line declares the tables
+// with a reset, each edge's at is exactly the due time its sample was fed on, and every edge arrives before the render
+// it is due on, ahead by the window, not just in time.
 func TestReplayStreamsItsTrackOnTheRenderClock(t *testing.T) {
 	c, fa := inputReplayCore(t)
 	writeActive(t, c, "pb.ndjson", clipBytes(map[string]any{"recording_id": "rec-1"}, walkStates(11, 100)))
@@ -582,12 +581,9 @@ func TestReplayHelloFlagResetsOnDetach(t *testing.T) {
 	}
 }
 
-// TestReplayRelaunchAfterFinishStreamsAgain: a restart pressed after a
-// non-looping clip has FINISHED relaunches a fresh player (seekReplays), and
-// that player streams the track again -- a reset first, edges due from the
-// new lap's start, and renders that actually reach every edge's `at`.
-// Written 2026-09-08 after a relaunched replay's ghost panel stayed empty in
-// the game while the first pass had worked.
+// TestReplayRelaunchAfterFinishStreamsAgain: a restart pressed after a non-looping clip has finished relaunches a fresh
+// player (seekReplays), and that player streams the track again: a reset first, edges due from the new lap's start, and
+// renders that reach every edge's at.
 func TestReplayRelaunchAfterFinishStreamsAgain(t *testing.T) {
 	c, fa := inputReplayCore(t)
 	writeActive(t, c, "again.ndjson", clipBytes(map[string]any{"recording_id": "rec-a"}, walkStates(11, 100)))

@@ -12,33 +12,16 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
-// Fuzzing the SCHEDULE rather than the bytes: the seed picks the ORDER of
-// attach/detach/drop/send events and the DELAYS between them, and the same
-// invariant is required to hold at the end of every one of them.
+// Fuzzing the schedule rather than the bytes: the seed picks the order of attach, detach, drop and send events and the
+// delays between them, and one invariant must hold at the end of every one. A fixed-sequence reconnect test cannot
+// reach the failures that depend on which player was already in the room, or on timing.
 //
-// Why this exists (agent_docs/ideas.md, "Fuzz the SCHEDULE, not just the
-// bytes"): every other fuzz target in this repo feeds a parser bytes, and
-// every reconnect test runs ONE fixed sequence with fixed sleeps. The failures
-// that actually reach a player are the other family -- "it only happens if the
-// other player was already in the room", "it only happens 8-15 seconds in".
-// The nametag bug of 2026-08-28 was exactly that: a peer already present took
-// a different code path from one that joined while you watched, and no test
-// varied which of the two it was.
+// The timings that matter are per-Core fields, so compressing them runs the shipped code path, faster.
 //
-// The whole thing is affordable only because the timings that matter are
-// per-Core fields rather than constants -- RemoteStaleAfter at 60ms instead of
-// 3s turns "peer silent for twice the stale window" into 120ms of real time,
-// down the identical code path. Core.ReconnectInitialBackoff and
-// ReconnectMaxBackoff (backoff_test.go) were made fields for this.
-//
-// It asserts an INVARIANT, never a script. A script is what makes a test like
-// this brittle: any ordering may legitimately produce any intermediate state,
-// so the only honest requirement is the one a player would state --
-// **whatever happened, once both games are attached and sending, each one sees
-// the other's ghost, under the other's name, and sees nothing else.**
+// It asserts an invariant, never a script, since any ordering may produce any intermediate state: whatever happened,
+// once both games are attached and sending, each sees the other's ghost, under the other's name, and nothing else.
 
-// fuzzSchedule* are the compressed clock. Every one is a per-Core field, so
-// nothing here is a special code path: it is the shipped path, faster.
+// fuzzSchedule* are the compressed clock: each is a per-Core field, so this is the shipped path, faster.
 const (
 	fuzzScheduleStaleAfter   = 200 * time.Millisecond
 	fuzzScheduleInterp       = 15 * time.Millisecond
@@ -50,26 +33,16 @@ const (
 	fuzzScheduleConvergeWait = 5 * time.Second
 )
 
-// fuzzScheduleDelays is the delay alphabet. Deliberately not linear: most
-// steps should land inside one send interval (where ordering races live),
-// while the top entry is longer than fuzzScheduleStaleAfter so some schedules
-// do age a ghost out and have to bring it back.
-//
-// The clock above is compressed 15x rather than the 50x it started at, and the
-// difference is the machine, not the code: at a 60ms stale window twelve fuzz
-// workers on one desktop starved each other badly enough that a peer's samples
-// arrived later than its own ghost's lifetime, and the target reported two
-// perfectly healthy cores as a convergence failure. A compressed clock is only
-// honest while it stays longer than the scheduling noise of the machine it
-// runs on -- past that it stops testing the code and starts testing the CPU.
+// fuzzScheduleDelays is the delay alphabet, deliberately not linear: most steps land inside one send interval, where
+// ordering races live, while the top entry is longer than fuzzScheduleStaleAfter, so some schedules age a ghost out and
+// must bring it back. The clock stays longer than the machine's scheduling noise, or the target tests the CPU, not the
+// code.
 var fuzzScheduleDelays = [8]time.Duration{
 	0, 0, time.Millisecond, 2 * time.Millisecond,
 	5 * time.Millisecond, 20 * time.Millisecond, 60 * time.Millisecond, 250 * time.Millisecond,
 }
 
-// scheduleActor is one player: a lazily-connecting Core, its bridge address,
-// and whichever fake adapter is currently attached to it (none, between a
-// detach and the next attach).
+// scheduleActor is one player: a lazily-connecting Core, its bridge, and the fake adapter attached to it, if any.
 type scheduleActor struct {
 	t      *testing.T
 	name   string
@@ -79,17 +52,12 @@ type scheduleActor struct {
 	pos    float64
 }
 
-// fuzzScheduleConfigBytes is how many leading seed bytes describe the room's
-// CONFIGURATION rather than its schedule: send rate, interpolation delay,
-// curve+prediction, keepalive, per-peer receive cap. Added 2026-09-01 -- see
-// FuzzSchedule's own comment for why one pinned configuration was a blind
-// spot.
+// fuzzScheduleConfigBytes is how many leading seed bytes describe the room's configuration rather than its schedule:
+// send rate, interpolation delay, curve and prediction, keepalive, per-peer receive cap.
 const fuzzScheduleConfigBytes = 5
 
-// fuzzSchedulePinnedConfig is the configuration every property of this target
-// was proven in before the prefix existed: MaxSendHz, a 15ms interpolation
-// delay (alphabet index 2), linear curve and prediction, a 10ms keepalive
-// (index 2), no receive cap. The seeds replay their schedules under it.
+// fuzzSchedulePinnedConfig is the configuration the seeds replay their schedules under: MaxSendHz, a 15ms interpolation
+// delay (index 2), linear curve and prediction, a 10ms keepalive (index 2), no receive cap.
 var fuzzSchedulePinnedConfig = []byte{byte(protocol.MaxSendHz), 0x02, 0x00, 0x02, 0x00}
 
 // fuzzScheduleSeedSchedules are the seed orderings, schedule bytes only.
@@ -101,18 +69,10 @@ var fuzzScheduleSeedSchedules = [][]byte{
 	{0x05, 0x04, 0xf6, 0x07, 0x03, 0x05, 0x01},
 }
 
-// fuzzScheduleInterps / fuzzScheduleKeepalives are the alphabets for the two
-// timing knobs, and they are deliberately SMALL AND SHORT.
-//
-// The honest constraint is the compressed clock this target already runs on
-// (see fuzzSchedule* above): every value here has to stay well inside
-// fuzzScheduleConvergeWait, or a slow-but-correct configuration reports as a
-// convergence failure and the target starts testing patience instead of code.
-// The shipped interp (450ms since 2026-09-02; 250ms before) is NOT in this list for that reason -- what is
-// being varied is the RELATIONSHIP between the knobs (is the delay above or
-// below the sample gap, is the keepalive above or below the stale window),
-// which is where the seams are, and that relationship is preserved by
-// compression.
+// fuzzScheduleInterps and fuzzScheduleKeepalives are the alphabets for the two timing knobs, small and short: every
+// value must stay well inside fuzzScheduleConvergeWait, or a slow but correct configuration reports as a failure. The
+// shipped interpolation delay is left out for that reason. What varies is the knobs' relationship (the delay against
+// the sample gap, the keepalive against the stale window), which compression preserves.
 var fuzzScheduleInterps = [4]time.Duration{
 	0, 5 * time.Millisecond, 15 * time.Millisecond, 40 * time.Millisecond,
 }
@@ -123,7 +83,7 @@ var fuzzScheduleKeepalives = [4]time.Duration{
 
 // scheduleConfig is one room's worth of randomized settings.
 type scheduleConfig struct {
-	rawSendHz    int // as configured, BEFORE clamping -- 0 and out-of-range are legal inputs
+	rawSendHz    int // as configured, before clamping: 0 and out-of-range are legal inputs
 	rawReceiveHz int // per-peer receive cap, 0 meaning uncapped
 	interp       time.Duration
 	keepalive    time.Duration
@@ -132,9 +92,8 @@ type scheduleConfig struct {
 	extrapolate  time.Duration
 }
 
-// String is what a failing corpus entry prints. A configuration nobody can
-// read is a configuration nobody can reproduce -- the same reason scheduleOps
-// exists for the ordering half.
+// String is what a failing corpus entry prints, so its configuration can be reproduced, as scheduleOps does for the
+// ordering.
 func (c scheduleConfig) String() string {
 	return fmt.Sprintf("send_hz=%d(->%d) recv_hz=%d(->%d) interp=%v keepalive=%v curve=%s predict=%s extrapolate=%v",
 		c.rawSendHz, protocol.ClampSendHz(c.rawSendHz),
@@ -142,30 +101,21 @@ func (c scheduleConfig) String() string {
 		c.interp, c.keepalive, c.curve, c.predict, c.extrapolate)
 }
 
-// decodeScheduleConfig turns the seed's config prefix into settings. Every
-// field is derived by masking, never by rejecting, so the engine never wastes
-// an execution on an input this decoder refuses -- the whole byte space maps
-// onto a legal configuration.
+// decodeScheduleConfig turns the seed's config prefix into settings by masking, never rejecting, so the whole byte
+// space maps onto a legal configuration and no execution is wasted.
 func decodeScheduleConfig(b []byte) scheduleConfig {
 	cfg := scheduleConfig{
-		// Raw and unclamped on purpose: 0 ("unspecified") and >MaxSendHz
-		// ("clamp me") are exactly the inputs a hostile or careless relay
-		// sends, and the room's real rate is whatever ClampSendHz makes of it.
+		// Raw and unclamped on purpose: 0 and >MaxSendHz are what a hostile or careless relay sends.
 		rawSendHz: int(b[0]),
 		interp:    fuzzScheduleInterps[b[1]&0x03],
 		keepalive: fuzzScheduleKeepalives[b[3]&0x03],
-		// A receive cap is a per-CLIENT choice, and 0 (uncapped) is the
-		// shipped default, so it gets the low bit of the byte's own value
-		// rather than a separate alphabet: most bytes mean "some cap", and
-		// the exact number is clamped the same way the send rate is.
+		// A receive cap is a per-client choice; the byte's own value is used, so most bytes mean some cap, clamped as
+		// the send rate is.
 		rawReceiveHz: int(b[4]),
 	}
 
-	// Curve and prediction share one byte: two bits pick the curve, two the
-	// prediction mode, one turns extrapolation on. They are packed rather than
-	// given a byte each because they compose -- extrapolation with no curve is
-	// a different proposition from either alone (dev-scripts/README.md's
-	// render-knob section), and the engine mutates one byte at a time.
+	// Curve and prediction share one byte: one bit picks the curve, two the prediction mode, one turns extrapolation
+	// on. They are packed because they compose, and the engine mutates one byte at a time.
 	switch b[2] & 0x01 {
 	case 0:
 		cfg.curve = CurveLinear
@@ -181,25 +131,16 @@ func decodeScheduleConfig(b []byte) scheduleConfig {
 		cfg.predict = PredictAccelerated
 	}
 	if (b[2]>>3)&0x01 == 1 {
-		// Bounded by the same compressed-clock reasoning as the interp
-		// alphabet: long enough to actually predict past the newest sample,
-		// short enough that a correction lands inside the converge window.
+		// Long enough to predict past the newest sample, short enough that a correction lands inside the converge
+		// window.
 		cfg.extrapolate = 20 * time.Millisecond
 	}
 	return cfg
 }
 
-// scheduleStaleAfter keeps the stale window COHERENT with the room's send
-// rate instead of pinning it.
-//
-// This is the one place the fuzzer is deliberately not free, and the reason is
-// a property of the system rather than of the test: a stale window shorter
-// than the gap between two sends means "despawn a peer who is sending
-// normally", so such a room churns ghosts forever by design. Fuzzing into it
-// would generate failures that are misconfiguration, not defects, and a target
-// that cries wolf gets muted. Four sample gaps, floored at the compressed
-// clock's own 200ms, keeps every generated room one where convergence is
-// actually required to happen.
+// scheduleStaleAfter keeps the stale window coherent with the room's send rate. A window shorter than the gap between
+// sends despawns a peer sending normally, a misconfiguration rather than a defect; four sample gaps, floored at
+// fuzzScheduleStaleAfter, keeps every generated room one that must converge.
 func scheduleStaleAfter(rawSendHz int) time.Duration {
 	gap := time.Second / time.Duration(protocol.ClampSendHz(rawSendHz))
 	if stale := 4 * gap; stale > fuzzScheduleStaleAfter {
@@ -227,14 +168,11 @@ func newScheduleActor(t *testing.T, relayAddr, name string) *scheduleActor {
 	return newScheduleActorTuned(t, relayAddr, name, nil)
 }
 
-// newScheduleActorTuned builds the actor with the compressed clock, then lets
-// tune override whatever the fuzzed configuration wants to vary. Split out
-// 2026-09-01 so the fixed-clock callers and the fuzzed one share one setup
-// rather than drifting into two.
+// newScheduleActorTuned builds the actor with the compressed clock, then lets tune override what the fuzzed
+// configuration varies, so the fixed-clock callers and the fuzzed one share one setup.
 func newScheduleActorTuned(t *testing.T, relayAddr, name string, tune func(*Core)) *scheduleActor {
 	t.Helper()
-	// In-memory, not a socket: this target attaches and detaches adapters
-	// thousands of times per campaign across twelve workers. See pipeListener.
+	// In-memory, not a socket: this target attaches and detaches adapters thousands of times per campaign.
 	ln := newPipeListener()
 	t.Cleanup(func() { ln.Close() })
 	c := startCoreLazyServing(t, ln, relayAddr, "fuzzroom", name, func(c *Core) {
@@ -245,29 +183,17 @@ func newScheduleActorTuned(t *testing.T, relayAddr, name string, tune func(*Core
 		c.HeartbeatInterval = fuzzScheduleHeartbeat
 		c.ReconnectInitialBackoff = fuzzScheduleBackoff
 		c.ReconnectMaxBackoff = fuzzScheduleMaxBackoff
-		// Deliberately NOT compressed, unlike everything above it. Twelve fuzz
-		// workers on one desktop can starve a relay handshake past the 2s the
-		// other tests use, and a core that gives up waiting for its Welcome
-		// reports as a convergence failure that has nothing to do with the
-		// schedule. The dial timeout is what the code does when the machine is
-		// too slow, so it is the one knob that must not be tightened here.
+		// Not compressed: many fuzz workers can starve a relay handshake past 2s, and a core that gives up on its
+		// Welcome reports as a convergence failure unrelated to the schedule.
 		c.DialTimeout = 10 * time.Second
 		if tune != nil {
 			tune(c)
 		}
 	})
-	// A Core has no Close, so one left behind by a finished iteration keeps
-	// its reconnect loop running -- and at the compressed cadence above that
-	// is a retry every few milliseconds for the rest of the package's run.
-	// Left alone it does more than waste CPU: an ephemeral port gets recycled,
-	// a later test's relay lands on it, and the zombie joins THAT server and
-	// eats one of its eight client slots. Seen as another test failing with
-	// "server full" while this one passed.
-	//
-	// Disarming is the closest thing to stopping a Core that exists. It runs
-	// after the adapter sockets are closed (Cleanup is LIFO), so the ordinary
-	// path -- the game closing, which disarms auto-retry itself -- has already
-	// had its chance and this only catches what it missed.
+	// A Core has no Close, so one left by a finished iteration keeps redialling every few milliseconds; once an
+	// ephemeral port is recycled it joins a later test's relay and takes one of its client slots. Disarming is the
+	// closest thing to stopping it. It runs after the adapter sockets close (Cleanup is LIFO), so it catches only what
+	// the game closing missed.
 	t.Cleanup(func() {
 		c.mu.Lock()
 		c.autoRetryGameID = ""
@@ -287,17 +213,8 @@ func (a *scheduleActor) attach() {
 	if a.fa != nil {
 		return
 	}
-	// The bridge is an in-memory pipe, not a socket (pipeListener), so the
-	// only way this fails is a listener closed by test teardown -- the
-	// converge loop calls attach again either way.
-	//
-	// IT USED TO BE A SOCKET, and that was worse here than a crash: twelve
-	// fuzz workers exhaust Windows' ephemeral ports in seconds, this function
-	// swallowed the dial error, and the target then ran its whole remaining
-	// campaign with NO ADAPTER ATTACHED -- exercising nothing while passing.
-	// That is the exact failure mode ideas.md records from 2026-09-03: a fuzz
-	// target that silently exercises nothing passes exactly like one that
-	// exercises everything.
+	// The bridge is an in-memory pipe, so this fails only when teardown closed the listener; the converge loop calls
+	// attach again either way.
 	fa, err := dialFakeAdapterPipeErr(a.t, a.bridge)
 	if err != nil {
 		return
@@ -328,16 +245,9 @@ func (a *scheduleActor) dropRelay() {
 	}
 }
 
-// frame is one adapter tick. The position moves every time so that change
-// suppression (ADR 0039) cannot be what keeps a state off the wire -- this
-// test is about ordering, and a suppressed send would look like one.
-//
-// A failed send is NOT a test failure, unlike fakeAdapter.frame's own Fatalf.
-// A core whose previous adapter's disconnect is still in flight answers the
-// next hello with "busy" and hangs up, and a real adapter's answer to that is
-// to dial again (agent_docs/contract.md's port walk) -- so this drops the
-// connection and lets the next attach re-make it. What must still hold is that
-// the room converges anyway, which is what the caller asserts.
+// frame is one adapter tick. The position moves every time, so change suppression cannot be what keeps a state off the
+// wire. A failed send is not a test failure: a core still finishing the previous adapter's disconnect answers "busy"
+// and hangs up, and a real adapter dials again, so this drops the connection for the next attach to remake.
 func (a *scheduleActor) frame() {
 	if a.fa == nil {
 		return
@@ -365,10 +275,7 @@ func (a *scheduleActor) frame() {
 	a.drain()
 }
 
-// drain empties the fake adapter's despawn channel. It is a BLOCKING send on
-// the connection's own read goroutine (core_test.go), so a schedule that
-// produced more despawns than its buffer holds would wedge that adapter, and
-// the failure would then look like the core going silent.
+// drain empties the fake adapter's despawn channel, which nothing here reads.
 func (a *scheduleActor) drain() {
 	if a.fa == nil {
 		return
@@ -382,16 +289,10 @@ func (a *scheduleActor) drain() {
 	}
 }
 
-// sees reports whether this actor's adapter is rendering exactly peer and
-// nobody else, under peer's name. "Nobody else" is half the point: an identity
-// left behind by a reconnect is a ghost of somebody who is not there.
-// THE peerID == "" GUARD IS LOAD-BEARING, and more so since 2026-09-03: a core
-// that never reached a relay now KEEPS its adapter and plays solo instead of
-// refusing it (bridgeserve.go). A solo core has no player id, so an actor that
-// never joined cannot satisfy this check and the target fails loudly -- which is
-// the property to protect. Convergence here means two games seeing each other
-// THROUGH A RELAY, and it must never be satisfiable by two games each happily
-// playing alone.
+// sees reports whether this actor's adapter renders exactly peer, under peer's name, and nobody else: an identity left
+// behind by a reconnect is a ghost of somebody not there. The peerID == "" guard is load-bearing: a core that never
+// reached a relay keeps its adapter and plays solo with no player id, and convergence must never be satisfiable by two
+// games each playing alone.
 func (a *scheduleActor) sees(peerID, peerName string) bool {
 	if a.fa == nil || peerID == "" {
 		return false
@@ -407,10 +308,7 @@ func (a *scheduleActor) sees(peerID, peerName string) bool {
 	return a.fa.names[peerID].DisplayName == peerName
 }
 
-// internals is what a failure needs and the outside cannot see: whether this
-// core thinks it is connected, whether it thinks an adapter is attached, and
-// whether a redial is armed. A failure that prints only "no ghosts" cannot
-// tell a wedged core apart from a slow one.
+// internals is what a failure needs and the outside cannot see, so a wedged core can be told apart from a slow one.
 func (a *scheduleActor) internals() string {
 	a.core.mu.Lock()
 	defer a.core.mu.Unlock()
@@ -433,9 +331,7 @@ func (a *scheduleActor) describe() string {
 		strings.Join(ids, " "), a.internals())
 }
 
-// scheduleOps names what a seed byte's low bits mean. Kept as a table so a
-// failing corpus entry can be printed as the sequence it actually ran, which
-// is the difference between a reproducible schedule and a hex string.
+// scheduleOps names what a seed byte's low bits mean, so a failing corpus entry prints as the sequence it ran.
 var scheduleOps = [8]string{
 	"a.frame", "b.frame", "a.detach", "b.detach",
 	"a.attach", "b.attach", "a.dropRelay", "b.dropRelay",
@@ -444,19 +340,10 @@ var scheduleOps = [8]string{
 // fuzz-census: no-ci-step -- stands up real relay sockets per input, so a continuous
 // campaign is ephemeral-port-bound long before it is idea-bound. Run by hand.
 func FuzzSchedule(f *testing.F) {
-	// The seeds are the orderings already known to matter, so a plain `go
-	// test` run -- which replays the corpus rather than fuzzing -- covers
-	// them: both present before either sends, one joining after the other is
-	// settled, a relay blip under a running game, and a game closing and
-	// relaunching.
-	//
-	// EVERY SEED CARRIES THE CONFIGURATION PREFIX, fuzzSchedulePinnedConfig: the
-	// one configuration this target ran before 2026-09-01. The prefix was added
-	// that day and these seeds were not migrated, so two of the five (and the
-	// committed corpus entry) became too short to run at all and the other three
-	// lost their first five schedule bytes to the config -- none of the orderings
-	// this comment names ran again until pass 5 of the adversarial review found it
-	// (2026-09-16, X2-1). TestFuzzScheduleSeedsAreLongerThanTheirConfig pins it.
+	// The seeds are the orderings known to matter, replayed by a plain go test: both present before either sends, one
+	// joining after the other has settled, a relay blip under a running game, a game closing and relaunching. Every
+	// seed carries the configuration prefix ahead of its schedule; TestFuzzScheduleSeedsAreLongerThanTheirConfig pins
+	// it.
 	for _, schedule := range fuzzScheduleSeedSchedules {
 		f.Add(append(append([]byte{}, fuzzSchedulePinnedConfig...), schedule...))
 	}
@@ -466,25 +353,9 @@ func FuzzSchedule(f *testing.F) {
 			return
 		}
 
-		// THE CONFIGURATION IS PART OF THE SEED, not just the ordering
-		// (2026-09-01, the user: "I want the fuzzer to actually test/randomize
-		// everything, so we actually catch things with it").
-		//
-		// Until then this target pinned MaxSendHz and every render knob at a
-		// single value, so every property it has ever proven -- including the
-		// five ways a ghost went invisible that it found on 2026-08-29 -- was
-		// proven in exactly ONE configuration. The knobs are not inert: the
-		// send rate sets the gap between samples, which races the keepalive,
-		// the stale window and the interpolation buffer's edges, while curve
-		// and prediction change which samples the buffer must still be
-		// holding. Those are the seams this target exists to shake, and it was
-		// shaking them at one setting. Lowering the shipped send rate 20 -> 15
-		// the same day is what made the blind spot obvious -- a whole-system
-		// interval that had never varied under the fuzzer.
-		//
-		// Rates are fed as RAW bytes rather than pre-clamped values: 0 must
-		// mean "unspecified" and out-of-range must clamp, and both paths
-		// deserve the same engine exploring them as everything else.
+		// The configuration is part of the seed: the send rate sets the gap between samples, which races the keepalive,
+		// the stale window and the interpolation buffer's edges, and curve and prediction change which samples the
+		// buffer must hold. Rates are raw bytes, so 0 (unspecified) and out-of-range (clamped) are explored too.
 		if len(seed) <= fuzzScheduleConfigBytes {
 			return
 		}
@@ -525,15 +396,12 @@ func FuzzSchedule(f *testing.F) {
 			}
 		}
 
-		// Whatever the schedule left behind, both games are now running and
-		// both are sending -- the state a player is in when they say "I still
-		// can't see them". Everything above is allowed; this is not.
+		// Whatever the schedule left, both games are now attached and sending, where a player says "I still can't see
+		// them": everything above is allowed, this is not.
 		deadline := time.Now().Add(fuzzScheduleConvergeWait)
 		for time.Now().Before(deadline) {
-			// Re-attached inside the loop, not once before it: a core that
-			// refused this connection because the previous one had not
-			// finished going away drops it again, and a real relaunched game
-			// keeps trying too.
+			// Re-attached inside the loop: a core still finishing the previous connection refuses this one, and a
+			// relaunched game keeps trying too.
 			a.attach()
 			b.attach()
 			a.frame()

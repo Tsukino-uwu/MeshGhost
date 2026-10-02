@@ -2875,3 +2875,6 @@ record held went to [verified.md](../verified.md), same date; a doc pointer a co
 - `cmd/` (40 files): comment lines 3,551 → 1,240. Stale claims fixed: netsim's loss on tcp said refused (allowed unless no udp
   port is mirrored), the relay's ghost collision said enabled by default (disabled), `Gzip` said on by default (off), and
   four doc comments that sat on the wrong function moved to their own.
+- `core/` tests, first half of each list (47 files): comment lines 3,838 → 1,441. Stale claims fixed: the schedule fuzzer's
+  curve said picked by two bits (one), its stale window said 60 ms (200), recordings said to ship gzipped (plain is the
+  default), and the Hz-ceiling test's shipped delay and rate said 250 ms and 20 Hz (450 ms and 15 Hz).

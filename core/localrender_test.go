@@ -1,16 +1,7 @@
 package core
 
-// A ghost this core INVENTED is not delayed for a network it never crossed.
-//
-// The defect these tests exist for, shipped and found by reading on 2026-09-03:
-// a replay and a chaser feed their samples stamped at the wall time they are
-// meant to be AT, and tickRenders then drew every remote one InterpolationDelay
-// in the past -- so a chaser configured for 3s was drawn at 3.45s, and a replay
-// ran 450ms behind its own schedule. Nothing caught it because every test that
-// touches a local peer pins InterpolationDelay to 0 (core/localpeer_test.go's
-// helper, internal/e2e's startClient), where the defect cannot exist.
-//
-// So: everything here runs at the SHIPPED 450ms on purpose.
+// A ghost this core invented is not delayed for a network it never crossed. Every other test that touches a local peer
+// pins InterpolationDelay to 0, where the delay cannot show, so everything here runs at the shipped 450ms on purpose.
 
 import (
 	"path/filepath"
@@ -20,11 +11,9 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// TestLocalGhostsAreNotDelayedByTheNetworkInterpolationDelay is the fast,
-// deterministic form of the whole bug: one relay peer and one chaser fed the
-// IDENTICAL sample stream, rendered in the same tick, must not come out in the
-// same place. remoteStatesAt takes `now` and subtracts per class, so no clock
-// races this -- the numbers below are exact.
+// TestLocalGhostsAreNotDelayedByTheNetworkInterpolationDelay: one relay peer and one chaser, fed the identical sample
+// stream and rendered in one tick, must not land in the same place. remoteStatesAt takes now and subtracts per class,
+// so the numbers are exact.
 func TestLocalGhostsAreNotDelayedByTheNetworkInterpolationDelay(t *testing.T) {
 	c := New()
 	c.InterpolationDelay = 450 * time.Millisecond
@@ -32,8 +21,8 @@ func TestLocalGhostsAreNotDelayedByTheNetworkInterpolationDelay(t *testing.T) {
 	c.playerID = "me"
 	c.roster = map[string]int64{"p1": 0, "chaser:1": 0}
 
-	// x IS the sample's age in ms, negative into the past, so a rendered x
-	// reads directly as "this ghost is drawn |x| ms behind now".
+	// x is the sample's age in ms, negative into the past, so a rendered x reads as "this ghost is drawn |x| ms behind
+	// now".
 	base := c.nowMs()
 	for ts := base - 600; ts <= base; ts += 10 {
 		for _, id := range []string{"p1", "chaser:1"} {
@@ -63,23 +52,12 @@ func TestLocalGhostsAreNotDelayedByTheNetworkInterpolationDelay(t *testing.T) {
 	}
 }
 
-// TestALocalGhostStillInterpolatesRatherThanEdgeHolding pins the reason the
-// local delay is 25ms and not 0, so nobody "simplifies" it to zero later.
-//
-// At zero the render time lands at or past the newest fed sample, atAhead takes
-// its past-the-newest branch, and with Extrapolate at its default of 0 it holds
-// that sample: a stair-step at the feed rate instead of a smooth glide. A
-// couple of sample intervals is all it takes to always have something ahead to
-// interpolate toward.
+// TestALocalGhostStillInterpolatesRatherThanEdgeHolding pins why the local delay is 25ms, not 0: at zero the render
+// time lands at or past the newest sample and, with Extrapolate off, holds it, a stair-step at the feed rate instead of
+// a glide.
 func TestALocalGhostStillInterpolatesRatherThanEdgeHolding(t *testing.T) {
-	// RETURNS ITS OWN BASE, and the test asserts against that rather than
-	// calling nowMs a second time. Reading the clock twice made this flaky: the
-	// samples were placed relative to one reading and the render time computed
-	// from another, so a millisecond boundary falling between the two shifted
-	// the answer by one. It passed locally and failed on a CI runner the same
-	// day (x=-21 where -22 was wanted, 2026-09-04) -- which is a one-tick race
-	// looks like, and why a timing assertion must derive every number it
-	// compares from a SINGLE reading of the clock.
+	// build returns its own base, and the test asserts against that rather than reading nowMs again: every number a
+	// timing assertion compares must come from one reading of the clock.
 	build := func(localDelay time.Duration) (*Core, int64) {
 		c := New()
 		c.InterpolationDelay = 450 * time.Millisecond
@@ -119,12 +97,9 @@ func TestALocalGhostStillInterpolatesRatherThanEdgeHolding(t *testing.T) {
 	}
 }
 
-// TestAChaserLagsByItsOwnDelayNotDelayPlusInterp is the same claim through the
-// real machinery -- a running chaser, the real bridge, a real render tick --
-// at the shipped 450ms interpolation delay.
-//
-// core/chaser_test.go's TestChaserFollowsTheLocalPlayerBehindByItsDelay is the
-// same shape at interp 0, which is exactly why it passed throughout the defect.
+// TestAChaserLagsByItsOwnDelayNotDelayPlusInterp: the same claim through a running chaser, the real bridge and a real
+// render tick at the shipped 450ms interpolation delay. TestChaserFollowsTheLocalPlayerBehindByItsDelay runs at interp
+// 0, where this cannot fail.
 func TestAChaserLagsByItsOwnDelayNotDelayPlusInterp(t *testing.T) {
 	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) {
 		c.InterpolationDelay = 450 * time.Millisecond
@@ -139,8 +114,7 @@ func TestAChaserLagsByItsOwnDelayNotDelayPlusInterp(t *testing.T) {
 	}
 	const id = "chaser:1"
 
-	// The player walks one unit per 10ms, so a lag in units IS a lag in
-	// hundredths of a second: 30 units = 300ms.
+	// The player walks one unit per 10ms, so a lag in units is a lag in hundredths of a second: 30 units = 300ms.
 	start := time.Now()
 	lag := -1.0
 	deadline := time.Now().Add(testTimeout)
@@ -164,12 +138,9 @@ func TestAChaserLagsByItsOwnDelayNotDelayPlusInterp(t *testing.T) {
 	}
 }
 
-// TestAFinishedReplayHoldsItsLastSampleLongEnoughToBeDrawn guards the other
-// site that read the network delay: the end-of-clip hold (replay.go). It exists
-// so the deferred drop cannot despawn the ghost before its final position has
-// been rendered, so it must be at least the LOCAL delay -- and reading the
-// network one instead left a finished ghost frozen on its finish line for
-// several hundred milliseconds longer than it had any reason to.
+// TestAFinishedReplayHoldsItsLastSampleLongEnoughToBeDrawn guards the other site that read the network delay, the
+// end-of-clip hold: it must be at least the local delay, so the final position renders before the despawn, and no
+// longer, or a finished ghost freezes on its finish line.
 func TestAFinishedReplayHoldsItsLastSampleLongEnoughToBeDrawn(t *testing.T) {
 	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) {
 		c.ReplayDir = filepath.Join(t.TempDir(), "replay")

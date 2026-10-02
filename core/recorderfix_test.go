@@ -1,10 +1,7 @@
 package core
 
-// Three recorder failure paths that nobody watched, found in the 2026-09-07
-// review and fixed on 2026-09-08. All three share a shape: the recorder notices
-// something wrong, handles it locally, and leaves the PLAYER with a wrong
-// picture -- a lit indicator over a dead recording, a frozen game, or a corpse
-// file that the next replay_last picks in preference to a real clip.
+// Recorder failure paths that must not leave the player with a wrong picture: a lit indicator over a dead recording, a
+// frozen game, or a corpse file the next replay_last picks over a real clip.
 
 import (
 	"errors"
@@ -17,20 +14,12 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// TestAFailedRecordingWriteTellsTheAdapter: the disk fills, the USB stick is
-// pulled, the folder goes away mid-run. The core stops writing -- and before
-// this fix said so only on a console that ships hidden, so the on-screen REC
-// indicator stayed lit for the rest of the session and the run was lost in
-// silence.
-//
-// The failure is produced by creating the recorder's own file behind its back:
-// the path is decided at StartRecording and opened O_EXCL at the first sample,
-// so the first sample's open fails with EEXIST on every platform. That is one
-// real member of the class; what is under test is what the core does after ANY
-// write error, not which one.
+// TestAFailedRecordingWriteTellsTheAdapter: when the disk fills or the folder goes away mid-run, the core stops writing
+// and tells the adapter, or the on-screen indicator stays lit over a lost run, since the console ships hidden. The
+// failure is made by creating the recorder's own file behind its back: it is opened O_EXCL at the first sample, so that
+// open fails on every platform. What is under test is the response to any write error.
 func TestAFailedRecordingWriteTellsTheAdapter(t *testing.T) {
-	// Set before the bridge serves, as the other recording tests do: the attach
-	// path reads ReplayDir on the bridge goroutine (-race, 2026-09-05).
+	// Set before the bridge serves: the attach path reads ReplayDir on the bridge goroutine.
 	dir := t.TempDir()
 	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) { c.ReplayDir = dir })
 
@@ -56,14 +45,9 @@ func TestAFailedRecordingWriteTellsTheAdapter(t *testing.T) {
 	}
 }
 
-// TestAnUnreadableReplayFolderDoesNotSpin: replayFileName's loop used to exit
-// only on os.ErrNotExist, so a permission denial or a disconnected network
-// share answered every candidate with the same error and it counted up forever
-// -- holding c.rec.mu, which recordLocal wants on every adapter frame, so the
-// bridge reader goroutine wedged behind it.
-//
-// StartRecording is called on its own goroutine so that the pre-fix behaviour
-// is a reported failure rather than a hung test binary.
+// TestAnUnreadableReplayFolderDoesNotSpin: a stat error other than not-exist (a permission denial, a disconnected
+// network share) must end replayFileName's search, which holds c.rec.mu, taken by recordLocal on every adapter frame.
+// StartRecording runs on its own goroutine, so a spin is a reported failure rather than a hung test binary.
 func TestAnUnreadableReplayFolderDoesNotSpin(t *testing.T) {
 	denied := errors.New("access is denied")
 	old := replayStat
@@ -96,10 +80,8 @@ func TestAnUnreadableReplayFolderDoesNotSpin(t *testing.T) {
 	}
 }
 
-// TestReplayFileNameGivesUpOnACrowdedFolder is the other half of the same
-// bound: every candidate name answers "exists", which no stat error can end.
-// One core writes one recording at a time, so a folder that says yes a hundred
-// times is not to be believed and the search has to stop somewhere.
+// TestReplayFileNameGivesUpOnACrowdedFolder is the other half of the bound: every candidate name exists, which no stat
+// error ends. One core writes one recording at a time, so a folder that says yes a hundred times is not believed.
 func TestReplayFileNameGivesUpOnACrowdedFolder(t *testing.T) {
 	old := replayStat
 	replayStat = func(string) (os.FileInfo, error) { return nil, nil }
@@ -120,17 +102,10 @@ func TestReplayFileNameGivesUpOnACrowdedFolder(t *testing.T) {
 	}
 }
 
-// TestAFailedSaveLastLeavesNoFileBehind: SaveLast creates its file O_EXCL and
-// used to close-and-return on every error path, leaving a truncated
-// last-<stamp>.ndjson in the replay folder -- which replayLast then picks,
-// because it takes the NEWEST file by mod time. A .gz cut before its footer is
-// refused whole (ADR 0051), so the player's next replay_last plays nothing and
-// blames the feature.
-//
-// The write is failed with an orientation that is not valid JSON: it is opaque
-// to the core by contract, carried as json.RawMessage, and json.Marshal refuses
-// it at the sample line -- after the header line has already been written, which
-// is the partial-file case.
+// TestAFailedSaveLastLeavesNoFileBehind: a failed SaveLast removes its partial last-<stamp> file, since replayLast
+// picks the newest file by mod time and the player's next replay_last would play nothing. The write fails on an
+// orientation that is not valid JSON: opaque to the core, json.Marshal refuses it at the sample line, after the header
+// is written.
 func TestAFailedSaveLastLeavesNoFileBehind(t *testing.T) {
 	dir := t.TempDir()
 	c := New()

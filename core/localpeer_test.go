@@ -10,32 +10,22 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// startLocalPeerCore builds a Core with a bridge listener, a recording stand-in
-// for the relay and zero interpolation delay, the shape every local-peer test
-// wants: whatever leaves for the "relay" is captured, and a fed sample renders
-// on the very next adapter frame.
-//
-// BOTH DELAYS ARE ZEROED, and a test about render TIMING has to opt out of that
-// deliberately. Zero on the network one is why nothing here caught the defect
-// fixed on 2026-09-03: local ghosts were rendered a full InterpolationDelay
-// behind their own schedule, and at 0 that is invisible by construction --
-// every test in this file measured a chaser's delay correctly and would have
-// gone on doing so forever. internal/e2e's startClient hardcodes -interp 0ms
-// for the same convenience and had the same blind spot. See
-// core/localrender_test.go, which runs at the shipped 450ms on purpose.
+// startLocalPeerCore builds a Core with a bridge listener, a recording stand-in for the relay and zero interpolation
+// delay: whatever leaves for the "relay" is captured, and a fed sample renders on the very next adapter frame. Both
+// delays are zeroed, so a local ghost drawn a whole delay late is invisible here; render timing is tested at the
+// shipped delay in localrender_test.go.
 func startLocalPeerCore(t *testing.T) (*Core, *recordingTransport, *fakeAdapter) {
 	return startLocalPeerCoreWith(t, nil)
 }
 
-// startLocalPeerCoreWith runs cfg on the Core BEFORE the bridge serves, for a
-// test that needs a field the hello handler reads (ReplayDir, the Chaser*
-// fields): anything set after the adapter attaches races the bridge goroutine.
+// startLocalPeerCoreWith runs cfg on the Core before the bridge serves, for a test that needs a field the hello handler
+// reads (ReplayDir, the Chaser* fields): anything set after the adapter attaches races the bridge goroutine.
 func startLocalPeerCoreWith(t *testing.T, cfg func(*Core)) (*Core, *recordingTransport, *fakeAdapter) {
 	return startLocalPeerCoreHello(t, cfg, func(fa *fakeAdapter) { fa.hello("emerald") })
 }
 
-// startLocalPeerCoreHello is startLocalPeerCoreWith with the hello supplied,
-// for a test whose adapter declares something in it (input_tracks).
+// startLocalPeerCoreHello is startLocalPeerCoreWith with the hello supplied, for an adapter that declares something in
+// it (input_tracks).
 func startLocalPeerCoreHello(t *testing.T, cfg func(*Core), hello func(*fakeAdapter)) (*Core, *recordingTransport, *fakeAdapter) {
 	t.Helper()
 	c := New()
@@ -64,8 +54,7 @@ func startLocalPeerCoreHello(t *testing.T, cfg func(*Core), hello func(*fakeAdap
 	return c, rt, fa
 }
 
-// pumpUntil sends adapter frames (each one drives a render tick) until cond
-// holds or testTimeout elapses.
+// pumpUntil sends adapter frames, each driving a render tick, until cond holds or testTimeout elapses.
 func pumpUntil(t *testing.T, fa *fakeAdapter, cond func() bool, what string) {
 	t.Helper()
 	deadline := time.Now().Add(testTimeout)
@@ -79,10 +68,9 @@ func pumpUntil(t *testing.T, fa *fakeAdapter, cond func() bool, what string) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-// TestALocalPeerRendersWithItsNametagAndNeverReachesTheRelay is the seam test
-// for ADR 0047: a peer this core invents renders through the real bridge with
-// cosmetic=true and its nametag, is provably never sent to the relay, despawns
-// on drop, and survives the roster wipe of a relay session change.
+// TestALocalPeerRendersWithItsNametagAndNeverReachesTheRelay: a peer this core invents renders through the real bridge
+// with cosmetic=true and its nametag, is never sent to the relay, despawns on drop, and survives the roster wipe of a
+// relay session change.
 func TestALocalPeerRendersWithItsNametagAndNeverReachesTheRelay(t *testing.T) {
 	c, rt, fa := startLocalPeerCore(t)
 	const id = "replay:lap1"
@@ -118,16 +106,15 @@ func TestALocalPeerRendersWithItsNametagAndNeverReachesTheRelay(t *testing.T) {
 		t.Fatalf("adapter was told nametag %+v, want PB/#FF8800", name)
 	}
 
-	// Nothing with the local id left for the relay. The adapter's own frames
-	// DO go out (that is forwardLocalState doing its job), so the assertion is
-	// on the id, not on the count.
+	// Nothing with the local id left for the relay. The adapter's own frames do go out, so the assertion is on the id,
+	// not on the count.
 	for _, raw := range rt.all() {
 		if strings.Contains(string(raw), id) {
 			t.Fatalf("a local peer's id reached the relay transport: %s", raw)
 		}
 	}
 
-	// A relay peer rendered through the same core does NOT get the flag.
+	// A relay peer rendered through the same core does not get the flag.
 	c.mu.Lock()
 	c.roster["p7"] = 0
 	c.mu.Unlock()
@@ -151,8 +138,8 @@ func TestALocalPeerRendersWithItsNametagAndNeverReachesTheRelay(t *testing.T) {
 		t.Fatal("feedLocalPeer accepted a sample for a dropped peer")
 	}
 
-	// Re-admit, then wipe the roster the way a relay session change does: the
-	// peer must come back on the next feed without anyone re-admitting it.
+	// Re-admit, then wipe the roster as a relay session change does: the peer must come back on the next feed without
+	// anyone re-admitting it.
 	if !c.admitLocalPeer(id, protocol.Nametag{Name: "PB"}) {
 		t.Fatal("re-admit refused")
 	}
@@ -166,8 +153,8 @@ func TestALocalPeerRendersWithItsNametagAndNeverReachesTheRelay(t *testing.T) {
 	}, "the local peer to render again after the roster wipe")
 }
 
-// TestTickCountAdvancesOncePerAdapterFrame pins the seek primitive: every
-// adapter frame is one render tick, and awaitTick returns once one has run.
+// TestTickCountAdvancesOncePerAdapterFrame pins the seek primitive: every adapter frame is one render tick, and
+// awaitTick returns once one has run.
 func TestTickCountAdvancesOncePerAdapterFrame(t *testing.T) {
 	c, _, fa := startLocalPeerCore(t)
 	before := c.tickCount()
@@ -180,8 +167,7 @@ func TestTickCountAdvancesOncePerAdapterFrame(t *testing.T) {
 	}
 }
 
-// TestLocalPeerIDsAreASeparateNamespace pins the shape check the never-on-the-
-// wire argument leans on.
+// TestLocalPeerIDsAreASeparateNamespace pins the shape check that keeps local peer ids off the wire.
 func TestLocalPeerIDsAreASeparateNamespace(t *testing.T) {
 	for _, id := range []string{"replay:lap1", "chaser:1"} {
 		if !isLocalPeerID(id) {

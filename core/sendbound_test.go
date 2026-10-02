@@ -1,18 +1,8 @@
 package core
 
-// The send side of protocol.MaxLineBytes.
-//
-// protocol.ValidateState bounds every FIELD of a state and nothing bounds the
-// LINE the state is sent on, and all three of ValidateState's call sites are on
-// RECEIVE. Until 2026-09-08 the core marshalled a state and handed it to the
-// transport without ever measuring it, so a state that is legal field by field
-// and too long as a line was written to the relay -- whose read loop answers an
-// over-long line with bufio.ErrTooLong, ending the loop and dropping the whole
-// connection with no reject. The core reads that as a transient EOF, reconnects,
-// is issued a new player_id, and every peer sees the player despawn and respawn,
-// once per reconnect, for as long as the game stays in that state.
-//
-// These tests build the state that does it and pin what sendState does with it.
+// protocol.ValidateState bounds every field of a state, only on receive, and never the line it is sent on. A legal
+// state too long as a line ends the relay's read loop with no reject and the player reconnects under a new
+// player_id, so these tests pin what sendState does with one.
 
 import (
 	"encoding/json"
@@ -23,12 +13,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// lineTransport keeps the raw wire lines it was handed, because the whole
-// question here is how long they are -- a transport that decoded them back into
-// a protocol.State (as core/suppress_test.go's does) would throw away the one
-// fact under test.
-// core is what has to have drained before lines() is the whole answer -- see
-// capturingTransport.core.
+// lineTransport keeps the raw wire lines, since decoding them back into a protocol.State would lose their length.
+// sent() waits for core's relay writer to drain first.
 type lineTransport struct {
 	core *Core
 
@@ -58,23 +44,17 @@ func (lt *lineTransport) sent() [][]byte {
 	return out
 }
 
-// maximalState builds the largest state protocol.ValidateState accepts: every
-// opaque string at its own cap, the full position vector, and finite position
-// components written at full width so the numbers are as long on the wire as
-// they are allowed to be. tag varies the CONTENTS so a prev built from one of
-// these against another differs in every field, which is the case that produced
-// the measured 4167 bytes.
+// maximalState builds the largest state protocol.ValidateState accepts: every opaque string at its cap, the full
+// position vector, and positions long in decimal. tag varies the contents, so a prev built against another state
+// differs in every field.
 func maximalState(tag byte) protocol.State {
 	fill := func(n int) string { return strings.Repeat(string(tag), n) }
 	pos := make([]float64, protocol.MaxPositionLen)
 	for i := range pos {
-		// Inside MaxPositionComponent (1e7) and deliberately long in decimal:
-		// a position is only as big on the wire as its digits.
+		// Inside MaxPositionComponent: a position is only as big on the wire as its digits.
 		pos[i] = -1234567.1234567 - float64(i) - float64(tag)/1000
 	}
-	// JSONWireLen counts the marshalled bytes, so the two quotes are part of
-	// the budget for orientation, and the key, quotes, colon and braces are
-	// part of it for extras.
+	// JSONWireLen counts marshalled bytes, so the quotes, and for extras the key and braces, are in the budget.
 	orientation := json.RawMessage(`"` + fill(protocol.MaxOrientationBytes-2) + `"`)
 	extras := map[string]any{"x": fill(protocol.MaxExtrasBytes - len(`{"x":""}`))}
 	return protocol.State{
@@ -89,9 +69,8 @@ func maximalState(tag byte) protocol.State {
 	}
 }
 
-// TestAMaximalLegalStateWithAPrevExceedsTheLineLimit is the measurement the
-// fix rests on, kept as a test so it cannot rot: this is the state
-// protocol.ValidateState says yes to and the wire cannot carry.
+// TestAMaximalLegalStateWithAPrevExceedsTheLineLimit: a state protocol.ValidateState accepts and the wire cannot
+// carry, the measurement the send-side check rests on.
 func TestAMaximalLegalStateWithAPrevExceedsTheLineLimit(t *testing.T) {
 	st := maximalState('a')
 	other := maximalState('b')
@@ -113,15 +92,12 @@ func TestAMaximalLegalStateWithAPrevExceedsTheLineLimit(t *testing.T) {
 		len(env), protocol.MaxLineBytes)
 }
 
-// TestAnOversizedStateIsNotSentAsIs is the regression: whatever sendState does
-// with a state that will not fit, the one thing it may never do is put it on
-// the wire, because that costs the connection and the player_id rather than the
-// frame.
+// TestAnOversizedStateIsNotSentAsIs: a state that will not fit never goes on the wire as is, which would cost the
+// connection and the player_id rather than the frame; dropping its prev is enough here.
 func TestAnOversizedStateIsNotSentAsIs(t *testing.T) {
 	c := New()
 	lt := &lineTransport{core: c}
-	// sendState queues onto the CURRENT connection's writer since 2026-09-11,
-	// so the transport under test has to be that connection.
+	// sendState queues onto the current connection's writer, so the transport under test must be that connection.
 	c.relay = lt
 
 	st := maximalState('a')
@@ -138,7 +114,6 @@ func TestAnOversizedStateIsNotSentAsIs(t *testing.T) {
 			"bufio.ErrTooLong, drops the connection with no reject, and the player reconnects "+
 			"under a new player_id", len(lines[0]), protocol.MaxLineBytes)
 	}
-	// And it is the state itself that survived, minus only its redundancy.
 	var env protocol.Envelope
 	if err := json.Unmarshal(lines[0], &env); err != nil {
 		t.Fatalf("what was sent is not a valid envelope: %v", err)
@@ -158,22 +133,13 @@ func TestAnOversizedStateIsNotSentAsIs(t *testing.T) {
 	}
 }
 
-// TestAStateTooBigEvenWithoutItsPrevIsNotSentAtAll pins the last resort. There
-// is nothing left to shed at that point, and sending it anyway would take the
-// session down instead of losing one frame.
-//
-// The fixture is over the FIELD caps as well as the line cap, and that is the
-// realistic case rather than a contrived one: ValidateState's three call sites
-// are all on receive, so nothing between an adapter's local_state and this
-// function checks any of these bounds. An adapter packing an oversized extras
-// map is the ordinary way to get here -- a bug in a mod, not an attack -- and
-// what it used to buy was a relay connection dropped with no reject and a new
-// player_id on every reconnect.
+// TestAStateTooBigEvenWithoutItsPrevIsNotSentAtAll: with nothing left to shed the state is not sent, losing one frame
+// rather than the session. The fixture is over the field caps too, which is realistic: nothing between an adapter's
+// local_state and sendState checks them, so a mod packing an oversized extras map gets here.
 func TestAStateTooBigEvenWithoutItsPrevIsNotSentAtAll(t *testing.T) {
 	c := New()
 	lt := &lineTransport{core: c}
-	// sendState queues onto the CURRENT connection's writer since 2026-09-11,
-	// so the transport under test has to be that connection.
+	// sendState queues onto the current connection's writer, so the transport under test must be that connection.
 	c.relay = lt
 
 	st := maximalState('a')

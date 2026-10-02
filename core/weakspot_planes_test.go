@@ -1,23 +1,9 @@
 package core
 
-// WHICH PLANE EACH MESSAGE LEAVES ON (2026-09-08).
-//
-// Every relay stand-in in this package aliased SendUnreliable to Send
-// (recordingTransport, capturingTransport, and every ad-hoc double), so the
-// reliable/unreliable split was invisible to the whole of core: flipping
-// core/sending.go's state send to Send, or moving an event, a lease, an escrow
-// step or a reliable world write onto the LOSSY plane, left the entire package
-// green. relay/world_test.go's double already recorded the plane; this is
-// core's equivalent.
-//
-// It matters on udp and quic-datagram and nowhere else, which is exactly why
-// no local test noticed. A control message on the lossy plane is a join, a
-// lease grant or an escrow commit that is simply GONE with nothing to
-// supersede it -- contract.md defines those planes as reliable and ordered,
-// and every adapter is written against that promise. In the other direction, a
-// position sample on the reliable plane is retransmitted, so a lost one
-// arrives stale and out of order behind the newer samples it delayed, which is
-// worse than the gap it filled (the transport ADR in agent_docs/architecture.md).
+// Which plane each message leaves on. Every other relay stand-in here aliases SendUnreliable to Send, so only this
+// double sees the split. It matters on udp and quic-datagram: a control message on the lossy plane is simply gone with
+// nothing to supersede it, and a position sample on the reliable plane is retransmitted and arrives stale, behind the
+// newer samples it delayed.
 
 import (
 	"encoding/json"
@@ -28,10 +14,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// planeTransport records the plane each message was sent on, not just the
-// bytes. The one thing every other double in this package throws away.
-// core is what has to have drained before pt.sent is the whole answer -- see
-// capturingTransport.core.
+// planeTransport records the plane each message was sent on, not just the bytes. core must drain before pt.sent is the
+// whole answer.
 type planeTransport struct {
 	core *Core
 
@@ -62,9 +46,8 @@ func (pt *planeTransport) OnDisconnect(func(error))            {}
 func (pt *planeTransport) OnError(func(error))                 {}
 func (pt *planeTransport) Close() error                        { return nil }
 
-// planeOf reports how the one message of this type was sent, and fails if
-// there was not exactly one -- a type sent twice on different planes would
-// otherwise pass whichever assertion was made about it.
+// planeOf reports how the one message of this type was sent, and fails unless there was exactly one: a type sent twice
+// on different planes would pass whichever assertion was made about it.
 func (pt *planeTransport) planeOf(t *testing.T, typ protocol.MessageType) bool {
 	t.Helper()
 	pt.core.waitRelayDrained()
@@ -83,9 +66,8 @@ func (pt *planeTransport) planeOf(t *testing.T, typ protocol.MessageType) bool {
 	return found[0].unreliable
 }
 
-// planesCore is a Core wired to a plane-recording relay with every online
-// feature negotiated, so each send path is reached rather than refused with
-// ErrFeatureNotEnabled.
+// planesCore is a Core wired to a plane-recording relay with every online feature negotiated, so each send path is
+// reached rather than refused with ErrFeatureNotEnabled.
 func planesCore(t *testing.T) (*Core, *planeTransport) {
 	t.Helper()
 	c := New()
@@ -104,13 +86,12 @@ func planesCore(t *testing.T) (*Core, *planeTransport) {
 	return c, pt
 }
 
-// TestTheStatePlaneIsTheOnlyLossyOneByDefault pins the split the contract
-// makes and no test in this package could see before 2026-09-08.
+// TestTheStatePlaneIsTheOnlyLossyOneByDefault pins the split the contract makes: state is lossy, every decision is
+// reliable.
 func TestTheStatePlaneIsTheOnlyLossyOneByDefault(t *testing.T) {
 	c, pt := planesCore(t)
 
-	// The state plane: lossy and latest-wins. A retransmitted position arrives
-	// stale and out of order, which is worse than the gap it fills.
+	// The state plane: lossy and latest-wins.
 	st := protocol.State{AreaID: "a", Position: []float64{1, 2}, Anim: "idle"}
 	c.forwardLocalState(&st)
 	if !pt.planeOf(t, protocol.TypeState) {
@@ -146,13 +127,9 @@ func TestTheStatePlaneIsTheOnlyLossyOneByDefault(t *testing.T) {
 	}
 }
 
-// TestAWorldWriteTakesThePlaneItsCallerAsked is the one place the choice is
-// the ADAPTER's, per write, rather than a property of the plane
-// (protocol.World.Reliable). Both directions are asserted, because a
-// regression that pinned either one would be invisible to a test that only
-// checked the other -- and the reliable direction is load-bearing: a lossy
-// write on a key the relay does not hold yet is IGNORED, so a create that
-// silently went lossy never appears for anyone.
+// TestAWorldWriteTakesThePlaneItsCallerAsked: here the plane is the adapter's choice per write
+// (protocol.World.Reliable), so both directions are asserted. A lossy write on a key the relay does not hold yet is
+// ignored, so a create that went lossy never appears for anyone.
 func TestAWorldWriteTakesThePlaneItsCallerAsked(t *testing.T) {
 	c, pt := planesCore(t)
 
@@ -183,10 +160,8 @@ func TestAWorldWriteTakesThePlaneItsCallerAsked(t *testing.T) {
 	}
 }
 
-// TestADeliberateLeaveIsSentReliably: the goodbye is what turns "this player
-// left" into a clean departure rather than every peer watching a frozen ghost
-// until the grace window expires. It is sent immediately before the socket
-// closes, so there is no later message to carry the news.
+// TestADeliberateLeaveIsSentReliably: the goodbye is sent just before the socket closes, so nothing later carries the
+// news, and a lost one leaves every peer watching a frozen ghost until the grace window expires.
 func TestADeliberateLeaveIsSentReliably(t *testing.T) {
 	pt := &planeTransport{}
 	sendGoodbye(pt)

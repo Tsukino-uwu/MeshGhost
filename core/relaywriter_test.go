@@ -13,10 +13,9 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// stalledTransport is a relay that accepted the connection and stopped reading:
-// every write blocks until the test releases it, which is what a real socket
-// does once the far side's receive window closes. transport's own write
-// deadline would end it after ten seconds -- ten seconds is the defect.
+// stalledTransport is a relay that accepted the connection and stopped reading: every write blocks until the test
+// releases it, as a real socket does once the far side's receive window closes. transport's write deadline would end it
+// after ten seconds, and those ten seconds are the defect.
 type stalledTransport struct {
 	release chan struct{}
 
@@ -42,17 +41,9 @@ func (st *stalledTransport) OnDisconnect(func(error))            {}
 func (st *stalledTransport) OnError(func(error))                 {}
 func (st *stalledTransport) Close() error                        { close(st.release); return nil }
 
-// A RELAY THAT STOPPED READING MUST NOT STOP THE GAME.
-//
-// forwardLocalState runs on the bridge connection's read goroutine, so for as
-// long as it blocks, the core reads nothing from the adapter -- the bridge
-// socket's buffer fills, and the adapter's next write blocks on the game's own
-// main thread. A frozen game, on a machine where nothing is wrong, because
-// something across the internet stopped reading. The write deadline bounds it
-// at ten seconds, which is not a bound worth having.
-//
-// Without core/relaywriter.go this test hangs at the first frame until the test
-// binary's own timeout kills it.
+// TestAStalledRelayDoesNotBlockTheFramePath: a relay that stopped reading must not stop the game. forwardLocalState
+// runs on the bridge connection's read goroutine, so while it blocks the bridge buffer fills and the adapter's next
+// write blocks the game's main thread.
 func TestAStalledRelayDoesNotBlockTheFramePath(t *testing.T) {
 	st := newStalledTransport()
 	c := New()
@@ -66,9 +57,8 @@ func TestAStalledRelayDoesNotBlockTheFramePath(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		// More frames than the queue holds, so the drop policy is exercised
-		// too: a state displaced by a newer one is exactly what the lossy
-		// plane says to lose.
+		// More frames than the queue holds, so the drop policy runs too: a state displaced by a newer one is what the
+		// lossy plane may lose.
 		for i := 0; i < maxRelayOutboxLines*2; i++ {
 			s := state(float64(i), 0, "walk")
 			c.forwardLocalState(&s)
@@ -83,16 +73,9 @@ func TestAStalledRelayDoesNotBlockTheFramePath(t *testing.T) {
 			"ten-second write deadline")
 	}
 
-	// And the writer really is where the block went: exactly one write is in
-	// flight, holding the socket, while everything behind it waits in the queue.
-	//
-	// WAIT FOR THAT FIRST WRITE RATHER THAN ASSUMING IT HAPPENED. The frame
-	// path returning (above) says nothing about whether the writer goroutine
-	// has been scheduled yet, and under CPU contention it has not: this read
-	// then sees 0 and the test fails claiming the queue was never entered.
-	// Waiting cannot mask the regression it guards, because the stalled
-	// transport never returns from a write -- once the count reaches 1 no
-	// second write can start, so "exactly 1" is still exactly what is asserted.
+	// The writer is where the block went: exactly one write in flight, the rest queued. Wait for that first write,
+	// since the writer goroutine may not be scheduled yet; waiting masks nothing, because the stalled write never
+	// returns and no second one can start.
 	deadline := time.Now().Add(2 * time.Second)
 	calls := 0
 	for time.Now().Before(deadline) {
@@ -110,11 +93,8 @@ func TestAStalledRelayDoesNotBlockTheFramePath(t *testing.T) {
 	}
 }
 
-// A RELIABLE LINE IS NEVER DROPPED, so a full queue of them is a connection to
-// give up on rather than a message to lose. This is the other half of the
-// overflow policy, and the half that must not be a silent success: a lost
-// escrow commit is one side having given something away that the other never
-// received.
+// TestAFullQueueOfUndroppableLinesGivesUpOnTheConnection: a reliable line is never dropped, so a full queue of them
+// gives up on the connection with an error rather than reporting a lost message as sent.
 func TestAFullQueueOfUndroppableLinesGivesUpOnTheConnection(t *testing.T) {
 	st := newStalledTransport()
 	c := New()
@@ -147,10 +127,8 @@ func (d *deadTransport) Close() error                { return nil }
 
 var errDeadRelay = errors.New("wsasend: an existing connection was forcibly closed by the remote host")
 
-// TestADeadRelayCostsTheLogOneLineNotOnePerQueuedMessage: the core's writer
-// logged every failed send, so a relay connection that died with a full queue
-// wrote ~256 lines per disconnect to the player's log. Its twin in the relay
-// was fixed on 2026-09-15 (pass 5 of the adversarial review, 2026-09-16).
+// TestADeadRelayCostsTheLogOneLineNotOnePerQueuedMessage: a relay connection that dies with a full queue logs its
+// failure at most once a second, not once per queued message.
 func TestADeadRelayCostsTheLogOneLineNotOnePerQueuedMessage(t *testing.T) {
 	var logs bytes.Buffer
 	var mu sync.Mutex

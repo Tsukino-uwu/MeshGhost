@@ -12,11 +12,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// TestClockSyncKeepsTheLowestRTTSample pins the estimator's one real
-// judgement call. A slow sample is slow because it was delayed somewhere, and
-// an asymmetric delay is exactly what corrupts an offset estimate — so a
-// worse-RTT sample must be discarded outright rather than averaged in, which
-// would drag the estimate toward the noise.
+// TestClockSyncKeepsTheLowestRTTSample: a slow sample was delayed somewhere, and an asymmetric delay corrupts an
+// offset, so a worse-RTT sample is discarded outright rather than averaged in.
 func TestClockSyncKeepsTheLowestRTTSample(t *testing.T) {
 	var cs clockSync
 	base := time.UnixMilli(1_000_000)
@@ -43,9 +40,8 @@ func TestClockSyncKeepsTheLowestRTTSample(t *testing.T) {
 	}
 }
 
-// TestClockSyncIgnoresARelayThatDoesNotStampItsClock keeps an older relay on
-// exactly the pre-clock-sync behaviour: no samples, no offset, nothing
-// applied.
+// TestClockSyncIgnoresARelayThatDoesNotStampItsClock: an older relay that does not stamp its clock gives no samples, no
+// offset, nothing applied.
 func TestClockSyncIgnoresARelayThatDoesNotStampItsClock(t *testing.T) {
 	var cs clockSync
 	base := time.UnixMilli(1_000_000)
@@ -55,9 +51,8 @@ func TestClockSyncIgnoresARelayThatDoesNotStampItsClock(t *testing.T) {
 	}
 }
 
-// TestSendPathsRefuseACapabilityTheRoomDidNotNegotiate is the client half of
-// opt-in. A silent drop here is how "trades sometimes don't work" becomes a
-// bug report instead of a configuration error the user can see.
+// TestSendPathsRefuseACapabilityTheRoomDidNotNegotiate is the client half of opt-in: a configuration error a player can
+// see, not a silent drop that reads as "trades sometimes don't work".
 func TestSendPathsRefuseACapabilityTheRoomDidNotNegotiate(t *testing.T) {
 	addr := startRelay(t)
 
@@ -79,9 +74,8 @@ func TestSendPathsRefuseACapabilityTheRoomDidNotNegotiate(t *testing.T) {
 	}
 }
 
-// TestOversizedEventIsRefusedBeforeItIsSent mirrors the relay's own check on
-// the client side, so a caller gets a real error rather than a message that
-// vanishes somewhere in the relay. There is no chunking fallback by design.
+// TestOversizedEventIsRefusedBeforeItIsSent mirrors the relay's check, so a caller gets a real error rather than a
+// message that vanishes in the relay. There is no chunking fallback by design.
 func TestOversizedEventIsRefusedBeforeItIsSent(t *testing.T) {
 	c := New()
 	big := make([]byte, protocol.MaxEventBytes+64)
@@ -97,9 +91,7 @@ func TestOversizedEventIsRefusedBeforeItIsSent(t *testing.T) {
 	}
 }
 
-// TestCoreRoundTripsAnEventThroughARealRelay is the end-to-end proof that the
-// client half actually works against relay rather than only
-// type-checking: two Cores in one room, one sends, both observe it stamped
+// TestCoreRoundTripsAnEventThroughARealRelay: two Cores in one room, one sends an event, and both observe it stamped
 // and ordered.
 func TestCoreRoundTripsAnEventThroughARealRelay(t *testing.T) {
 	addr := startRelay(t)
@@ -180,11 +172,8 @@ func TestCoreLeaseRoundTripThroughARealRelay(t *testing.T) {
 	}
 }
 
-// TestTimestampsUseTheRelayClockDomainOnlyWhenNegotiated pins the one change
-// here that touches an already-shipped behaviour. With clock.v1 off — every
-// room today — the stamp must be the plain local wall clock, exactly as
-// before; with it on, the measured offset is applied so every member of the
-// room measures against one clock.
+// TestTimestampsUseTheRelayClockDomainOnlyWhenNegotiated: with clock.v1 off the stamp is the plain local wall clock;
+// with it on, the measured offset is applied so the whole room measures against one clock.
 func TestTimestampsUseTheRelayClockDomainOnlyWhenNegotiated(t *testing.T) {
 	c := New()
 	c.clock = clockSync{offsetMs: 60_000, bestRTTMs: 5}
@@ -201,17 +190,9 @@ func TestTimestampsUseTheRelayClockDomainOnlyWhenNegotiated(t *testing.T) {
 	}
 }
 
-// TestClockNeverMovesBackwardsWhenTheOffsetIsRevisedDown guards a fault
-// introduced by clock sync itself: the offset is re-estimated whenever a
-// better (lower-RTT) sample arrives, so it can DECREASE, and nowMs feeds both
-// the timestamp stamped on outgoing state and the render time used to
-// interpolate remotes.
-//
-// Either moving backwards is a real fault. interp.go's remoteBuffer.add
-// requires non-decreasing timestamps and does not re-sort, so a peer's buffer
-// would go unsorted; and a render time that rewound could flip an opaque field
-// back to a previous value, manufacturing a state edge in a field the core is
-// forbidden to interpret — which an adapter firing on that edge would act on.
+// TestClockNeverMovesBackwardsWhenTheOffsetIsRevisedDown: a better sample can lower the offset, and nowMs feeds both
+// outgoing timestamps and the render time. Either moving backwards is a fault: remoteBuffer.add requires non-decreasing
+// timestamps, and a rewound render time can flip an opaque field back, manufacturing a state edge an adapter acts on.
 func TestClockNeverMovesBackwardsWhenTheOffsetIsRevisedDown(t *testing.T) {
 	c := New()
 	c.activeFeatures = []string{protocol.FeatureClockV1}
@@ -219,8 +200,7 @@ func TestClockNeverMovesBackwardsWhenTheOffsetIsRevisedDown(t *testing.T) {
 
 	high := c.nowMs()
 
-	// A better sample lands and revises the offset sharply downwards — the
-	// exact thing the lowest-RTT estimator is designed to do.
+	// A better sample revises the offset sharply downwards, as the lowest-RTT estimator is designed to.
 	c.clock = clockSync{offsetMs: 1000, bestRTTMs: 5}
 
 	for i := 0; i < 50; i++ {
@@ -251,9 +231,8 @@ func TestWorldSendPathsRefuseARoomWithoutCustody(t *testing.T) {
 	}
 }
 
-// TestOversizedWorldBlobIsRefusedBeforeItIsSent. No chunking fallback, by
-// design: an entity that does not fit means the blob should carry a reference
-// to the data rather than the data.
+// TestOversizedWorldBlobIsRefusedBeforeItIsSent: no chunking fallback, by design; an entity that does not fit should
+// carry a reference to its data.
 func TestOversizedWorldBlobIsRefusedBeforeItIsSent(t *testing.T) {
 	c := New()
 	blob, err := json.Marshal(string(make([]byte, protocol.MaxWorldBlobBytes)))
@@ -361,13 +340,8 @@ func waitWorld(t *testing.T, ch chan protocol.WorldState, reason string) protoco
 	}
 }
 
-// TestHostileWorldStateIsDroppedOnReceive is the receive-side half of the
-// two-enforcement-point discipline: a compromised or simply buggy relay is not
-// trusted to have enforced its own limits.
-//
-// Worth having specifically for this plane, because a world entry is the one
-// thing the relay RETAINS and re-sends: an oversized blob accepted here would be
-// handed to the adapter on every adoption and every join, not just once.
+// TestHostileWorldStateIsDroppedOnReceive: a compromised or buggy relay is not trusted to have enforced its own limits,
+// and a world entry is what the relay retains and re-sends on every adoption and join.
 func TestHostileWorldStateIsDroppedOnReceive(t *testing.T) {
 	oversized := json.RawMessage(`"` + strings.Repeat("x", protocol.MaxWorldBlobBytes) + `"`)
 	cases := map[string]protocol.WorldState{
@@ -382,12 +356,8 @@ func TestHostileWorldStateIsDroppedOnReceive(t *testing.T) {
 			Entries: make([]protocol.WorldEntry, protocol.MaxWorldKeysPerRoom+1)},
 	}
 
-	// EVERY CASE BELOW NEGOTIATES THE PLANE, and that is load-bearing rather
-	// than setup noise. Since 2026-09-12 handleOnlineMessage refuses an
-	// inbound plane this side never asked for (planeNegotiated), so a core
-	// built with New() and nothing else drops all five of these before
-	// ValidateWorldState is ever reached -- the assertions would still pass,
-	// while testing the gate five times and the validator not at all.
+	// Every case below negotiates the plane: handleOnlineMessage drops an inbound plane this side never asked for, so
+	// without it these would test the gate five times and ValidateWorldState not at all.
 	negotiated := func() *Core {
 		c := New()
 		c.Features = []string{protocol.FeatureWorldV1}

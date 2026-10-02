@@ -9,14 +9,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// The orientation bracket, added 2026-08-30. See core.orientBracket for what it
-// is and agent_docs/scaling.md for why a stepped facing is a defect on a game
-// with continuous 3D rotation and correct on one with four facings.
-//
-// THE PROPERTY EVERY TEST HERE DEFENDS: the bracket must be the SAME pair of
-// samples, at the SAME fraction, that position was interpolated between. A
-// rotation on its own clock is the failure mode the whole mechanism exists to
-// avoid, and it is invisible until a peer moves fast.
+// Every test here defends one property: the orientation bracket is the same pair of samples, at the same fraction,
+// that position was interpolated between. Rotation on its own clock is invisible until a peer moves fast.
 
 func rot(deg float64) json.RawMessage {
 	b, _ := json.Marshal([]float64{0, deg, 0})
@@ -94,7 +88,7 @@ func TestOrientBracketHoldsPastTheNewestSampleWithPredictionOff(t *testing.T) {
 }
 
 func TestOrientBracketPredictsWhenPositionDoes(t *testing.T) {
-	// Samples 50ms apart -- the shipped 20Hz -- turning 10 degrees per step.
+	// Samples 50ms apart (20Hz), turning 10 degrees per step.
 	var b remoteBuffer
 	b.add(protocol.State{Timestamp: 1000, Position: []float64{0}, AreaID: "a", Orientation: rot(0)})
 	b.add(protocol.State{Timestamp: 1050, Position: []float64{10}, AreaID: "a", Orientation: rot(10)})
@@ -136,9 +130,8 @@ func TestOrientBracketRefusesAStaleBaselineForPrediction(t *testing.T) {
 	}
 }
 
-// TestRenderRemoteCarriesTheBracketOverTheBridge is the end of the plumbing:
-// the bracket is useless unless it reaches an adapter, and it reaches one only
-// on the bridge message. Nothing about it is on protocol.State, deliberately.
+// TestRenderRemoteCarriesTheBracketOverTheBridge: the bracket reaches an adapter only on the bridge message; nothing
+// about it is on protocol.State.
 func TestRenderRemoteCarriesTheBracketOverTheBridge(t *testing.T) {
 	c := New()
 	c.InterpolationDelay = 0
@@ -168,8 +161,8 @@ func TestRenderRemoteCarriesTheBracketOverTheBridge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	// The adapter's minimal parsers search for `"key":` -- so the names have to
-	// survive serialization intact, and `"orientation":` must not be shadowed.
+	// The adapters' minimal parsers search for `"key":`, so the names must survive intact and not shadow
+	// `"orientation":`.
 	for _, want := range []string{`"orientation_from":`, `"orientation_to":`, `"interp_t":`} {
 		if !containsSub(string(blob), want) {
 			t.Fatalf("serialized render_remote is missing %s: %s", want, blob)
@@ -186,11 +179,8 @@ func containsSub(s, sub string) bool {
 	return false
 }
 
-// The opt-in and the two savings, added 2026-08-30 after the first version sent
-// the bracket to every adapter. Only a game with CONTINUOUS rotation can use it;
-// three of the four shipped adapters have a discrete facing and would discard
-// every byte.
-
+// TestNoBracketUnlessTheAdapterAskedForIt: only a game with continuous rotation can use the bracket; one with a
+// discrete facing would discard every byte.
 func TestNoBracketUnlessTheAdapterAskedForIt(t *testing.T) {
 	for _, want := range []bool{false, true} {
 		c := New()
@@ -214,11 +204,9 @@ func TestNoBracketUnlessTheAdapterAskedForIt(t *testing.T) {
 	}
 }
 
-// TestNoBracketWhenNothingRotatedIsVisuallyIdentical is the argument for the
-// second saving, kept as a test rather than left in a comment: suppressing the
-// bracket when the two orientations are byte-identical cannot change what an
-// adapter draws, because interpolating a value toward itself returns that value
-// at every fraction -- which is exactly what the adapter's fallback renders.
+// TestNoBracketWhenNothingRotatedIsVisuallyIdentical: suppressing the bracket when both orientations are
+// byte-identical cannot change what an adapter draws, since interpolating a value toward itself returns it at every
+// fraction, which is what the adapter's fallback renders.
 func TestNoBracketWhenNothingRotatedIsVisuallyIdentical(t *testing.T) {
 	var b remoteBuffer
 	b.add(protocol.State{Timestamp: 1000, Position: []float64{0}, AreaID: "a", Orientation: rot(42)})
@@ -228,14 +216,11 @@ func TestNoBracketWhenNothingRotatedIsVisuallyIdentical(t *testing.T) {
 	if br.Have {
 		t.Fatal("offered a bracket for a peer whose orientation did not change")
 	}
-	// What the adapter falls back to must be the same value the suppressed
-	// bracket would have produced at any fraction.
 	if string(st.Orientation) != string(rot(42)) {
 		t.Fatalf("fallback orientation = %s, want %s -- the suppression must be invisible", st.Orientation, rot(42))
 	}
 
-	// And the positive control: a peer that DID rotate still gets one, so the
-	// suppression is not quietly swallowing real rotation.
+	// The positive control: a peer that did rotate still gets one.
 	var moved remoteBuffer
 	moved.add(protocol.State{Timestamp: 1000, Position: []float64{0}, AreaID: "a", Orientation: rot(42)})
 	moved.add(protocol.State{Timestamp: 2000, Position: []float64{10}, AreaID: "a", Orientation: rot(43)})
@@ -244,13 +229,9 @@ func TestNoBracketWhenNothingRotatedIsVisuallyIdentical(t *testing.T) {
 	}
 }
 
-// TestHelloOptInReachesRenderRemoteEndToEnd is the one that would catch the
-// regression that matters: the adapter asks in its Hello, and the bracket has to
-// arrive on the real bridge socket. Every layer between those two points is
-// exercised -- hello parse, the mirrored preference, remoteStatesAt, the send --
-// because a break anywhere in it looks identical from the game's side (a ghost
-// whose facing steps again) and identical in the adapter's own logs, which only
-// ever prove it SENT the request.
+// TestHelloOptInReachesRenderRemoteEndToEnd: the opt-in in a Hello must reach the real bridge socket through every
+// layer (hello parse, the mirrored preference, remoteStatesAt, the send), since a break anywhere looks the same in
+// the game and in the adapter's logs.
 func TestHelloOptInReachesRenderRemoteEndToEnd(t *testing.T) {
 	relayAddr := startRelay(t)
 	core1, bridge1Addr := startCore(t, relayAddr, "spinner", "room1", "alice")
@@ -263,8 +244,7 @@ func TestHelloOptInReachesRenderRemoteEndToEnd(t *testing.T) {
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
 	adapter2.helloInterpolateOrientation("spinner")
 
-	// A peer that is actually TURNING -- a bracket is suppressed for one that
-	// is not, so a still peer would make this test pass for the wrong reason.
+	// A peer that is turning: the bracket is suppressed for a still one, which would pass for the wrong reason.
 	yaw := 0.0
 	deadline := time.Now().Add(testTimeout)
 	for time.Now().Before(deadline) {
@@ -282,8 +262,7 @@ func TestHelloOptInReachesRenderRemoteEndToEnd(t *testing.T) {
 	t.Fatal("timed out: the adapter asked for interpolated orientation and no render_remote ever carried the bracket")
 }
 
-// The mirror image, and the reason the opt-in exists: an adapter that does not
-// ask is sent nothing, over the same real socket.
+// TestNoOptInMeansNoBracketOnTheWire: an adapter that does not ask is sent nothing, over the same real socket.
 func TestNoOptInMeansNoBracketOnTheWire(t *testing.T) {
 	relayAddr := startRelay(t)
 	core1, bridge1Addr := startCore(t, relayAddr, "stepper", "room1", "alice")
@@ -294,11 +273,7 @@ func TestNoOptInMeansNoBracketOnTheWire(t *testing.T) {
 	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	adapter1.hello("stepper")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
-	// A PLAIN hello, which is the whole contrast: adapter2 introduces itself like any
-	// adapter and simply does not ask for the bracket, where adapter2 in the test above
-	// calls helloInterpolateOrientation. "No opt-in" was once expressed by sending no
-	// hello at all, which stopped being a distinction on 2026-09-12 when the core began
-	// requiring one -- and would have made this test pass because NOTHING arrived.
+	// A plain hello, not none: with no hello nothing would arrive, and this would pass for the wrong reason.
 	adapter2.hello("stepper")
 
 	yaw := 0.0

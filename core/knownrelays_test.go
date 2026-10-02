@@ -14,10 +14,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
-// The client's known-relays store (ADR 0066). Every test here drives the
-// store the way the TLS handshake does -- through the Verifier, with a leaf
-// certificate's DER -- and reads the file back through a fresh store rather
-// than through the one that wrote it.
+// Every test here drives the known-relays store as the TLS handshake does, through the Verifier with a leaf
+// certificate's DER, and reads the file back through a fresh store rather than the one that wrote it.
 
 func newStore(t *testing.T) (*KnownRelays, string, *[]string) {
 	t.Helper()
@@ -33,8 +31,8 @@ func newStore(t *testing.T) (*KnownRelays, string, *[]string) {
 	return k, path, &lines
 }
 
-// der returns a distinct certificate's DER bytes per name, deterministic
-// within a process so two calls with one name are one relay.
+// der returns a distinct certificate's DER bytes per name, deterministic within a process so two calls with one name
+// are one relay.
 var (
 	derMu    sync.Mutex
 	derCache = map[string][]byte{}
@@ -89,10 +87,8 @@ func TestAChangedIdentityWarnsLoudlyAndUpdatesTheEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := k.Verifier(addr)(relayB); err != nil {
-		// Deliberate: the store alone warns about a change and never refuses
-		// (ADR 0066, the accepted trade-off). With a room code set the proof
-		// decides instead (ADR 0067, core/roomproof.go); without one nothing
-		// can, and a code-less relay is open to anyone by definition.
+		// The store alone warns and never refuses: with a room code set the proof decides, and without one nothing
+		// can, since a code-less relay is open to anyone.
 		t.Fatalf("a changed identity was refused: %v", err)
 	}
 	warning := (*lines)[len(*lines)-1]
@@ -105,7 +101,7 @@ func TestAChangedIdentityWarnsLoudlyAndUpdatesTheEntry(t *testing.T) {
 	if got, _ := NewKnownRelays(path).Lookup(addr); got != tlsx.Fingerprint(relayB) {
 		t.Fatalf("the entry holds %q after the change; want the new %q", got, tlsx.Fingerprint(relayB))
 	}
-	// And a further connection with the new identity is silent again.
+	// A further connection with the new identity is silent again.
 	before := len(*lines)
 	if err := k.Verifier(addr)(relayB); err != nil {
 		t.Fatal(err)
@@ -115,9 +111,8 @@ func TestAChangedIdentityWarnsLoudlyAndUpdatesTheEntry(t *testing.T) {
 	}
 }
 
-// TestTheRoomCodeIsNotPartOfTheTrustEntry: a host changing, adding or
-// removing the room code changes nothing in the trust store -- the entry is
-// the relay's certificate, and the code never touches it.
+// TestTheRoomCodeIsNotPartOfTheTrustEntry: a host changing, adding or removing the room code changes nothing in the
+// trust store, whose entry is the relay's certificate.
 func TestTheRoomCodeIsNotPartOfTheTrustEntry(t *testing.T) {
 	s := relay.NewServer()
 	s.RoomCode = "first-code"
@@ -186,9 +181,8 @@ func TestConcurrentFirstConnectionsDoNotCorruptTheFile(t *testing.T) {
 	}
 }
 
-// TestACorruptFileRefusesRatherThanOverwrites: whoever can write the file can
-// change a fingerprint in it, so one that does not parse is a question for
-// the player, named in the error, never something to quietly replace.
+// TestACorruptFileRefusesRatherThanOverwrites: whoever can write the file can change a fingerprint in it, so one that
+// does not parse is a question for the player, named in the error, never something to quietly replace.
 func TestACorruptFileRefusesRatherThanOverwrites(t *testing.T) {
 	k, path, _ := newStore(t)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -210,10 +204,8 @@ func TestACorruptFileRefusesRatherThanOverwrites(t *testing.T) {
 	}
 }
 
-// TestAHandEditedFingerprintStillMatches: colons and capitals in the file
-// compare equal to what the relay presents -- the same forgiveness the old
-// pin had, so a host who pastes their relay's fingerprint into a player's
-// file by hand gets a match, not a warning.
+// TestAHandEditedFingerprintStillMatches: colons and capitals in the file compare equal to what the relay presents,
+// so a host who pastes their relay's fingerprint into a player's file by hand gets a match, not a warning.
 func TestAHandEditedFingerprintStillMatches(t *testing.T) {
 	k, path, lines := newStore(t)
 	relayA := der(t, "A")
@@ -240,8 +232,7 @@ func TestAHandEditedFingerprintStillMatches(t *testing.T) {
 	}
 }
 
-// TestAnUnwritableStoreStillConnects: an install on read-only media plays;
-// it is warned once that nothing is remembered, and never again.
+// TestAnUnwritableStoreStillConnects: an install on read-only media plays, warned once that nothing is remembered.
 func TestAnUnwritableStoreStillConnects(t *testing.T) {
 	blocker := filepath.Join(t.TempDir(), "tls")
 	if err := os.WriteFile(blocker, []byte("a file where the folder should be"), 0o644); err != nil {
@@ -266,9 +257,8 @@ func TestAnUnwritableStoreStillConnects(t *testing.T) {
 	}
 }
 
-// TestANilStoreRefusesRatherThanTrusts: the nil pointer is not the
-// in-memory store (Core allocates that); a caller holding nil gets an
-// error, not a free pass.
+// TestANilStoreRefusesRatherThanTrusts: nil is not the in-memory store (Core allocates that), so a caller holding nil
+// gets an error, not a free pass.
 func TestANilStoreRefusesRatherThanTrusts(t *testing.T) {
 	var k *KnownRelays
 	if err := k.Verifier("x:1")(der(t, "A")); err == nil {
@@ -279,9 +269,8 @@ func TestANilStoreRefusesRatherThanTrusts(t *testing.T) {
 	}
 }
 
-// TestACoreSharesOneStoreAcrossItsLegs: knownRelays() hands every caller
-// the same store, so the discovery leg and the session leg cannot each
-// trust on their own.
+// TestACoreSharesOneStoreAcrossItsLegs: knownRelays() hands every caller the same store, so the discovery and session
+// legs cannot each trust on their own.
 func TestACoreSharesOneStoreAcrossItsLegs(t *testing.T) {
 	c := New()
 	a, b := c.knownRelays(), c.knownRelays()
@@ -293,10 +282,8 @@ func TestACoreSharesOneStoreAcrossItsLegs(t *testing.T) {
 	}
 }
 
-// FuzzKnownRelaysFileNeverPanics: the file is written by this process and
-// edited, at most, by a hand -- but it is still bytes off a disk, and the
-// loader must come back with an error or a store, never a panic. A valid
-// file must round-trip.
+// FuzzKnownRelaysFileNeverPanics: the file is still bytes off a disk, so the loader returns an error or a store,
+// never a panic, and a valid file round-trips.
 func FuzzKnownRelaysFileNeverPanics(f *testing.F) {
 	valid, _ := json.Marshal(knownRelaysFile{Version: 1, Relays: map[string]knownRelay{
 		"relay.example:7777": {Fingerprint: strings.Repeat("ab", 32), FirstSeen: "2026-09-15T00:00:00Z"},

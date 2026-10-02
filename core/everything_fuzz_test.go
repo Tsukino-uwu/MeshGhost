@@ -17,45 +17,6 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// FUZZ EVERYTHING AT ONCE.
-//
-// The user, 2026-09-03: "I want the fuzzer to test absolutely everything we
-// could think about and even things we might forget/miss; a fuzzer that
-// doesn't fuzz everything randomly won't catch things we didn't think about,
-// and that is what it is supposed to catch." Every other target here fuzzes
-// one axis: bytes into a parser, or the order of a few real events. This one
-// fuzzes the CONFIGURATION, the ORDER, the TIMING and the VALUES of one whole
-// client at the same time -- the replay-era features (recording, playback,
-// seeks, the chaser pack, split times) on top of the adapter and relay paths
-// they sit in -- and asks only for invariants a player would state. Every
-// byte of the seed maps onto a legal input by masking, never by rejecting, so
-// the engine wastes nothing and the corpus stays readable as a script.
-//
-// NO RELAY SOCKETS, deliberately. The two schedule fuzzers stand up real
-// relays and are opt-in because of it (schedule_fuzz_test.go's account of the
-// port wall). This target keeps one core, one bridge listener and a recording
-// stand-in for the relay, so it runs in CI's fuzz campaign and under the race
-// job like the parser targets, where a schedule-only target could not.
-//
-// THE INVARIANTS, checked after every step and at the end, whatever happened:
-//   - no panic, no deadlock: every wait is bounded;
-//   - a render for a replay:/chaser: id carries cosmetic=true, a render for a
-//     relay id never does, and nothing with a local prefix ever reaches the
-//     relay transport (the never-on-the-wire rule, ADR 0047);
-//   - neither kind of roster seat (relay-announced, local) exceeds
-//     protocol.MaxRosterSize, and local ghosts never
-//     exceed the files written plus the chaser count asked for (no cap of
-//     their own since 2026-09-06; the roster is the bound);
-//   - the relay clock never runs backwards, however the offset moves;
-//   - after the last step the core still answers an adapter frame.
-//
-// The compressed clock is the shipped code path with shorter per-Core
-// fields (the convergence fuzzer's argument), never a special branch.
-//
-// Long campaign by hand, on an idle machine:
-//
-//	go test ./core -run=XXX -fuzz=FuzzEverything -fuzztime=10m -parallel 2
-
 const (
 	fuzzEverythingConfigBytes = 8
 	fuzzEverythingMaxSteps    = 24
@@ -82,32 +43,15 @@ type fuzzEverythingCfg struct {
 	chaserDelay, chaserSpacing     time.Duration
 	saveLast                       time.Duration
 	recordOnLaunch                 bool
-	// drainBytes is how many bytes the fake adapter reads per drainEvery --
-	// 0 for "as fast as Go can", which is what every fake adapter here did
-	// before 2026-09-07 and is why no seed could ever reach the core's
-	// write-timeout path. See throttledconn_test.go.
-	drainBytes int
-	drainEvery time.Duration
-	// minSend and extrapolate: the send-rate floor and remote prediction.
-	// Both shipped knobs, both interacting with the keepalive and stale
-	// windows already fuzzed here, and neither reachable from a seed until
-	// 2026-09-07 -- suppression could only ever be exercised at the default
-	// rate, and PredictLinear never ran in this target at all.
+	// drainBytes is how many bytes the fake adapter reads per drainEvery; 0 is as fast as Go can.
+	drainBytes  int
+	drainEvery  time.Duration
 	minSend     time.Duration
 	extrapolate time.Duration
-	// correction is the error-decay knob (correction.go, 2026-09-15): with
-	// it on, every store runs two probe renders under c.mu and every render
-	// tick decays a per-remote offset, on the same paths extrapolate fuzzes.
-	correction time.Duration
-	// allAreas and orientBracket are the two declarations a hello can carry.
-	// Every attach here sent a bare hello, so the adapter-owns-visibility
-	// path and the orientation bracket -- peer-controlled bytes the core
-	// hands to the adapter -- were both dead ground.
+	correction  time.Duration
+	// allAreas, orientBracket and inputTracks are what a richer hello declares, re-set after every attach.
 	allAreas, orientBracket bool
-	// inputTracks is the third hello declaration (ADR 0057): with it on, a
-	// file.valid step also writes an input track beside its clip, and every
-	// replay of that clip streams remote_input through every seek, lap and
-	// detach this target generates.
+	// inputTracks also makes file.valid write an input track beside its clip.
 	inputTracks bool
 }
 
@@ -116,47 +60,37 @@ func (c fuzzEverythingCfg) String() string {
 		c.interp, c.localInterp, c.keepalive, c.stale, c.replayStart, c.replaySeek, c.chaserOn, c.chaserCount, c.chaserDelay, c.chaserSpacing, c.spawn, c.contact, c.splitTimes, c.saveLast, c.recordOnLaunch, c.drainBytes, c.drainEvery)
 }
 
-// Small alphabets so a schedule lands inside the compressed clock, plus one
-// out-of-range entry in each that the clamps must eat.
+// Small alphabets so a schedule lands inside the compressed clock, plus out-of-range entries the clamps must eat.
 var (
 	fuzzEverythingDurations = [8]time.Duration{0, 5 * time.Millisecond, 20 * time.Millisecond, 50 * time.Millisecond, 120 * time.Millisecond, 300 * time.Millisecond, -7 * time.Second, 48 * time.Hour}
 	fuzzEverythingCounts    = [8]int{0, 1, 2, 3, 8, 9, -1, 1 << 20}
-	// How fast the adapter DRAINS, in bytes per fuzzEverythingDrainEvery.
-	// 0 is unlimited -- the behaviour every fake adapter here had, kept as
-	// the majority of the alphabet so the ordinary schedules this target was
-	// written for still dominate. The bounded entries span "keeps up with a
-	// small pack" down to "one render line per frame", which is roughly what
-	// a real adapter managed at the count where a tester's session broke.
+	// Bytes per fuzzEverythingDrainEvery; unlimited (0) stays the majority so ordinary schedules still dominate.
 	fuzzEverythingDrains = [8]int{0, 0, 0, 0, 64 << 10, 8 << 10, 1 << 10, 256}
-	// Half off, so the schedules this target was written for still dominate.
+	// Half off, so ordinary schedules still dominate.
 	fuzzEverythingCorrections = [4]time.Duration{0, 0, 20 * time.Millisecond, 48 * time.Hour}
 )
 
-// fuzzEverythingDrainEvery is the adapter's frame: one read allowance per
-// tick of this, matching how a game drains its bridge socket.
+// fuzzEverythingDrainEvery is the adapter's frame: one read allowance per tick, as a game drains its bridge socket.
 const fuzzEverythingDrainEvery = 2 * time.Millisecond
 
-// The orientation shapes a real adapter sends. Opaque to the core by
-// contract -- it may compare them and hand them on, never parse them -- so
-// what matters is that every one of these survives the buffer, the bracket
-// and the trip to the adapter unread and unchanged.
+// The orientation shapes real adapters send. Opaque to the core, so each must reach the adapter unread and unchanged.
 var fuzzEverythingOrientations = [8]json.RawMessage{
 	nil,
-	json.RawMessage(`1.5`),           // a scalar facing (Emerald)
-	json.RawMessage(`"north"`),       // a string tag
-	json.RawMessage(`[0.1,0.2,0.3]`), // a vector
-	json.RawMessage(`{"x":0,"y":0,"z":0,"w":1}`),   // a quaternion (Pseudoregalia)
-	json.RawMessage(`null`),                        // present but empty
+	json.RawMessage(`1.5`),
+	json.RawMessage(`"north"`),
+	json.RawMessage(`[0.1,0.2,0.3]`),
+	json.RawMessage(`{"x":0,"y":0,"z":0,"w":1}`),
+	json.RawMessage(`null`),
 	json.RawMessage(`{"a":{"b":{"c":[1,2,3,4]}}}`), // nested, to prove nothing walks it
 	json.RawMessage(`-359.99999999999994`),         // a float that must round-trip exactly
 }
 
+// decodeFuzzEverythingCfg packs new fields into spare bits: growing fuzzEverythingConfigBytes would invalidate the
+// seed corpus.
 func decodeFuzzEverythingCfg(b []byte) fuzzEverythingCfg {
 	d := func(i int) time.Duration { return fuzzEverythingDurations[b[i%len(b)]&0x07] }
 	return fuzzEverythingCfg{
-		interp: d(0),
-		// Bits 3-5 of the same byte, which were free -- growing
-		// fuzzEverythingConfigBytes would invalidate the seed corpus.
+		interp:         d(0),
 		localInterp:    fuzzEverythingDurations[(b[0]>>3)&0x07],
 		keepalive:      d(1),
 		stale:          d(2),
@@ -171,43 +105,27 @@ func decodeFuzzEverythingCfg(b []byte) fuzzEverythingCfg {
 		chaserSpacing:  fuzzEverythingDurations[b[7]&0x07],
 		saveLast:       fuzzEverythingDurations[(b[7]>>3)&0x07],
 		recordOnLaunch: b[7]&0x40 != 0,
-		// Bits 5-7 of b[1], which were free. Growing
-		// fuzzEverythingConfigBytes would invalidate the seed corpus, and
-		// every byte here still had room.
-		drainBytes: fuzzEverythingDrains[(b[1]>>5)&0x07],
-		drainEvery: fuzzEverythingDrainEvery,
-		// More free bits of bytes that had them to spare.
-		minSend:     fuzzEverythingDurations[(b[2]>>3)&0x07],
-		extrapolate: fuzzEverythingDurations[(b[3]>>3)&0x07],
-		// Two free bits of b[6] pick from a four-entry slice of the duration
-		// alphabet: off, short, longer, and the absurd one the clamps must eat.
-		correction:    fuzzEverythingCorrections[(b[6]>>6)&0x03],
-		allAreas:      b[4]&0x08 != 0,
-		orientBracket: b[4]&0x10 != 0,
-		inputTracks:   b[4]&0x20 != 0,
+		drainBytes:     fuzzEverythingDrains[(b[1]>>5)&0x07],
+		drainEvery:     fuzzEverythingDrainEvery,
+		minSend:        fuzzEverythingDurations[(b[2]>>3)&0x07],
+		extrapolate:    fuzzEverythingDurations[(b[3]>>3)&0x07],
+		correction:     fuzzEverythingCorrections[(b[6]>>6)&0x03],
+		allAreas:       b[4]&0x08 != 0,
+		orientBracket:  b[4]&0x10 != 0,
+		inputTracks:    b[4]&0x20 != 0,
 	}
 }
 
-// fuzzZipOf wraps clip bytes in a zip, optionally twice over so the multi-clip
-// path (one archive becoming several ghosts) is exercised too. A zip this
-// function builds is always structurally valid; what varies is what is INSIDE
-// it, which is the half the loader has to survive.
+// fuzzZipOf wraps clip bytes in a zip of clips entries (at least one), so one archive becomes several ghosts. The zip
+// is always structurally valid; what varies is inside it.
 func fuzzZipOf(data []byte, clips int) []byte {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	if clips < 1 {
 		clips = 1
 	}
-	// A CROWD of clips is one file write and many ghost ids, which is the only
-	// way a fuzz step can put more replay ghosts on the roster than the run has
-	// steps (2026-09-06: replay files were fuzzed for CONTENT -- valid,
-	// garbage, another game's, a line over the wire cap -- but never for COUNT,
-	// so at most ~24 could exist and the 512-seat roster was never approached
-	// from this side. Peers and chasers both reach past it; this is the third).
-	// Past a handful the clip body is a MINIMUM valid one rather than the
-	// fuzzed bytes: the point of the crowd is the id count and the admission
-	// path, and repeating a multi-kilobyte body hundreds of times would buy
-	// nothing but a slower target.
+	// Past the first two the body is a minimal valid clip: the point is the id count, and repeating a fuzzed body
+	// would only slow the target.
 	small := clipBytes(nil, walkStates(2, 1))
 	for i := 0; i < clips; i++ {
 		w, err := zw.Create(fmt.Sprintf("c%03d.ndjson", i))
@@ -232,37 +150,15 @@ func fuzzZipOf(data []byte, clips int) []byte {
 	return buf.Bytes()
 }
 
-// fuzzEverythingClip builds one clip from the step byte's THREE FREE BITS, and
-// the reason it is written this way is a bug this function used to have.
-//
-// The op is chosen with b&0x1F, so a byte that reaches here has its low five
-// bits pinned to file.valid's index (01010) and only bits 5-7 vary. The
-// original version read nine header keys out of the whole byte as though all
-// eight bits were free — but `speed` came from (b>>1)&0x07, which is bits 3..1,
-// all pinned, and always selected the STRING "fast". So every clip this
-// function ever produced was refused by the loader with
-//
-//	line 1 is not a replay header: json: cannot unmarshal string into ... speed
-//
-// and playback-from-a-file was dead the whole time: the only way a replay ever
-// started in this target was ctl.replayLast / ctl.saveLast on a real recording.
-// The deliberate 2s-gap seam below had never once run. Found 2026-09-03 while
-// adding a seam seed, by reading the -v log rather than by a failure — a
-// passing fuzz target that silently exercises nothing looks exactly like a
-// passing one that does.
-//
-// So: eight bits of pretend entropy are replaced by eight DELIBERATE shapes.
-// Three bits is genuinely all a single step byte has left, and naming the
-// shapes is honest where hashing a pinned byte was not.
+// fuzzEverythingClip builds one of eight deliberate clip shapes from the step byte's top three bits, the only free
+// ones: the low five are pinned to file.valid's op index.
 func fuzzEverythingClip(b byte) []byte {
 	k := b >> 5
 
-	// Body: length, spacing, an area change, and a recorded gap.
 	n := []int{4, 12, 6, 8, 5, 3, 7, 9}[k]
 	step := []int64{10, 10, 20, 40, 100, 10, 30, 10}[k]
 	areaChange := k == 2 || k == 6
-	// k=1 collapses its gap via skip_gaps (cheap); k=3 leaves it raw but plays
-	// at 4x, so the uncollapsed seam path costs ~500ms rather than two seconds.
+	// k=1 collapses its gap via skip_gaps; k=3 keeps it raw but plays at 4x, so the raw seam costs 500ms, not 2s.
 	recordedGap := k == 1 || k == 3
 
 	var states []protocol.State
@@ -279,11 +175,8 @@ func fuzzEverythingClip(b byte) []byte {
 		ts += step
 	}
 
-	// Header. Five shapes the loader must ACCEPT, so playback actually runs,
-	// and three (5, 6, 7) it must refuse: a string speed, a NaN speed, and
-	// durations that trim the clip out of existence. A clip file is
-	// player-editable, so both halves are real inputs. The split is pinned by
-	// TestFuzzEverythingClipShapesAreWhatTheyClaim.
+	// Shapes 0-4 must load, so playback runs; 5-7 must be refused (a string speed, a NaN speed, a trim past the
+	// clip), since a player can edit a clip file. TestFuzzEverythingClipShapesAreWhatTheyClaim pins the split.
 	hdr := map[string]any{
 		"name":        []string{"F", "F", "F", "F", "", "F", "‮evil", "AVeryLongGhostNameIndeedItIs"}[k],
 		"color":       []string{"#FF8800", "#FF8800", "#FF8800", "#FF8800", "red", "", "#12", "#FF8800"}[k],
@@ -293,27 +186,16 @@ func fuzzEverythingClip(b byte) []byte {
 		"start_delay": []string{"0s", "0s", "0s", "0s", "40ms", "-5s", "0s", "abc"}[k],
 		"trim_start":  []string{"0s", "0s", "0s", "20ms", "0s", "auto", "0s", "1h"}[k],
 		"trim_end":    []string{"0s", "0s", "0s", "10ms", "0s", "0s", "0s", "-1s"}[k],
-		// k=1 is the CHEAP seam: applySkipGaps collapses the 2s gap to one
-		// millisecond and marks a forcedSeam, so the seam path runs without
-		// two seconds of wall time. The threshold sits BETWEEN the clip's 10ms
-		// spacing and its 2s gap deliberately — at "1ms" every ordinary step
-		// would collapse too and the clip becomes one long seam, which
-		// exercises the path but is no longer a clip with a seam in it. k=7
-		// leaves the gap raw, so the expensive path stays reachable too, at
-		// one shape in eight rather than half of them.
+		// k=1's threshold sits between the 10ms spacing and the 2s gap, so only the gap collapses into a seam.
 		"skip_gaps": []string{"0s", "1s", "0s", "0s", "0s", "0s", "0s", "x"}[k],
-		// The id a track beside this clip is matched by (ADR 0057). One per
-		// shape, so a later file of the same shape reuses the same track.
+		// One per shape, so a later file of the same shape reuses the same input track.
 		"recording_id": fmt.Sprintf("fz%d", k),
 	}
 	return clipBytes(hdr, states)
 }
 
-// fuzzEverythingTrack is the input track that goes beside fuzzEverythingClip(b)
-// when the config asks for tracks: an edge every 10ms across the span every
-// shape's samples cover (including across shape 1's collapsed gap and shape
-// 3's raw one), a stick value on every other edge, so the stream path sees
-// dense lines, gap cuts, trims and the 4x speed of shape 3.
+// fuzzEverythingTrack is the input track beside fuzzEverythingClip(b): an edge every 10ms across every shape's span,
+// gaps included, with a stick value on every other edge.
 func fuzzEverythingTrack(b byte) []byte {
 	k := b >> 5
 	var edges []inputEdgeLine
@@ -327,6 +209,21 @@ func fuzzEverythingTrack(b byte) []byte {
 	return trackBytes(map[string]any{"recording_id": fmt.Sprintf("fz%d", k)}, edges)
 }
 
+// FuzzEverything fuzzes the configuration, order, timing and values of one whole client at once: recording, playback,
+// seeks, chasers and split times on top of the adapter and relay paths. Every seed byte maps onto a legal input by
+// masking, never by rejecting, so the corpus reads as a script. It opens no relay sockets, so it runs in CI's fuzz
+// campaign and the race job, and its timings are the shipped per-Core fields set short, never a special branch. After
+// every step and at the end:
+//   - no panic and no deadlock: every wait is bounded;
+//   - a render for a replay: or chaser: id is cosmetic, one for a relay id never is, and no local id reaches the relay;
+//   - neither kind of roster seat, relay-announced or local, exceeds protocol.MaxRosterSize, and local ghosts past
+//     that cap never outnumber the files written plus the chasers asked for;
+//   - the relay clock never runs backwards, and remote_input stays well-formed;
+//   - after the last step the core still answers an adapter frame.
+//
+// Long campaign by hand, on an idle machine:
+//
+//	go test ./core -run=XXX -fuzz=FuzzEverything -fuzztime=10m -parallel 2
 func FuzzEverything(f *testing.F) {
 	// Seeds: a quiet run, a replay through a seek, a chaser pack through a gap,
 	// hostile frames, the relay injecting local-prefixed ids, a clock reset.
@@ -334,22 +231,12 @@ func FuzzEverything(f *testing.F) {
 	f.Add([]byte{2, 1, 4, 0, 1, 0x39, 3, 0x0a, 8, 0, 0, 0, 0, 0, 28, 3, 3, 3, 0, 0, 0, 0, 29})
 	f.Add([]byte{0, 0, 3, 0, 0, 0x00, 0, 0x00, 8, 4, 5, 6, 7, 0, 0, 24, 26, 25, 27, 0, 0})
 	f.Add([]byte{3, 2, 5, 1, 2, 0x07, 4, 0x4f, 8, 10, 14, 0, 0, 20, 0, 21, 0, 19, 0, 9, 8, 0, 0})
-	// A REPLAY SEAM, cheaply. Step byte 42 is file.valid (42&0x1F == 10) at
-	// clip shape k=1 (42>>5), the one whose 2s recorded gap is collapsed to a
-	// millisecond by skip_gaps while still marking a forcedSeam — so the seam
-	// path runs for about a millisecond instead of two seconds. 124 is a
-	// 350ms gap, ample for playback to reach the seam at ~51ms in.
+	// A replay seam, cheaply: 42 is file.valid at clip shape 1, whose 2s gap skip_gaps collapses; 124 is a 350ms
+	// gap, ample for playback to reach the seam.
 	f.Add([]byte{2, 1, 4, 0, 2, 0x00, 1, 0x00, 8, 42, 14, 124, 0, 124})
-	// THE CLOCK STEPPING BACK UNDER A LIVE REPLAY. Byte 59 is relay.forget's
-	// slot with bit 5 set, i.e. the clock.backStep variant, landing between two
-	// seeks so the player's own re-base path (replay.go's prevNow check) runs
-	// against a clamped clock rather than a rewound one.
+	// The clock stepping back under a live replay: 59 is clock.backStep, between two seeks.
 	f.Add([]byte{2, 1, 4, 0, 2, 0x00, 1, 0x00, 8, 42, 14, 59, 17, 124, 59, 18, 0})
-	// THE INPUT TRACK (ADR 0057): config byte 4 with bit 5 set turns the
-	// hello's input_tracks on, so file.valid writes a track beside its clip
-	// and the replay streams it. Once through the cheap seam (shape 1, whose
-	// gap cut also drops and shifts edges), once through a restart and a
-	// rewind, once through a detach mid-stream.
+	// Input tracks (config byte 4, bit 5): through the cheap seam, a restart and rewind, and a detach mid-stream.
 	f.Add([]byte{2, 1, 4, 0, 0x22, 0x00, 1, 0x00, 8, 42, 14, 124, 0, 124})
 	f.Add([]byte{2, 1, 4, 0, 0x21, 0x00, 1, 0x00, 8, 0, 10, 14, 0, 0, 16, 0, 0, 17, 0, 0, 9})
 	f.Add([]byte{2, 1, 4, 0, 0x21, 0x00, 1, 0x00, 8, 106, 14, 0, 0, 9, 8, 0, 0, 16, 0})
@@ -381,8 +268,7 @@ func FuzzEverything(f *testing.F) {
 		c.ChaserDelay = cfg.chaserDelay
 		c.ChaserSpacing = cfg.chaserSpacing
 		c.ChaserSpawnDelay = cfg.spawn
-		// The fuzzer's one contact bit picks hurt; the policy push is the same
-		// code path for kill, and the mode itself is covered by its own test.
+		// One contact bit picks hurt; kill takes the same policy push and has its own test.
 		if cfg.contact {
 			c.ChaserContact = ChaserContactHurt
 		}
@@ -398,21 +284,14 @@ func FuzzEverything(f *testing.F) {
 		c.relayPolicyKnown = true
 		c.mu.Unlock()
 
-		// IN-MEMORY, NOT A SOCKET. Twelve workers standing up a listener and
-		// an adapter connection per iteration exhaust Windows' ephemeral
-		// ports in seconds, and the target then fails for a reason that has
-		// nothing to do with the schedule it was running -- see pipeListener.
-		// The bridge itself is the real one: ServeBridge, the framing and
-		// every callback are the shipped code.
+		// In memory, not a socket: a listener per iteration exhausts Windows' ephemeral ports in seconds. ServeBridge
+		// and its framing are still the shipped code.
 		ln := newPipeListener()
 		t.Cleanup(func() { ln.Close() })
 		go c.ServeBridge(ln)
 		t.Cleanup(func() { c.StopReplays(); c.StopChasers(); c.StopRecording() })
 
-		// SHORT, because the drain rate above can now genuinely stall a write
-		// and the 10s default would spend an entire iteration inside one.
-		// Also the honest deadline for a pipe: there is no kernel buffer here,
-		// so a write blocks the instant the reader stops taking bytes.
+		// Short: a throttled drain can stall a write, and a pipe has no kernel buffer to absorb it.
 		c.bridgeWriteTimeout = 100 * time.Millisecond
 
 		var fa *fakeAdapter
@@ -427,11 +306,7 @@ func FuzzEverything(f *testing.F) {
 				}
 				return a
 			})
-			// reattachFakeAdapterWith sends a bare hello, and every attach
-			// resets these from it -- so re-declare after EACH one, or a
-			// detach/attach step would quietly drop back to the bare shape.
-			// Both are read under c.mu by remoteStatesAt, so setting them
-			// here is the state a richer hello would have produced.
+			// reattachFakeAdapterWith sends a bare hello and every attach resets these, so re-declare after each one.
 			c.mu.Lock()
 			c.adapterRenderAllAreas = cfg.allAreas
 			c.adapterWantsOrientBracket = cfg.orientBracket
@@ -462,31 +337,16 @@ func FuzzEverything(f *testing.F) {
 			c.handleRelayMessage(rt, env, make(chan protocol.Welcome, 1), make(chan protocol.Reject, 1))
 		}
 		files := 0
-		// The newest `at` seen per local id since its last reset (the
-		// remote_input invariant below).
+		// The newest `at` seen per local id since its last reset.
 		inputLastAt := map[string]int64{}
 		ran := make([]string, 0, len(steps))
 
-		// THE PEER ID SPACE, widened 2026-09-06 at the user's ask: "it should
-		// test high amount of peers + above the cap/invalid stuffs as well".
-		//
-		// It used to be `fmt.Sprintf("p%d", b>>5)` -- the step byte's top three
-		// bits, so eight peers, ever. The roster holds protocol.MaxRosterSize
-		// (512) and the rig has been driven at 150, so eight exercised none of
-		// the things that only appear with a crowd: the roster refusing a join,
-		// a nametag push per peer at scale, the render/despawn diff over a big
-		// map, or an id arriving for someone who was never admitted.
-		//
-		// The step byte has no bits left (five pick the op, three are the
-		// parameter), so the width comes from the STEP INDEX instead: the same
-		// parameter at a different point in the run names a different peer, and
-		// a run walks a wide id space rather than the same eight names.
+		// The step byte has no bits left, so the step index widens the id space: the same parameter later in a run
+		// names another peer.
 		peerID := func(param byte, step int) string {
 			return fmt.Sprintf("p%d", int(param)+step*8)
 		}
-		// The ids a well-behaved relay would never send. Every one must be
-		// dropped rather than admitted, and the invariants above are what say
-		// so -- the roster cap, and "nothing local on the wire".
+		// Ids a well-behaved relay never sends; each must be dropped, never admitted.
 		hostileIDs := []string{
 			"",
 			strings.Repeat("x", 4096),
@@ -498,9 +358,7 @@ func FuzzEverything(f *testing.F) {
 			"\ufeffp1",
 		}
 
-		// The relay clock must never run backwards, whatever the offset does.
-		// nowMsLocked clamps it (online.go's "Never go backwards"), and the
-		// clock.backStep variant below is what tries to break that clamp.
+		// clock.backStep below tries to break nowMsLocked's never-backwards clamp.
 		var lastNow int64
 
 		check := func(step string) {
@@ -510,10 +368,6 @@ func FuzzEverything(f *testing.F) {
 			} else {
 				lastNow = now
 			}
-			// Roster and local-ghost caps.
-			// Two kinds, each with the whole bound since 2026-09-16 (PM-2,
-			// admitToRosterLocked): ids the relay announced, and ghosts this
-			// core invents. Neither may pass it.
 			c.mu.Lock()
 			local := len(c.localPeers)
 			relaySeats, localSeats := 0, 0
@@ -531,10 +385,6 @@ func FuzzEverything(f *testing.F) {
 			if bound := files + cfg.chaserCount; local > bound && local > protocol.MaxRosterSize {
 				t.Fatalf("after %s: %d local ghosts, more than %d files + %d chasers (%s; ran %s)", step, local, files, cfg.chaserCount, cfg, strings.Join(ran, " "))
 			}
-			// The input stream's own shape (ADR 0057): a line never carries
-			// more than the batch cap, a reset line always carries the
-			// tables, and within one reset epoch `at` never runs backwards.
-			// Only ever for a local id, and only if the adapter asked.
 			if fa != nil {
 				for {
 					var r receivedInput
@@ -570,7 +420,6 @@ func FuzzEverything(f *testing.F) {
 				}
 			inputsChecked:
 			}
-			// Cosmetic on every local render, never on a relay one.
 			if fa != nil {
 				fa.mu.Lock()
 				for id, m := range fa.renderMsgs {
@@ -581,7 +430,6 @@ func FuzzEverything(f *testing.F) {
 				}
 				fa.mu.Unlock()
 			}
-			// Nothing local on the wire.
 			for _, raw := range rt.all() {
 				if strings.Contains(string(raw), `"replay:`) || strings.Contains(string(raw), `"chaser:`) {
 					t.Fatalf("after %s: a local peer reached the relay transport: %s (%s; ran %s)", step, raw, cfg, strings.Join(ran, " "))
@@ -595,26 +443,12 @@ func FuzzEverything(f *testing.F) {
 			switch op {
 			case "frame.walk":
 				x += 1
-				// ORIENTATION, from the three parameter bits. It is opaque
-				// json.RawMessage the core may never parse, and it is what
-				// the orientation bracket (ADR 0043) carries to the adapter --
-				// so with cfg.orientBracket on, these blobs are peer-shaped
-				// bytes crossing the whole render path. Every frame op here
-				// used to send none at all, which left the bracket unreachable
-				// from a seed: a scalar facing, a vector, a quaternion, a null
-				// and a deep object are what real adapters actually send.
+				// With cfg.orientBracket on, these opaque blobs cross the whole render path to the adapter.
 				frame(&protocol.State{AreaID: "a", Position: []float64{x, 0}, Anim: "run",
 					Orientation: fuzzEverythingOrientations[(b>>5)&0x07]})
 			case "frame.stand":
-				// THE GAMEPLAY CLOCK (ADR 0053), off the top two parameter
-				// bits. player_frozen is the adapter saying the game is
-				// holding the player still outside gameplay -- a pause menu, a
-				// pickup popup -- and it stops the chaser pack's clock dead.
-				// Nothing fuzzed it: SetPlayerFrozen appeared in no target at
-				// all, so freeze/resume interleaved with seams, detaches and
-				// pack restarts had never been generated. A freeze left on
-				// across a chasersStop is exactly the shape that would strand
-				// the accumulator.
+				// player_frozen stops the chaser pack's clock; a freeze left on across chasersStop could strand the
+				// accumulator.
 				switch b >> 6 {
 				case 3:
 					c.SetPlayerFrozen(true)
@@ -648,9 +482,7 @@ func FuzzEverything(f *testing.F) {
 				case "file.valid":
 					data = fuzzEverythingClip(b)
 					if cfg.inputTracks {
-						// The track goes where the recorder would put it, under
-						// the id the clip's header carries; overwriting the
-						// same shape's track is harmless and cheap.
+						// Where the recorder would put it; overwriting the same shape's track is harmless.
 						os.MkdirAll(c.inputsDir(), 0o755)
 						os.WriteFile(filepath.Join(c.inputsDir(), fmt.Sprintf("in-fz%d.ndjson", b>>5)), fuzzEverythingTrack(b), 0o644)
 					}
@@ -661,36 +493,10 @@ func FuzzEverything(f *testing.F) {
 				default:
 					data = seed
 				}
-				// EVERY THIRD FILE GOES IN AS A ZIP, and one of those holds two
-				// clips. replay/active reads .zip since 2026-09-04 and nothing
-				// here covered it: every file op wrote .ndjson, so the archive
-				// path, the multi-clip ids and a zip sitting beside plain files
-				// were all unexercised by the target that exists precisely to
-				// run this lifecycle in every order.
-				//
-				// Chosen by the file COUNTER rather than by seed bits, because
-				// the step byte has none left (five bits pick the op, three pick
-				// the clip shape) and the variety this target trades on is the
-				// ORDER of operations, not the bytes inside a file -- FuzzReplay
-				// already throws arbitrary bytes at the parser.
+				// Every third file is a zip, chosen by the file counter because the step byte has no bits left.
 				if files%3 == 0 {
-					// Every third file is a zip; every sixth carries two clips;
-					// every ninth carries eight.
-					//
-					// EIGHT, not a crowd past the roster cap, and the number is
-					// a cost decision made with a measurement: a zip of
-					// MaxRosterSize+40 clips put 512 replay ghosts on the
-					// roster, and rendering that many over the bridge took ONE
-					// execution from milliseconds to ~10 s -- throughput fell
-					// from 207 execs/s to zero and the engine killed the worker
-					// as hung. A fuzz target's value is iterations, so scale
-					// that costs every iteration belongs in a test that runs
-					// once: TestAZipOfMoreClipsThanTheRosterHasSeats. Same
-					// trade the 2026-09-04 entry in testing.md records.
-					//
-					// The PEER flood above is not the same case and stays: a
-					// join with no state admits an id and renders nothing, so
-					// 600 of them cost almost nothing per execution.
+					// Every sixth carries two clips, every ninth eight. A crowd past the roster cap costs seconds an
+					// execution, so it is TestAZipOfMoreClipsThanTheRosterHasSeats; a peer flood stays cheap here.
 					clips := 1
 					switch {
 					case files%9 == 0:
@@ -721,15 +527,8 @@ func FuzzEverything(f *testing.F) {
 			case "ctl.nonsense":
 				_, _ = c.ReplayControl(ReplayAction(string(seed)), -1)
 			case "relay.join":
-				// Three shapes off the parameter bits, so one op covers the
-				// ordinary case, the crowd, and the hostile one:
-				//   7 -- a FLOOD past the roster cap in a single step. 24 steps
-				//        could never reach 512 one join at a time, and the cap
-				//        is only interesting when something crosses it. Each
-				//        join carries a nametag, so this is also the only thing
-				//        here that pushes remote_name to the adapter at scale.
-				//   6 -- an id no honest relay sends (see hostileIDs).
-				//   0-5 -- an ordinary peer, from the widened space.
+				// 7 floods past the roster cap in one step, which single joins never reach; 6 is a hostile id;
+				// 0-5 an ordinary peer.
 				switch {
 				case b>>5 == 7:
 					for n := 0; n < protocol.MaxRosterSize+88; n++ {
@@ -741,41 +540,26 @@ func FuzzEverything(f *testing.F) {
 					relayMsg(protocol.TypeJoin, protocol.Join{PlayerID: peerID(b>>5, i), Nametag: &protocol.Nametag{Name: "P"}})
 				}
 			case "relay.state":
-				// A state for someone never admitted is the common hostile case
-				// and must be dropped by the roster; parameter 6 sends one.
+				// A state for someone never admitted must be dropped by the roster.
 				id := peerID(b>>5, i)
 				if b>>5 == 6 {
 					id = hostileIDs[i%len(hostileIDs)]
 				}
 				relayMsg(protocol.TypeState, protocol.State{PlayerID: id, Timestamp: c.nowMs(), AreaID: "a", Position: []float64{float64(b), 1}})
 			case "relay.leave":
-				// Leaves deliberately do NOT always match a join: half of them
-				// name a peer from an earlier step, which is how a roster entry
-				// actually goes away here, and the rest name someone who was
-				// never there.
+				// Half the leaves name a peer from an earlier step; the rest name someone who was never there.
 				away := i
 				if b&0x20 != 0 && i > 0 {
 					away = i - 1
 				}
 				relayMsg(protocol.TypeLeave, protocol.Leave{PlayerID: peerID(b>>5, away)})
 			case "relay.stateLocalPrefix":
-				// A hostile relay naming a local id: it must be dropped, not
-				// steer a local ghost. (Never admitted: no Join carries it.)
+				// A hostile relay naming a local id: it must be dropped, never steer a local ghost.
 				relayMsg(protocol.TypeState, protocol.State{PlayerID: "replay:f01.ndjson", Timestamp: c.nowMs(), AreaID: "a", Position: []float64{9, 9}})
 				relayMsg(protocol.TypeJoin, protocol.Join{PlayerID: "chaser:1", Nametag: &protocol.Nametag{Name: "evil"}})
 			case "relay.forget":
-				// TWO VARIANTS, from a parameter bit this slot does not
-				// otherwise use. Both are "the relay's clock moved", and they
-				// are the two ways it moves:
-				//
-				//   forget    — the whole session drops. This already clears
-				//               c.clock and c.lastNowMs, so the monotonic
-				//               clamp is RESET rather than tested.
-				//   backStep  — the session STAYS UP and the offset shrinks,
-				//               which is what happens when a better (lower-RTT)
-				//               ping sample arrives. This is the only path that
-				//               actually drives nowMsLocked's clamp, and until
-				//               now nothing fuzzed it.
+				// forget drops the session, which resets the monotonic clamp; backStep keeps it up and shrinks the
+				// offset as a lower-RTT ping does, the only path that drives nowMsLocked's clamp.
 				if b&0x20 == 0 {
 					ran[len(ran)-1] = "relay.forget"
 					c.mu.Lock()
@@ -787,29 +571,21 @@ func FuzzEverything(f *testing.F) {
 				} else {
 					ran[len(ran)-1] = "clock.backStep"
 					c.mu.Lock()
-					// clock.v1 must be active or clockAdjustLocked returns 0
-					// and the offset is inert.
+					// clock.v1 must be active or clockAdjustLocked returns 0 and the offset is inert.
 					c.activeFeatures = []string{protocol.FeatureClockV1}
-					// Backwards by a decreasing amount, so a schedule with
-					// several of these keeps stepping the offset down instead
-					// of landing on one value.
+					// The step back varies with the top two bits, so several of these need not land on one value.
 					c.clock = clockSync{offsetMs: -int64(b>>6+1) * 1000, bestRTTMs: 1}
 					c.mu.Unlock()
 				}
 			case "gap":
-				// Long enough to cross the compressed stale window and the
-				// chaser seam sometimes (stale can be 5ms..300ms, the seam
-				// 1.5s only with the top alphabet entry), short enough that a
-				// schedule stays affordable: the first campaign ran 20 inputs
-				// in its first 40s on the seeds' gaps alone.
+				// Long enough to cross the compressed stale window, short enough that a schedule stays affordable.
 				time.Sleep([4]time.Duration{10, 40, 120, 350}[(b>>5)&0x03] * time.Millisecond)
 			case "chasersStart":
 				c.StartChasers()
 			case "chasersStop":
 				c.StopChasers()
 			case "relay.welcome":
-				// A room policy landing mid-session: any collision value, any
-				// rate, a roster of ids including local-prefixed ones.
+				// A room policy landing mid-session, its roster including local-prefixed ids.
 				relayMsg(protocol.TypeWelcome, protocol.Welcome{
 					PlayerID:       "self",
 					SendHz:         int(b) * 3,
@@ -824,7 +600,6 @@ func FuzzEverything(f *testing.F) {
 			check(op)
 		}
 
-		// Whatever happened, the core still serves a frame and renders.
 		attach()
 		before := c.tickCount()
 		frame(&protocol.State{AreaID: "a", Position: []float64{x + 1, 0}})
@@ -838,24 +613,13 @@ func FuzzEverything(f *testing.F) {
 	})
 }
 
-// TestFuzzEverythingClipShapesAreWhatTheyClaim pins fuzzEverythingClip's eight
-// shapes, and exists because the version before 2026-09-03 produced clips the
-// loader refused EVERY TIME: `speed` was read from bits the op index pins, so
-// it was always the string "fast" and playback-from-a-file never once ran in
-// this target. The fuzz target still passed, because a target that exercises
-// nothing passes exactly like one that exercises everything.
-//
-// So the shapes are asserted here rather than trusted. Four must load (or the
-// replay path is dead again), four must be refused or clamped (or the hostile
-// header coverage is gone), and k=1 must carry exactly one forced seam (or the
-// cheap-seam seed stops reaching the seam).
+// TestFuzzEverythingClipShapesAreWhatTheyClaim pins fuzzEverythingClip's eight shapes, since a fuzz target that
+// exercises nothing passes like one that exercises everything: five load, three are refused, and k=1 carries one
+// forced seam.
 func TestFuzzEverythingClipShapesAreWhatTheyClaim(t *testing.T) {
-	// b is a file.valid step byte: the op index in the low five bits, the
-	// shape in the top three, exactly as the fuzz loop produces it.
+	// A file.valid step byte: the op index in the low five bits, the shape in the top three.
 	shape := func(k byte) byte { return 10 | k<<5 }
 
-	// 5, 6 and 7 are the hostile headers: a string speed, a NaN speed, and
-	// durations that trim the clip out of existence. All three must be refused.
 	wantLoads := map[byte]bool{0: true, 1: true, 2: true, 3: true, 4: true, 5: false, 6: false, 7: false}
 	loaded := 0
 	for k := byte(0); k < 8; k++ {
@@ -878,7 +642,6 @@ func TestFuzzEverythingClipShapesAreWhatTheyClaim(t *testing.T) {
 			if len(clip.forcedSeam) != 1 {
 				t.Fatalf("k=1 is the cheap-seam shape: %d forced seam(s), want exactly 1 (skip_gaps must sit between the 10ms spacing and the 2s gap)", len(clip.forcedSeam))
 			}
-			// Cheap: the collapsed clip must be milliseconds, not seconds.
 			if d := clip.duration(); d > 500*time.Millisecond {
 				t.Fatalf("k=1 spans %v: the 2s gap was not collapsed, so this shape costs wall time on every run", d)
 			}

@@ -11,12 +11,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// chooseTransport is where a relay's advertised offers become the actual
-// dial target, and it is all branching: honour an explicit preference
-// exactly, rank only under auto, fall back to tcp, and rebuild the address
-// from the host the USER configured rather than anything the relay said.
-// Its only other coverage is indirect (internal/e2e), which cannot reach
-// most of these branches.
+// chooseTransport is all branching: an explicit preference exactly, ranking only under auto, a tcp fallback, and the
+// host always from config. internal/e2e, its only other coverage, reaches few of these branches.
 
 func offers(kv ...any) []protocol.TransportOffer {
 	var out []protocol.TransportOffer
@@ -26,8 +22,7 @@ func offers(kv ...any) []protocol.TransportOffer {
 	return out
 }
 
-// TestExplicitPreferenceIsHonouredExactly: asking for udp gets udp, on the
-// port the relay named — not the one in connect_to.
+// TestExplicitPreferenceIsHonouredExactly: asking for udp gets udp, on the port the relay named, not connect_to's.
 func TestExplicitPreferenceIsHonouredExactly(t *testing.T) {
 	c := &Core{Transport: netx.UDP}
 	kind, addr := c.chooseTransport("192.0.2.5:7777", offers("tcp", 7777, "udp", 7777, "quic", 7780))
@@ -42,11 +37,8 @@ func TestExplicitPreferenceIsHonouredExactly(t *testing.T) {
 	}
 }
 
-// TestExplicitPreferenceNeverFallsSidewaysToUDP is the safety property. A
-// client that asked for quic wants encryption; silently landing it on udp
-// because both are "the fast one" would swap an encrypted session for one
-// that CANNOT be encrypted. Falling back to tcp is right; falling sideways
-// is not.
+// TestExplicitPreferenceNeverFallsSidewaysToUDP: a client that asked for quic wants encryption, so it falls back to
+// tcp, never sideways to udp, which cannot be encrypted.
 func TestExplicitPreferenceNeverFallsSidewaysToUDP(t *testing.T) {
 	c := &Core{Transport: netx.QUIC}
 	kind, addr := c.chooseTransport("192.0.2.5:7777", offers("tcp", 7777, "udp", 7777))
@@ -58,8 +50,7 @@ func TestExplicitPreferenceNeverFallsSidewaysToUDP(t *testing.T) {
 	}
 }
 
-// TestAutoPrefersQUICAndAvoidsUDP pins the ranking end to end through the
-// real chooser, not just the AutoPreference slice.
+// TestAutoPrefersQUICAndAvoidsUDP pins the ranking through the real chooser, not just the AutoPreference slice.
 func TestAutoPrefersQUICAndAvoidsUDP(t *testing.T) {
 	c := &Core{Transport: netx.Auto}
 
@@ -68,27 +59,19 @@ func TestAutoPrefersQUICAndAvoidsUDP(t *testing.T) {
 		t.Fatalf("got %v at %q, want quic", kind, addr)
 	}
 
-	// tcp beats udp, because udp cannot be encrypted and nothing should
-	// choose that on a user's behalf.
+	// udp cannot be encrypted, so nothing picks it on a player's behalf.
 	if kind, _ := c.chooseTransport("h:7777", offers("tcp", 7777, "udp", 7777)); kind != netx.TCP {
 		t.Fatalf("auto picked %v over tcp; udp must never be chosen automatically while another option exists", kind)
 	}
 
-	// And tcp wins even when udp is the ONLY thing advertised. tcp is always
-	// reachable — the handshake that produced these offers just used it —
-	// so reaching tcp in the preference order short-circuits. (Since
-	// 2026-09-15 a release's AutoPreference has no udp entry at all, ADR
-	// 0065; an old relay may still OFFER udp, which is what this row keeps
-	// covering: the offer is ignored, not dialled.)
+	// Even when udp is the only offer: the handshake just used tcp, and an old relay may still offer udp.
 	if kind, addr := c.chooseTransport("h:7777", offers("udp", 9999)); kind != netx.TCP || addr != "h:7777" {
 		t.Fatalf("auto got %v at %q, want tcp — udp must never be selected automatically", kind, addr)
 	}
 }
 
-// TestNoOffersOrUnparseableAddressStaysOnTCP covers the degrade paths: an
-// older relay (no offers) and a malformed connect_to must both yield a
-// working tcp attempt at the configured address, never an error and never a
-// guess.
+// TestNoOffersOrUnparseableAddressStaysOnTCP: an older relay (no offers) and a malformed connect_to both yield a tcp
+// attempt at the configured address, never an error or a guess.
 func TestNoOffersOrUnparseableAddressStaysOnTCP(t *testing.T) {
 	c := &Core{Transport: netx.QUIC}
 
@@ -100,9 +83,7 @@ func TestNoOffersOrUnparseableAddressStaysOnTCP(t *testing.T) {
 	}
 }
 
-// TestNonsensePortsAreIgnored: the port comes from the network, so it is
-// untrusted input. A relay claiming port 0 or 70000 must not produce a dial
-// target built from it.
+// TestNonsensePortsAreIgnored: the offered port is untrusted network input, so an out-of-range one is never dialled.
 func TestNonsensePortsAreIgnored(t *testing.T) {
 	c := &Core{Transport: netx.QUIC}
 	for _, bad := range []int{0, -1, 65536, 999999} {
@@ -113,11 +94,8 @@ func TestNonsensePortsAreIgnored(t *testing.T) {
 	}
 }
 
-// TestTheHostAlwaysComesFromConfigNotTheRelay is what makes discovery work
-// through NAT: a relay bound to 0.0.0.0 has no idea what address reaches
-// it, so only the PORT is taken from the offer. If a host ever leaked in
-// from the relay side, a port-forwarded session would dial something
-// unreachable.
+// TestTheHostAlwaysComesFromConfigNotTheRelay: a relay bound to 0.0.0.0 cannot know the address that reaches it
+// through NAT, so only the port is taken from the offer.
 func TestTheHostAlwaysComesFromConfigNotTheRelay(t *testing.T) {
 	c := &Core{Transport: netx.QUIC}
 	_, addr := c.chooseTransport("203.0.113.9:7777", offers("quic", 7780))
@@ -126,8 +104,7 @@ func TestTheHostAlwaysComesFromConfigNotTheRelay(t *testing.T) {
 	}
 }
 
-// TestTCPPreferenceNeedsNoDiscovery: with tcp there is nothing to upgrade
-// to, so resolveTransport must short-circuit without dialing anything. A
+// TestTCPPreferenceNeedsNoDiscovery: with tcp there is nothing to upgrade to, so resolveTransport dials nothing; a
 // relay address that does not exist proves it never tried.
 func TestTCPPreferenceNeedsNoDiscovery(t *testing.T) {
 	c := &Core{Transport: netx.TCP}
@@ -140,9 +117,8 @@ func TestTCPPreferenceNeedsNoDiscovery(t *testing.T) {
 	}
 }
 
-// TestUnreachableRelayPropagatesItsError: when the tcp handshake itself
-// fails, that IS the connection failure, so it must reach the caller rather
-// than being swallowed into a doomed second attempt.
+// TestUnreachableRelayPropagatesItsError: a failed tcp handshake is the connection failure, so it reaches the caller
+// rather than a doomed second attempt.
 func TestUnreachableRelayPropagatesItsError(t *testing.T) {
 	c := &Core{Transport: netx.QUIC}
 	if _, _, _, err := c.resolveTransport("127.0.0.1:1", "g", "r", "n", "", ""); err == nil {
@@ -150,12 +126,8 @@ func TestUnreachableRelayPropagatesItsError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- TLS
-
-// discoveryRelay is a minimum relay for the discovery leg only: it accepts a
-// TLS connection with the package's test identity, reads one hello, answers
-// with the given transport offers, and hangs up. Enough to exercise
-// resolveTransport, which is where both legs get their verifier.
+// discoveryRelay is a minimal relay for the discovery leg: over TLS with the package's test identity, it reads one
+// hello, answers with the given offers, and hangs up.
 func discoveryRelay(t *testing.T, offers []protocol.TransportOffer) string {
 	t.Helper()
 	ln := listenTLS(t)
@@ -184,7 +156,7 @@ func discoveryRelay(t *testing.T, offers []protocol.TransportOffer) string {
 					return
 				}
 				_, _ = c.Write(append(env, '\n'))
-				// Give the client time to read before the deferred close.
+				// Time for the client to read before the deferred close.
 				time.Sleep(200 * time.Millisecond)
 			}(c)
 		}
@@ -192,8 +164,7 @@ func discoveryRelay(t *testing.T, offers []protocol.TransportOffer) string {
 	return ln.Addr().String()
 }
 
-// plaintextRelay is a relay from before 2026-08-19: it reads a line and
-// hangs up, never handshaking.
+// plaintextRelay is a relay without TLS: it reads a line and hangs up, never handshaking.
 func plaintextRelay(t *testing.T) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -217,10 +188,8 @@ func plaintextRelay(t *testing.T) string {
 	return ln.Addr().String()
 }
 
-// TestBothLegsVerifyAgainstOneKnownRelaysEntry: the discovery leg records
-// the relay under the CONFIGURED address, and the options handed to the
-// session leg verify against that same entry -- whatever port the session
-// leg dials. One relay, one entry, both legs.
+// TestBothLegsVerifyAgainstOneKnownRelaysEntry: the discovery leg records the relay under the configured address,
+// and the session leg verifies against that same entry whatever port it dials.
 func TestBothLegsVerifyAgainstOneKnownRelaysEntry(t *testing.T) {
 	addr := discoveryRelay(t, offers("tcp", 7780))
 	_, fp := testIdentity()
@@ -241,9 +210,8 @@ func TestBothLegsVerifyAgainstOneKnownRelaysEntry(t *testing.T) {
 	}
 }
 
-// TestAutoRefusesAPlaintextDiscoveryRelay: the discovery leg carries the room
-// code, so it is the leg that must never go plaintext. A relay that cannot
-// handshake is an error from resolveTransport, not a plaintext query.
+// TestAutoRefusesAPlaintextDiscoveryRelay: the discovery leg carries the room code, so a relay that cannot handshake
+// is an error, never a plaintext query.
 func TestAutoRefusesAPlaintextDiscoveryRelay(t *testing.T) {
 	addr := plaintextRelay(t)
 	c := &Core{Transport: netx.Auto}
@@ -257,9 +225,8 @@ func TestAutoRefusesAPlaintextDiscoveryRelay(t *testing.T) {
 	}
 }
 
-// TestATCPPreferenceStillVerifies: the tcp short-circuit skips discovery
-// entirely, so it is the one path that could hand the session a dial with
-// no verifier.
+// TestATCPPreferenceStillVerifies: the tcp short-circuit skips discovery, so it is the one path that could hand the
+// session a dial with no verifier.
 func TestATCPPreferenceStillVerifies(t *testing.T) {
 	c := &Core{Transport: netx.TCP}
 	_, _, opts, err := c.resolveTransport("127.0.0.1:1", "g", "r", "n", "", "")
@@ -274,10 +241,8 @@ func TestATCPPreferenceStillVerifies(t *testing.T) {
 	}
 }
 
-// TestACoreWithoutAStoreNeverDialsUnverified: the in-memory fallback is a
-// real store -- the first connection records, and a second relay at the
-// same address with a different certificate is noticed (warned about, for
-// now: the warning line is the store's, asserted in knownrelays_test.go).
+// TestACoreWithoutAStoreNeverDialsUnverified: the in-memory fallback is a real store, so the first connection is
+// recorded.
 func TestACoreWithoutAStoreNeverDialsUnverified(t *testing.T) {
 	relayAddr := startRelay(t)
 	c := New()

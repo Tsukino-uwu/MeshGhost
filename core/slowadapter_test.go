@@ -1,24 +1,5 @@
 package core
 
-// THE ~350-GHOST CEILING, headless.
-//
-// A tester's 512-chaser pack broke twice in the same place: at 343 ghosts on
-// 2026-09-06 and ~350 on 2026-09-07. The core writes one render_remote line
-// per remote per adapter frame, unthrottled -- 380 bytes each, so 512 ghosts
-// at Pseudoregalia's ~180Hz is 92,160 messages and 35 MB/s down one loopback
-// NDJSON socket. The adapter cannot parse that, the socket's buffer fills, the
-// write deadline expires mid-line, and the core tears the session down.
-//
-// Neither of the two adapters this package had could produce it: a fake
-// adapter reads as fast as Go can and never falls behind, and the one in
-// bridge_deadadapter_test.go stops reading outright, which is a DEAD adapter
-// rather than a slow one. The difference matters, because the fix for a dead
-// adapter is to let it reconnect (which shipped, and worked) while the fix for
-// a slow one is not to kill it at all.
-//
-// throttledConn is the missing dial. This is the tester's session at a scale a
-// test can run.
-
 import (
 	"bufio"
 	"encoding/json"
@@ -33,24 +14,15 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// TestASlowAdapterIsNeverDetached is the invariant the user asked for
-// (2026-09-07): "I never want the server/client to be the limiting factor for
-// anything ... if you set 512, you should be able to eventually reach there if
-// the game itself don't crash".
-//
-// An adapter that reads STEADILY but slower than the core writes is a healthy
-// adapter having a hard time, and the only correct response is to send it less
-// -- never to time out, close the socket and drop the pack it had built up.
+// TestASlowAdapterIsNeverDetached: an adapter that reads steadily but slower than the core writes is healthy and
+// having a hard time, so the core sends it less, never times it out and drops the pack it built up.
 func TestASlowAdapterIsNeverDetached(t *testing.T) {
 	clk := newFakeClock()
 	c := New()
 	c.timeSrc = clk
 	c.InterpolationDelay = 0
 	c.LocalInterpolationDelay = 0
-	// Short, so the test takes a second rather than ten. The ratio is what
-	// reproduces the defect, not the absolute figures: the adapter below
-	// drains far less than the pack generates, exactly as a real one does at
-	// 350 ghosts.
+	// Short, so the test takes a second; the drain-to-generate ratio is what reproduces the defect.
 	c.bridgeWriteTimeout = 2 * time.Second
 	c.ChaserEnabled = true
 	c.ChaserCount = 128
@@ -78,22 +50,12 @@ func TestASlowAdapterIsNeverDetached(t *testing.T) {
 	}
 	t.Cleanup(func() { raw.Close() })
 
-	// A RAW READER, not the shared fakeAdapter, and deliberately. This test
-	// ends with the adapter still far behind, so closing the socket always
-	// truncates a line in flight -- which fakeAdapter reports with t.Errorf
-	// from its read loop, after the test has returned, and the testing package
-	// turns that into a panic. The truncation is teardown, not the defect, and
-	// this test does not care what the bytes say: only that they keep coming
-	// and the core never hangs up.
+	// A raw reader, not fakeAdapter: closing the socket while far behind truncates a line, which fakeAdapter reports
+	// from its read loop after the test returns, and the testing package panics.
 	//
-	// 4 KB per 2 ms is a generous adapter and still an order of magnitude
-	// under what 128 chasers at this frame rate produce.
+	// 4 KB per 2 ms is a generous adapter and still an order of magnitude under what 128 chasers produce.
 	slow := newThrottledConn(raw, 4<<10, 2*time.Millisecond)
-	// An ATOMIC, not a buffered channel. A size-1 channel with a non-blocking
-	// send keeps the FIRST unconsumed value, not the newest, so it reported
-	// "2 lines" however many thousands actually arrived -- a number that looks
-	// like a finding and is an artefact of the instrument. (CLAUDE.md: a
-	// diagnostic can break the thing it measures.)
+	// An atomic: a size-1 channel with a non-blocking send keeps the first unconsumed value, not the newest.
 	var got atomic.Int64
 	first := make(chan struct{})
 	go func() {
@@ -116,8 +78,7 @@ func TestASlowAdapterIsNeverDetached(t *testing.T) {
 		t.Fatal("the core never answered the hello")
 	}
 
-	// Frames for a couple of seconds of wall time, with the player moving so
-	// the whole pack is admitted and every tick writes to that slow socket.
+	// The player moves, so the whole pack is admitted and every tick writes to the slow socket.
 	deadline := time.Now().Add(3 * time.Second)
 	for i := 0; time.Now().Before(deadline); i++ {
 		clk.Advance(5 * time.Millisecond)
@@ -130,8 +91,6 @@ func TestASlowAdapterIsNeverDetached(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	// The adapter must still be receiving: a core that quietly stopped writing
-	// would pass the attachment check below while being just as broken.
 	if n := got.Load(); n < 2 {
 		t.Fatalf("the slow adapter took %d line(s) in 3s -- the core stopped writing, which passes "+
 			"the attachment check below while being just as broken", n)
@@ -147,17 +106,9 @@ func TestASlowAdapterIsNeverDetached(t *testing.T) {
 			"must be sent less, never disconnected")
 	}
 
-	// AND THE MECHANISM DID IT, not a test that turned out to be easy. If
-	// nothing was ever superseded then the adapter kept up and this proved
-	// nothing about coalescing; the whole point is that the core generated far
-	// more renders than the socket could carry and dropped the stale ones.
 	dropped, stalls := c.writerFor(nd).stats()
 
-	// Quiesce before the deferred Close: the pack is still generating renders,
-	// and closing the socket underneath an in-flight write truncates a line
-	// that the adapter's read loop then reports AFTER this test has finished,
-	// which the testing package turns into a panic rather than a failure.
-	// That is teardown noise, not the defect under test.
+	// Quiesce before the deferred Close, or an in-flight write is truncated after the test has finished.
 	c.StopChasers()
 	time.Sleep(100 * time.Millisecond)
 
@@ -168,10 +119,8 @@ func TestASlowAdapterIsNeverDetached(t *testing.T) {
 	t.Logf("survived with %d superseded render(s) across %d drain pass(es)", dropped, stalls)
 }
 
-// TestBridgeWritersDoNotOutliveTheirConnections: every adapterWriter runs a
-// goroutine, so one left behind per attach would leak a goroutine and its
-// queue for the life of the process -- and a game that relaunches attaches
-// again every time. The map must be empty once the connections are gone.
+// TestBridgeWritersDoNotOutliveTheirConnections: every adapterWriter runs a goroutine, so one left per attach would
+// leak it and its queue for the life of the process.
 func TestBridgeWritersDoNotOutliveTheirConnections(t *testing.T) {
 	c := New()
 	rt := &recordingTransport{}
@@ -211,23 +160,11 @@ func TestBridgeWritersDoNotOutliveTheirConnections(t *testing.T) {
 	}
 }
 
-// TestTheSlowAdapterIsReportedOnceEachWay: the user asked for both a log line
-// when the bridge starts shedding load and one when it stops, and the running
-// count in stats (2026-09-07). One line each way is the whole point -- a line
-// per superseded render would be tens of thousands a second at 512 ghosts and
-// the logging would become the bottleneck it is reporting on.
-//
-// ONLY THE FIRST HALF IS HERE. With no run() goroutine this reaches the
-// behind=true transition and never the recovery, which is decided in run() and
-// so had no coverage at all until 2026-09-08: see
-// TestTheWriterReportsTheAdapterCaughtUpAgain in
-// core/weakspot_adapterqueue_test.go, which drives a real writer against an
-// adapter that stops reading on demand.
+// TestTheSlowAdapterIsReportedOnceEachWay: shedding load is logged once when it starts, not per superseded render,
+// which at 512 ghosts would make the logging the bottleneck. The recovery is decided in run(), so
+// TestTheWriterReportsTheAdapterCaughtUpAgain covers it.
 func TestTheSlowAdapterIsReportedOnceEachWay(t *testing.T) {
-	// The struct directly, with NO writer goroutine: this exercises the
-	// enqueue side alone, which is where coalescing, the counter and the
-	// behind-transition live. Starting a real writer would drain the queue
-	// and there would be nothing left to assert about its depth.
+	// No writer goroutine: it would drain the queue and leave no depth to assert.
 	var superseded uint64
 	w := &adapterWriter{
 		superseded: &superseded,
@@ -242,7 +179,6 @@ func TestTheSlowAdapterIsReportedOnceEachWay(t *testing.T) {
 		return queuedMsg{env: env, renderOf: id}
 	}
 
-	// First render for each peer queues; every one after that supersedes.
 	for _, id := range []string{"chaser:1", "chaser:2"} {
 		if !w.enqueue(render(id, 0)) {
 			t.Fatalf("%s: first render refused", id)
@@ -251,10 +187,7 @@ func TestTheSlowAdapterIsReportedOnceEachWay(t *testing.T) {
 	if got := atomic.LoadUint64(&superseded); got != 0 {
 		t.Fatalf("%d superseded after one render each -- the first for a peer has nothing to replace", got)
 	}
-	// BELOW THE THRESHOLD FIRST: a handful of superseded positions is a normal
-	// one-frame overrun and must NOT be announced. The user's first live run
-	// logged 31 behind/recovered pairs in four minutes, 23 of them for a single
-	// superseded position, which is the noise this guards against.
+	// Below the threshold first: a handful of superseded positions is a normal one-frame overrun, not announced.
 	for i := 1; i <= 50; i++ {
 		w.enqueue(render("chaser:1", float64(i)))
 	}
@@ -268,12 +201,10 @@ func TestTheSlowAdapterIsReportedOnceEachWay(t *testing.T) {
 		t.Fatalf("the writer announced the adapter was behind after only 50 superseded renders "+
 			"(threshold %d) -- that is a one-frame overrun and logging it flaps", adapterBehindThreshold)
 	}
-	// Now past it.
 	for i := 0; i < adapterBehindThreshold; i++ {
 		w.enqueue(render("chaser:1", float64(i)))
 	}
 
-	// THE QUEUE DID NOT GROW: that is the property the whole design rests on.
 	w.mu.Lock()
 	depth := len(w.q)
 	behind := w.behind
@@ -286,7 +217,6 @@ func TestTheSlowAdapterIsReportedOnceEachWay(t *testing.T) {
 		t.Fatal("the writer does not consider the adapter behind after 50 superseded renders")
 	}
 
-	// And the newest position is the one that survived, not the oldest.
 	last := render("chaser:1", float64(adapterBehindThreshold-1))
 	if string(w.q[0].env) != string(last.env) {
 		t.Fatal("the queued render for chaser:1 is not the newest one -- coalescing kept a stale position")

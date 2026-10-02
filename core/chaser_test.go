@@ -9,9 +9,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// TestChaserFollowsTheLocalPlayerBehindByItsDelay: with the player walking
-// x = t/10ms and a 100ms delay, the chaser renders where the player was
-// ~100ms ago, cosmetic, offline (no relay involved in the feed at all).
+// TestChaserFollowsTheLocalPlayerBehindByItsDelay: with the player walking x = t/10ms and a 100ms delay, the chaser
+// renders where the player was about 100ms ago, cosmetic, with no relay at all.
 func TestChaserFollowsTheLocalPlayerBehindByItsDelay(t *testing.T) {
 	c, _, fa := startLocalPeerCore(t)
 	c.mu.Lock()
@@ -54,9 +53,8 @@ func TestChaserFollowsTheLocalPlayerBehindByItsDelay(t *testing.T) {
 	pumpUntil(t, fa, func() bool { return drainDespawns(fa, id) > 0 }, "the chaser to despawn on StopChasers")
 }
 
-// TestChaserPackIsSpacedAndNumbered: three chasers with 50ms spacing are
-// three peers at three different lags, named "Pack 1..3", never two on the
-// same spot while the player moves; count clamps to the max.
+// TestChaserPackIsSpacedAndNumbered: three chasers with 50ms spacing are three peers at three lags, named "Pack 1..3";
+// any count up to the roster size starts, and a larger one clamps to it.
 func TestChaserPackIsSpacedAndNumbered(t *testing.T) {
 	c, _, fa := startLocalPeerCore(t)
 	c.mu.Lock()
@@ -106,8 +104,6 @@ func TestChaserPackIsSpacedAndNumbered(t *testing.T) {
 	}
 	c.StopChasers()
 
-	// No count cap (2026-09-06): 99 asked is 99 started. The old cap of 8 is
-	// what a tester hit; this line fails if it ever comes back.
 	c.mu.Lock()
 	c.ChaserCount = 99
 	c.mu.Unlock()
@@ -115,8 +111,6 @@ func TestChaserPackIsSpacedAndNumbered(t *testing.T) {
 		t.Fatalf("count 99 started %d, want all 99 (no cap)", n)
 	}
 	c.StopChasers()
-	// The one bound left is the roster itself: a count past every seat is
-	// clamped to the roster's size rather than allocating that many queues.
 	c.mu.Lock()
 	c.ChaserCount = 1 << 20
 	c.mu.Unlock()
@@ -126,8 +120,8 @@ func TestChaserPackIsSpacedAndNumbered(t *testing.T) {
 	c.StopChasers()
 }
 
-// TestChaserSeamsOnALiveGapAndIsOffByDefault: 2s of silence (a menu) makes
-// the chaser leave and reappear rather than glide; disabled means no peer.
+// TestChaserSeamsOnALiveGapAndIsOffByDefault: 1.6s of silence (a menu) makes the chaser leave and reappear rather
+// than glide; disabled means no peer.
 func TestChaserSeamsOnALiveGapAndIsOffByDefault(t *testing.T) {
 	c, _, fa := startLocalPeerCore(t)
 	if n := c.StartChasers(); n != 0 {
@@ -146,16 +140,12 @@ func TestChaserSeamsOnALiveGapAndIsOffByDefault(t *testing.T) {
 	}
 	pumpUntil(t, fa, func() bool { _, ok := fa.renderMsgOf(id); return ok }, "the chaser to appear")
 	drainDespawns(fa, id)
-	// Silence: nil frames for longer than the seam threshold. The chaser
-	// ages out (3s) or seams (1.5s gap) -- either way it must be gone, then
-	// come back with the next in-game frame.
+	// Nil frames for longer than the seam threshold.
 	for i := 0; i < 8; i++ {
 		fa.frame(nil)
 		time.Sleep(200 * time.Millisecond)
 	}
-	// Back in the game, far from where the pack last saw the player. Keep
-	// feeding frames out here: the pack follows the LIVE stream, so the
-	// reappearance is wherever the player is now, never a glide from x=19.
+	// The pack follows the live stream, so it reappears where the player is now, never gliding from x=19.
 	gone, back := false, false
 	deadline := time.Now().Add(testTimeout)
 	for i := 0; time.Now().Before(deadline) && !(gone && back); i++ {
@@ -177,12 +167,8 @@ func TestChaserSeamsOnALiveGapAndIsOffByDefault(t *testing.T) {
 	c.StopChasers()
 }
 
-// TestChaserPolicyIsPushedOnlyWhenContactIsOn: session_policy carries
-// chaser_contact only when the config asks for it (and no shipped adapter
-// honours it yet -- that is per game, ADR-gated). Since 2026-09-15 (ADR 0068)
-// the value is the MODE's own word, "hurt" or "kill"; it is absent when off
-// and absent again when the chaser is disabled with contact still set,
-// because there is no ghost for it to apply to.
+// TestChaserPolicyIsPushedOnlyWhenContactIsOn: session_policy carries chaser_contact as the mode's word, "hurt" or
+// "kill", and omits it when contact is off or the chaser is disabled, since then no ghost exists for it to apply to.
 func TestChaserPolicyIsPushedOnlyWhenContactIsOn(t *testing.T) {
 	c, _, fa := startLocalPeerCore(t)
 	c.mu.Lock()
@@ -227,10 +213,8 @@ func TestChaserPolicyIsPushedOnlyWhenContactIsOn(t *testing.T) {
 	expect("", "contact off with the chaser on")
 }
 
-// TestParseChaserContactReadsTheLegacyBool: a config written while
-// chaser.contact was a bool (2026-09-03 to 2026-09-15) keeps its meaning --
-// true was the one effect it ever promised, so it is "hurt" -- and anything
-// that is not a mode is an error rather than a silent default.
+// TestParseChaserContactReadsTheLegacyBool: a config from when chaser.contact was a bool keeps its meaning (true is
+// "hurt"), and anything that is not a mode is an error rather than a silent default.
 func TestParseChaserContactReadsTheLegacyBool(t *testing.T) {
 	for in, want := range map[string]ChaserContact{
 		"": ChaserContactOff, "off": ChaserContactOff, "false": ChaserContactOff,
@@ -255,9 +239,8 @@ func TestParseChaserContactReadsTheLegacyBool(t *testing.T) {
 	}
 }
 
-// TestChaserNeverSpawnsOnAStandingPlayer (the user's rule, 2026-09-03): a
-// player who stands still gets no chaser however long they wait; once they
-// move, the chaser appears only after the spawn window and `delay` behind.
+// TestChaserNeverSpawnsOnAStandingPlayer: a player who stands still gets no chaser however long they wait; once they
+// move, the chaser appears only after the spawn window.
 func TestChaserNeverSpawnsOnAStandingPlayer(t *testing.T) {
 	c, _, fa := startLocalPeerCore(t)
 	c.mu.Lock()
@@ -267,7 +250,6 @@ func TestChaserNeverSpawnsOnAStandingPlayer(t *testing.T) {
 	c.mu.Unlock()
 	c.StartChasers()
 	const id = "chaser:1"
-	// Standing still for well over delay + spawn: nothing may appear.
 	for i := 0; i < 40; i++ {
 		fa.frame(&protocol.State{AreaID: "a", Position: []float64{5, 5}})
 		time.Sleep(10 * time.Millisecond)
@@ -275,7 +257,6 @@ func TestChaserNeverSpawnsOnAStandingPlayer(t *testing.T) {
 	if _, ok := fa.renderMsgOf(id); ok {
 		t.Fatal("a chaser spawned on a player who never moved")
 	}
-	// Now move. The chaser may not appear before 200ms of movement.
 	start := time.Now()
 	appeared := time.Duration(0)
 	deadline := time.Now().Add(testTimeout)
@@ -296,10 +277,8 @@ func TestChaserNeverSpawnsOnAStandingPlayer(t *testing.T) {
 	c.StopChasers()
 }
 
-// TestChaserPackClampsAnAbsurdSpacingFast (found by FuzzEverything, 2026-09-03):
-// count 8 with spacing 48h must not size a channel to 336 hours of samples on
-// the bridge goroutine. StartChasers returns at once and every chaser's delay
-// is at most maxChaserBehind.
+// TestChaserPackClampsAnAbsurdSpacingFast: count 8 with spacing 48h must not size the history to 336 hours of samples
+// on the bridge goroutine; StartChasers returns at once and every delay is at most maxChaserBehind.
 func TestChaserPackClampsAnAbsurdSpacingFast(t *testing.T) {
 	c := New()
 	c.ChaserEnabled = true
@@ -327,15 +306,8 @@ func TestChaserPackClampsAnAbsurdSpacingFast(t *testing.T) {
 	c.StopChasers()
 }
 
-// TestChaserHistoryIsFlatInTheCount is the 1.69 GB regression (2026-09-07).
-//
-// A tester's 512-chaser pack at 1s delay/1s spacing allocated a private queue
-// PER CHASER, each sized to that chaser's own delay: 13.2 million
-// protocol.State slots, ~1.69 GB, taken on the bridge goroutine the moment the
-// adapter attached and taken again on every reconnect. The pack shares one
-// history now, so the deepest delay alone sizes it and adding chasers costs
-// nothing. Asserted as "512 costs the same as 2 at the same depth", which is
-// the property, rather than as a byte count, which would be a machine detail.
+// TestChaserHistoryIsFlatInTheCount: the pack shares one history sized by the deepest delay alone, so 512 chasers cost
+// the same as 2 at the same depth.
 func TestChaserHistoryIsFlatInTheCount(t *testing.T) {
 	slotsFor := func(count int, spacing time.Duration) int {
 		c := New()
@@ -351,26 +323,21 @@ func TestChaserHistoryIsFlatInTheCount(t *testing.T) {
 		defer c.chaserMu.Unlock()
 		return len(c.chaserHist.buf)
 	}
-	// Same depth (the deepest chaser is 512s behind either way), 256x the
-	// chasers. Under the old private queues the second number was ~256x the
-	// first; now they are equal.
+	// The deepest chaser is 512s behind either way.
 	deep := slotsFor(2, 511*time.Second)
 	full := slotsFor(512, time.Second)
 	if deep != full {
 		t.Fatalf("2 chasers at depth 512s hold %d slots, 512 chasers at the same depth hold %d -- "+
 			"the history must be sized by the deepest delay alone, not by the count", deep, full)
 	}
-	// And the absolute figure stays small: the whole 512-pack is one ring of
-	// 514s at 100Hz. The old arrangement needed 13.2 million slots for this.
+	// The whole 512-pack is one ring of 514s at 100Hz.
 	if want := int((514 * time.Second).Milliseconds() / 10); full != want {
 		t.Fatalf("512-pack history is %d slots, want %d", full, want)
 	}
 }
 
-// TestChaserHistoryLapsIntoASeamRatherThanAHole: a reader that falls further
-// behind than the history's slack loses its OLDEST unread samples and is told
-// so, instead of the writer dropping the newest and punching an invisible hole
-// into the middle of the trail (the 2026-09-05 despawn/respawn cycle).
+// TestChaserHistoryLapsIntoASeamRatherThanAHole: a reader that falls further behind than the slack loses its oldest
+// unread samples and is told so, rather than the writer dropping the newest and leaving a hole in the trail.
 func TestChaserHistoryLapsIntoASeamRatherThanAHole(t *testing.T) {
 	h := newChaserHistory(4)
 	for i := 0; i < 4; i++ {
@@ -380,7 +347,6 @@ func TestChaserHistoryLapsIntoASeamRatherThanAHole(t *testing.T) {
 		t.Fatalf("read(0) on an exactly-full history = (%v, %d, lapped %v, ok %v), want the oldest sample untouched",
 			s.Timestamp, got, lapped, ok)
 	}
-	// Two more writes lap a reader still sitting at 0.
 	h.add(protocol.State{Timestamp: 4})
 	h.add(protocol.State{Timestamp: 5})
 	s, got, lapped, ok, _ := h.read(0)
@@ -390,15 +356,13 @@ func TestChaserHistoryLapsIntoASeamRatherThanAHole(t *testing.T) {
 	if got != 2 || s.Timestamp != 2 {
 		t.Fatalf("lapped read resumed at index %d (ts %d), want the oldest surviving sample, index 2", got, s.Timestamp)
 	}
-	// The NEWEST sample is always present: that is the direction that matters.
 	if s, _, _, ok, _ := h.read(5); !ok || s.Timestamp != 5 {
 		t.Fatalf("newest sample missing after a wrap: ok %v ts %d", ok, s.Timestamp)
 	}
 }
 
-// TestChaserHistoryWakesAWaiterWithoutLosingIt covers the lost-wakeup the
-// one-lock read() exists to prevent: a reader that finds nothing must get a
-// channel that a write landing immediately afterwards still closes.
+// TestChaserHistoryWakesAWaiterWithoutLosingIt: a reader that finds nothing gets a channel that a write landing
+// immediately afterwards still closes, the lost wakeup the one-lock read() prevents.
 func TestChaserHistoryWakesAWaiterWithoutLosingIt(t *testing.T) {
 	h := newChaserHistory(8)
 	_, _, _, ok, wait := h.read(0)
@@ -416,13 +380,9 @@ func TestChaserHistoryWakesAWaiterWithoutLosingIt(t *testing.T) {
 	}
 }
 
-// TestChaserHoldsWhileThePlayerIsFrozen (ADR 0053): while the adapter says the
-// player is frozen -- a pickup popup, the pause menu -- the chaser stops where
-// it is instead of spending the pause converging onto a player who cannot
-// move, and once play resumes it follows again the same distance behind, with
-// no seam. Measured live 2026-09-04: a 110-second popup left the chaser inside
-// the player, which is what blocks chaser_contact. Without the fix the chaser
-// walks the whole gap during the freeze and the first assertion fails.
+// TestChaserHoldsWhileThePlayerIsFrozen: while the adapter says the player is frozen (a pickup popup, the pause
+// menu), the chaser holds instead of converging onto the player, and on resume follows the same distance behind, with
+// no seam.
 func TestChaserHoldsWhileThePlayerIsFrozen(t *testing.T) {
 	c, _, fa := startLocalPeerCore(t)
 	c.mu.Lock()
@@ -441,7 +401,6 @@ func TestChaserHoldsWhileThePlayerIsFrozen(t *testing.T) {
 			t.Fatalf("send player_frozen: %v", err)
 		}
 	}
-	// Move until the chaser is on screen and behind.
 	start := time.Now()
 	var x float64
 	deadline := time.Now().Add(testTimeout)
@@ -457,8 +416,7 @@ func TestChaserHoldsWhileThePlayerIsFrozen(t *testing.T) {
 	if !seen {
 		t.Fatalf("chaser never appeared behind the player")
 	}
-	// FREEZE: the pawn holds still for 400ms (four times the delay) while the
-	// adapter keeps sending the same frame, as a real freeze does.
+	// Four times the delay, the adapter still sending the same frame as a real freeze does.
 	frozen(true)
 	held := x
 	at, _ := fa.rendersOf(id)
@@ -469,17 +427,13 @@ func TestChaserHoldsWhileThePlayerIsFrozen(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	at, _ = fa.rendersOf(id)
-	// One 50ms sleep slice of samples may still land after the message; any
-	// more than that means the clock kept running.
+	// One 50ms sleep slice of samples may still land after the message.
 	if at.Position[0] > atFreeze+6 {
 		t.Fatalf("chaser advanced from %v to %v during a freeze (player held at %v); it should hold", atFreeze, at.Position[0], held)
 	}
 	if at.Position[0] >= held-2 {
 		t.Fatalf("chaser converged onto the frozen player: at %v, player at %v", at.Position[0], held)
 	}
-	// RESUME from where the player stood: the chaser follows again, about a
-	// delay behind, and was never despawned (a 400ms freeze is under the seam
-	// threshold on the wall clock, and no gap at all on the gameplay clock).
 	frozen(false)
 	base := time.Now()
 	var lag float64 = -1
@@ -502,24 +456,14 @@ func TestChaserHoldsWhileThePlayerIsFrozen(t *testing.T) {
 	c.StopChasers()
 }
 
-// TestChaserTapThinsTheAdapterFrameRate (2026-09-05): a chaser's queue is
-// sized for 100 samples a second of its delay, and an adapter that sends one
-// sample per frame at ~180fps filled it -- a full queue drops the NEWEST
-// samples until the oldest fall due, cutting a hole longer than the seam
-// threshold into every chaser more than ~6s behind, which then despawned and
-// respawned on the player with a period of delay+spawn (watched live, read off
-// the log). The tap now hands the pack at most one sample per 10ms. Driven on
-// the fake clock: 500 frames 2ms apart must reach the chaser as ~100, not 500.
-// Without the thinning this counts 500 and fails.
+// TestChaserTapThinsTheAdapterFrameRate: the history is sized for 100 samples a second, so the tap hands the pack at
+// most one sample per 10ms whatever the adapter's frame rate; 500 frames 2ms apart are written as about 100.
 func TestChaserTapThinsTheAdapterFrameRate(t *testing.T) {
 	clk := newFakeClock()
 	c := New()
 	c.timeSrc = clk
 	c.ChaserEnabled = true
 	c.ChaserDelay = 10 * time.Second // nothing falls due inside the test
-	// A short spawn window: the goroutine DRAINS the queue until the player has
-	// moved for this long (samples before that are skipped, not delayed), then
-	// blocks on the first due sample and everything after it queues up.
 	c.ChaserSpawnDelay = 50 * time.Millisecond
 	if n := c.StartChasers(); n != 1 {
 		t.Fatalf("StartChasers = %d, want 1", n)
@@ -533,22 +477,14 @@ func TestChaserTapThinsTheAdapterFrameRate(t *testing.T) {
 	c.chaserMu.Lock()
 	hist := c.chaserHist
 	c.chaserMu.Unlock()
-	// 500 frames over 1s at 2ms: one sample per 10ms is 100. Asserted on what
-	// the tap WROTE rather than on what is still unread -- the shared history
-	// never drains, so the written count is the thinning itself rather than a
-	// figure that also depends on how far the goroutine happened to get.
+	// What the tap wrote, not what is unread: that would also depend on how far the goroutine got.
 	if got := hist.written(); got < 95 || got > 101 {
 		t.Fatalf("the tap wrote %d samples after 500 frames 2ms apart; want ~100 (one per 10ms)", got)
 	}
 }
 
-// TestChaserResetStartsThePackOver (ADR 0072): chaser_reset drops the chaser
-// now, and the fresh pack waits for the player to move again before anything
-// reappears -- a death and its reload in Pseudoregalia sent the old pack, which
-// follows the recording through the jump to the respawn point, onto a player
-// still standing there (2026-09-23: five deaths in ~25 s with contact "kill").
-// Without the handler the message is ignored, the chaser never despawns, and
-// the first wait fails.
+// TestChaserResetStartsThePackOver: chaser_reset drops the chaser now, and the fresh pack waits for the player to move
+// again, so a pack following the trail through a respawn never lands on a player still standing there.
 func TestChaserResetStartsThePackOver(t *testing.T) {
 	c, _, fa := startLocalPeerCore(t)
 	c.mu.Lock()
@@ -570,7 +506,6 @@ func TestChaserResetStartsThePackOver(t *testing.T) {
 		defer fa.mu.Unlock()
 		return fa.despawnCount[id]
 	}
-	// Move until the chaser is on screen.
 	start := time.Now()
 	var x float64
 	deadline := time.Now().Add(testTimeout)
@@ -591,7 +526,6 @@ func TestChaserResetStartsThePackOver(t *testing.T) {
 	if err := fa.conn.Send(env); err != nil {
 		t.Fatalf("send chaser_reset: %v", err)
 	}
-	// The ghost goes, while the player keeps standing where they are.
 	held := x
 	deadline = time.Now().Add(testTimeout)
 	for time.Now().Before(deadline) && despawns() == before {
@@ -601,8 +535,7 @@ func TestChaserResetStartsThePackOver(t *testing.T) {
 	if despawns() == before {
 		t.Fatal("chaser_reset did not despawn the chaser")
 	}
-	// Standing still for four times the delay: the fresh pack must NOT appear
-	// -- it waits for movement, exactly like a pack at the start of play.
+	// Four times the delay standing still: the fresh pack waits for movement, like a pack at the start of play.
 	stamp := lastRender()
 	until := time.Now().Add(400 * time.Millisecond)
 	for time.Now().Before(until) {
@@ -612,7 +545,6 @@ func TestChaserResetStartsThePackOver(t *testing.T) {
 	if lastRender() != stamp {
 		t.Fatal("the fresh pack rendered a chaser before the player moved again")
 	}
-	// Moving again brings a chaser back.
 	moveStart := time.Now()
 	deadline = time.Now().Add(testTimeout)
 	for time.Now().Before(deadline) && lastRender() == stamp {
@@ -624,9 +556,8 @@ func TestChaserResetStartsThePackOver(t *testing.T) {
 	}
 }
 
-// TestChaserResetIsBoundedAndNeedsAPack: a reset with no pack running starts
-// nothing, and a second reset inside chaserResetMinGap is ignored, so an
-// adapter sending one per frame cannot rebuild the history every frame.
+// TestChaserResetIsBoundedAndNeedsAPack: a reset with no pack starts nothing, and a second inside chaserResetMinGap is
+// ignored, so an adapter sending one per frame cannot rebuild the history every frame.
 func TestChaserResetIsBoundedAndNeedsAPack(t *testing.T) {
 	c, _, _ := startLocalPeerCore(t)
 	if n, ok := c.ResetChasers(); ok || n != 0 {

@@ -153,8 +153,8 @@ func TestReplayLastPlaysTheNewestRecordingWithoutMovingIt(t *testing.T) {
 	}
 }
 
-// TestReplayControlRecordActions: the record actions route to the recorder,
-// save_last says it is not built, and seeks with nothing loaded say so.
+// TestReplayControlRecordActions: the record actions route to the recorder, save_last with an empty ring says there
+// is nothing to save, and seeks with nothing loaded say so.
 func TestReplayControlRecordActions(t *testing.T) {
 	c := recordingCore(t)
 	if _, err := c.ReplayControl(ReplayRewind, 0); err == nil {
@@ -178,14 +178,8 @@ func TestReplayControlRecordActions(t *testing.T) {
 	c.forwardLocalState(&protocol.State{AreaID: "a", Position: []float64{0, 0}})
 }
 
-// A toggle must SAY which way it went, and a start must not be silent.
-//
-// The defect this pins, reported by a tester on 2026-09-04: "at least right now I
-// can't discern from the console log whether a record toggle started or stopped the
-// recording". Both callers logged "done" whichever branch ran, so the line belonging
-// to the key just pressed was the one line that said nothing. The recorder's own lines
-// do distinguish the two, which makes this narrower than "no feedback" and no less
-// real: neither caller can reply to the player, so the description IS the feedback.
+// TestRecordToggleSaysWhichWayItWent: neither caller can reply to the player, so the description is the feedback, and
+// a toggle must say which way it went.
 func TestRecordToggleSaysWhichWayItWent(t *testing.T) {
 	c := New()
 	c.ReplayDir = t.TempDir()
@@ -199,8 +193,7 @@ func TestRecordToggleSaysWhichWayItWent(t *testing.T) {
 		t.Fatalf("toggle did not stop recording: %q %v", stopped, err)
 	}
 
-	// The two must be tellable apart by a person reading one line, which is the whole
-	// point -- an empty or equal description is the bug returning.
+	// A person reading one line must tell the two apart.
 	if started == "" || stopped == "" {
 		t.Fatalf("a description must never be empty: start=%q stop=%q", started, stopped)
 	}
@@ -215,8 +208,7 @@ func TestRecordToggleSaysWhichWayItWent(t *testing.T) {
 		t.Errorf("stop description does not say so: %q", stopped)
 	}
 
-	// And the explicit actions must describe themselves the SAME way as the toggle,
-	// or the log means different things depending on which key was pressed.
+	// The explicit actions describe themselves as the toggle does, or the log's meaning depends on the key pressed.
 	if _, err := c.ReplayControl(ReplayRecordStart, 0); err != nil {
 		t.Fatalf("record_start: %v", err)
 	}
@@ -229,10 +221,8 @@ func TestRecordToggleSaysWhichWayItWent(t *testing.T) {
 	}
 }
 
-// The hotkey's own sentence is the ONLY feedback a player gets (see
-// ReplayControl's doc comment), so when the input track is on it has to say so
-// -- otherwise a player who enabled replay.inputs has no way to tell whether
-// the second half armed.
+// TestRecordControlsNameBothTracks: the hotkey's sentence is a player's only feedback, so with the input track on it
+// says whether the second half armed.
 func TestRecordControlsNameBothTracks(t *testing.T) {
 	c := inputCore(t)
 
@@ -256,8 +246,8 @@ func TestRecordControlsNameBothTracks(t *testing.T) {
 	}
 }
 
-// And with the feature off the sentence is unchanged -- a player who never
-// asked for an input track should not read about one.
+// TestRecordControlsStaySilentWithoutTheInputTrack: a player who never asked for an input track does not read about
+// one.
 func TestRecordControlsStaySilentWithoutTheInputTrack(t *testing.T) {
 	c := recordingCore(t)
 	msg, err := c.ReplayControl(ReplayRecordStart, 0)

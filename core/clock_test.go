@@ -10,14 +10,9 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// fakeClock is the test-side coreClock: time moves only when a test says so.
-//
-// THE EPOCH IS DELIBERATELY NOT THE ZERO TIME. Several guards in this package
-// read a stored timestamp's IsZero() as "this has never happened yet" --
-// sending.go's rate limiter is the clearest, treating a zero lastSendAt as
-// "always allow the first send". A fake starting at time.Time{} makes those
-// guards fire on values that were legitimately recorded, which looks like a
-// logic bug in the code under test rather than a broken clock.
+// fakeClock is the test-side coreClock: time moves only when a test says so. Its epoch is not the zero time, because
+// several guards read IsZero() as "never happened yet" (sending.go's rate limiter treats a zero lastSendAt as "allow
+// the first send").
 type fakeClock struct {
 	mu  sync.Mutex
 	now time.Time
@@ -35,29 +30,17 @@ func (f *fakeClock) Now() time.Time {
 
 func (f *fakeClock) Since(t time.Time) time.Duration { return f.Now().Sub(t) }
 
-// Advance moves the clock forward. Locked because the core reads its clock from
-// several goroutines and a test advancing it from another is the normal case --
-// without this the race detector reports the harness, not the code.
+// Advance moves the clock forward. Locked because the core reads its clock from several goroutines while a test
+// advances it from another.
 func (f *fakeClock) Advance(d time.Duration) {
 	f.mu.Lock()
 	f.now = f.now.Add(d)
 	f.mu.Unlock()
 }
 
-// TestTheClockIsInjectableAndTheWallIsStillTheDefault is the smallest slice of
-// the virtual-clock work that proves the design, and it was chosen as the first
-// one for that reason: one struct, three lines of production code, no goroutine
-// and no lock interaction.
-//
-// The recorder flushes on a one-second timer so a crash loses at most a second
-// of samples. Testing that boundary honestly used to mean waiting a second. Here
-// it costs nothing, and the assertion is about bytes reaching the disk rather
-// than about a duration.
-//
-// It also pins the thing that makes the whole conversion safe: lastFlush and
-// every reader of it moved TOGETHER. Convert the writes and leave the
-// time.Since, and this test would still pass at the wall clock while the fake
-// one silently compared a virtual stamp against real time.
+// TestTheClockIsInjectableAndTheWallIsStillTheDefault crosses the recorder's one-second flush boundary without waiting
+// a second, asserting bytes reaching the disk. It also pins that lastFlush and every reader of it moved to the clock
+// together: a time.Since left behind would compare a virtual stamp against real time.
 func TestTheClockIsInjectableAndTheWallIsStillTheDefault(t *testing.T) {
 	clk := newFakeClock()
 	c := New()
@@ -89,10 +72,8 @@ func TestTheClockIsInjectableAndTheWallIsStillTheDefault(t *testing.T) {
 		return fi.Size()
 	}
 
-	// The first sample CREATES the file, but the header and every sample after it
-	// sit in the 64KB buffer until the flush timer fires -- so the file is real
-	// and empty, which is exactly the state the once-a-second flush exists to
-	// bound.
+	// The first sample creates the file, but the header and every sample sit in the 64KB buffer until the flush timer
+	// fires, so the file is real and empty: the state the once-a-second flush exists to bound.
 	sample(0)
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("no file after the first sample: %v", err)
@@ -104,8 +85,7 @@ func TestTheClockIsInjectableAndTheWallIsStillTheDefault(t *testing.T) {
 		t.Fatalf("the file holds %d bytes with no time passing: something flushed that should have been buffered", got)
 	}
 
-	// Cross the one-second boundary WITHOUT waiting a second. This is the whole
-	// point of the exercise.
+	// Cross the one-second boundary without waiting a second.
 	clk.Advance(1100 * time.Millisecond)
 	sample(20)
 	if got := size(); got == 0 {
@@ -117,11 +97,9 @@ func TestTheClockIsInjectableAndTheWallIsStillTheDefault(t *testing.T) {
 	}
 }
 
-// TestACoreWithNoClockUsesTheWall pins the fallback, which every shipped path
-// takes and which a dozen tests depend on by building &Core{} literals that
-// never set the field. The accessor must also never ASSIGN -- it is called from
-// under c.mu and from outside it, so a lazy initialiser would be either a data
-// race or the reentrancy deadlock nowMsLocked documents.
+// TestACoreWithNoClockUsesTheWall pins the fallback every shipped path takes, as does every &Core{} literal in the
+// tests. The accessor must never assign: called both under c.mu and outside it, a lazy initialiser would race or
+// deadlock.
 func TestACoreWithNoClockUsesTheWall(t *testing.T) {
 	var c Core
 	if _, ok := c.clk().(wallClock); !ok {
@@ -143,20 +121,9 @@ func TestACoreWithNoClockUsesTheWall(t *testing.T) {
 	}
 }
 
-// TestAwaitTickGivesUpWhenItsCallerIsShuttingDown pins the cancel escape that
-// has to exist before awaitTick can read an injectable clock.
-//
-// awaitTick is called from inside the replay player's and the chasers' own
-// goroutines, which is to say from inside the goroutines halt() exists to
-// interrupt. Before the escape, halt() closed a channel nothing was listening
-// to: the loop kept polling until its deadline, both Stop functions fell through
-// to their one-second joins, and each abandoned replay leaked a goroutine. At the
-// wall clock that is merely wasteful. Once this loop is virtual it is fatal,
-// because a test that never advances time parks every replay and chaser here
-// forever.
-//
-// Five seconds is chosen so a regression cannot hide: without the escape this
-// test takes five seconds instead of milliseconds.
+// TestAwaitTickGivesUpWhenItsCallerIsShuttingDown: awaitTick runs inside the replay and chaser goroutines halt()
+// interrupts, so it must give up on stop, or a test that never advances a virtual clock parks them forever. The
+// five-second deadline makes a regression take five seconds rather than milliseconds.
 func TestAwaitTickGivesUpWhenItsCallerIsShuttingDown(t *testing.T) {
 	c := New()
 
@@ -174,9 +141,7 @@ func TestAwaitTickGivesUpWhenItsCallerIsShuttingDown(t *testing.T) {
 		t.Fatalf("awaitTick took %v with its stop channel already closed: it is not watching the channel, so halt() cannot interrupt it", elapsed)
 	}
 
-	// A nil stop channel is the shape every caller with nothing to cancel uses,
-	// and it must still respect the deadline rather than blocking forever in the
-	// select.
+	// A nil stop channel, as every caller with nothing to cancel passes, must still respect the deadline.
 	start = time.Now()
 	if c.awaitTick(c.tickCount(), 40*time.Millisecond, nil) {
 		t.Error("awaitTick reported a tick that never happened (nil stop)")
@@ -186,18 +151,9 @@ func TestAwaitTickGivesUpWhenItsCallerIsShuttingDown(t *testing.T) {
 	}
 }
 
-// TestTheRelayClockRunsOnTheInjectedClock covers the ROOT conversion: nowMsLocked
-// is where every timestamp on outgoing state, every render time remotes are
-// interpolated at, and every due time a replay or chaser sleeps until comes
-// from. Converting that one call converts staleness, interpolation, playback
-// pacing and the chaser pack together.
-//
-// The payoff is the second half of this test: crossing a window measured in
-// HOURS costs nothing. That is the thing the entry in ideas.md was asking for
-// and the thing a compressed clock cannot do -- shortening a per-Core field
-// until the window is milliseconds away stops testing the code once the window
-// is shorter than the machine's own scheduling jitter, and it cannot shorten a
-// duration that is not a field at all.
+// TestTheRelayClockRunsOnTheInjectedClock covers the root conversion: nowMsLocked is where every outgoing timestamp,
+// render time and replay or chaser due time comes from. Its payoff is crossing a window measured in hours at no cost,
+// which a compressed clock cannot do once the window is shorter than the machine's scheduling jitter.
 func TestTheRelayClockRunsOnTheInjectedClock(t *testing.T) {
 	clk := newFakeClock()
 	c := New()
@@ -223,8 +179,7 @@ func TestTheRelayClockRunsOnTheInjectedClock(t *testing.T) {
 		t.Fatalf("advancing eight hours took %v of real time -- something is still on the wall clock", spent)
 	}
 
-	// And the monotonic clamp still holds against a clock that goes backwards,
-	// which is the guard nowMsLocked documents at length.
+	// And the monotonic clamp still holds against a clock that goes backwards.
 	high := c.nowMs()
 	clk.Advance(-time.Hour)
 	if got := c.nowMs(); got < high {

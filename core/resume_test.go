@@ -8,23 +8,12 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
-// The CLIENT half of session resumption.
-//
-// Until 2026-08-22 no test in this package so much as mentioned resumeToken.
-// Every resume test lived in relay/online_test.go and drove raw protocol
-// clients, so the relay's half was well covered and the code in THIS package
-// -- storing the token, presenting it on the next Hello, discarding it when
-// the game closes -- had never run under test at all.
-//
-// The rule the pair below pins is an asymmetry, and it is the whole design: a
-// dropped relay keeps the token, because that is precisely the drop it exists
-// for; the game closing discards it, because a relaunched game must be a new
-// player in the room rather than a silent reclaim of the old identity.
+// The client half of session resumption. The asymmetry pinned below is the design: a dropped relay keeps the token,
+// because that is the drop it exists for, and the game closing discards it, because a relaunched game must be a new
+// player rather than a silent reclaim of the old identity.
 
-// startResumingCore is a Core that asks for resume.v1, connected eagerly.
-// resume.v1 is client-scoped, so it never splits a room -- one member can have
-// it while others do not, which is what lets these tests share an ordinary
-// relay with an ordinary peer.
+// startResumingCore is a Core that asks for resume.v1, connected eagerly. resume.v1 is client-scoped and never splits a
+// room, so these tests share an ordinary relay with an ordinary peer.
 func startResumingCore(t *testing.T, relayAddr, room, name string) *Core {
 	t.Helper()
 	c := New()
@@ -45,9 +34,8 @@ func resumeTokenOf(c *Core) string {
 	return c.resumeToken
 }
 
-// waitForRelayGone polls until the core has noticed its relay connection is
-// gone. The teardown runs on the transport's read-loop goroutine, so it lands
-// whenever that goroutine is next scheduled, not synchronously on Close.
+// waitForRelayGone polls until the core has noticed its relay connection is gone: the teardown runs on the transport's
+// read-loop goroutine, not synchronously on Close.
 func waitForRelayGone(t *testing.T, c *Core) {
 	t.Helper()
 	deadline := time.Now().Add(testTimeout)
@@ -63,17 +51,12 @@ func waitForRelayGone(t *testing.T, c *Core) {
 	t.Fatal("timed out waiting for the core to notice its relay connection had dropped")
 }
 
-// TestReconnectPresentsTheTokenAndReclaimsTheSameIdentity is the first test
-// anywhere that runs this package's resume code.
-//
-// The reconnect is driven by the test rather than by reconnectWithBackoff,
-// whose first retry is a full second away -- the property under test is "the
-// token is kept and presented", not "the backoff schedule is what it is".
+// TestReconnectPresentsTheTokenAndReclaimsTheSameIdentity: the test drives the reconnect rather than
+// reconnectWithBackoff, whose first retry is a second away, since the property is that the token is kept and presented.
 func TestReconnectPresentsTheTokenAndReclaimsTheSameIdentity(t *testing.T) {
 	s := relay.NewServer()
 	s.SendHz = protocol.MaxSendHz
-	// Explicit, though the 20s default would do: a grace expiry here would
-	// look like a resume failure, and the two deserve different diagnoses.
+	// Explicit, though the default would do: a grace expiry here would look like a resume failure.
 	s.ResumeGrace = 30 * time.Second
 	relayAddr := startRelayWith(t, s)
 
@@ -106,23 +89,16 @@ func TestReconnectPresentsTheTokenAndReclaimsTheSameIdentity(t *testing.T) {
 		t.Error("Resumed() is false after reclaiming the same identity")
 	}
 	// Tokens are single-use: the relay rotates one on every resume, and a
-	// client that kept the spent one would fail to resume the SECOND time.
+	// client that kept the spent one would fail to resume the second time.
 	if got := resumeTokenOf(c); got == "" || got == firstToken {
 		t.Errorf("resume token after the reconnect is %q (was %q) -- the rotated token was not "+
 			"stored, so the next drop would not be resumable", got, firstToken)
 	}
 }
 
-// TestARelaunchedGameIsANewIdentityNotAResumedOne is the other half of the
-// asymmetry: the token is discarded when the OWNER bridge connection goes,
-// because that means the game itself closed.
-//
-// The black-box half of this -- a fresh player id -- would pass even with the
-// token clear deleted, because the core also sends an explicit Leave
-// (sendGoodbye) which ends the relay-side session immediately, so there would
-// be nothing left to resume into. The private-field assertion is therefore the
-// one that actually isolates the client's behaviour, and is why this test
-// reads resumeToken directly.
+// TestARelaunchedGameIsANewIdentityNotAResumedOne: the token is discarded when the owner bridge connection goes, as the
+// game closed. It reads resumeToken directly: a fresh player id alone would pass with the clear deleted, since
+// sendGoodbye's Leave ends the relay-side session anyway.
 func TestARelaunchedGameIsANewIdentityNotAResumedOne(t *testing.T) {
 	s := relay.NewServer()
 	s.SendHz = protocol.MaxSendHz
@@ -157,9 +133,8 @@ func TestARelaunchedGameIsANewIdentityNotAResumedOne(t *testing.T) {
 			"silently reclaim the previous session's identity", got)
 	}
 
-	// Retry rather than assuming the admission slot is free the instant the
-	// socket closes: the core frees it from the departing connection's own
-	// read loop.
+	// Retry rather than assume the admission slot is free the instant the socket closes: the core frees it from the
+	// departing connection's own read loop.
 	reattachFakeAdapter(t, bridgeAddr, "emerald")
 	waitForPlayerID(t, c)
 
@@ -171,12 +146,8 @@ func TestARelaunchedGameIsANewIdentityNotAResumedOne(t *testing.T) {
 	}
 }
 
-// TestARefusedSecondAdapterDoesNotDiscardTheResumeToken covers the last arm of
-// the owner guard. The token clear sits inside the same `owns` branch as the
-// auto-retry disarm and the relay close that
-// TestMismatchedSecondAdapterDoesNotKillFirstAdaptersRelaySession already
-// protects: a connection that never became the adapter must take nothing with
-// it when it is refused.
+// TestARefusedSecondAdapterDoesNotDiscardTheResumeToken: the token clear sits in the same owns branch as the auto-retry
+// disarm and the relay close, so a connection that never became the adapter takes nothing with it when refused.
 func TestARefusedSecondAdapterDoesNotDiscardTheResumeToken(t *testing.T) {
 	s := relay.NewServer()
 	s.SendHz = protocol.MaxSendHz
@@ -197,8 +168,7 @@ func TestARefusedSecondAdapterDoesNotDiscardTheResumeToken(t *testing.T) {
 		t.Fatal("setup: no resume token was issued")
 	}
 
-	// A second adapter for a different game: refused, and its connection then
-	// closes -- but it never owned anything.
+	// A second adapter for a different game is refused and its connection closes, but it never owned anything.
 	intruder := dialFakeAdapter(t, bridgeAddr)
 	intruder.hello("tevi")
 	intruder.awaitReject()
@@ -212,15 +182,9 @@ func TestARefusedSecondAdapterDoesNotDiscardTheResumeToken(t *testing.T) {
 	}
 }
 
-// TestAPeersGhostSurvivesOurOwnReconnect is the point of the whole feature,
-// asserted the way a player would notice it: nothing in here reads a private
-// field.
-//
-// Without resumption a reconnecting client comes back under a new id, so every
-// peer despawns the old ghost and spawns a stranger. With it, the peer sees
-// nothing at all -- which is the assertion, and it is a negative one, so the
-// test keeps the peer's adapter ticking throughout to give a despawn every
-// chance to arrive.
+// TestAPeersGhostSurvivesOurOwnReconnect asserts it as a player would notice, reading no private field: across the
+// reconnect the peer sees nothing at all. That is a negative assertion, so the peer's adapter keeps ticking to give a
+// despawn every chance to arrive.
 func TestAPeersGhostSurvivesOurOwnReconnect(t *testing.T) {
 	s := relay.NewServer()
 	s.SendHz = protocol.MaxSendHz
@@ -235,7 +199,6 @@ func TestAPeersGhostSurvivesOurOwnReconnect(t *testing.T) {
 
 	bob, bobBridge := startCore(t, relayAddr, "emerald", "room1", "bob")
 	bobAdapter := dialFakeAdapter(t, bobBridge)
-	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
 	bobAdapter.hello("emerald")
 	waitForPlayerID(t, bob)
 
