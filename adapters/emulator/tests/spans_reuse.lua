@@ -20,7 +20,7 @@ local src = assert(io.open(path, "rb")):read("a")
 
 local startAt = src:find("genderFrames.newSpanScratch = function", 1, true)
 assert(startAt, "newSpanScratch not found -- the function was renamed and this test is testing nothing")
-local endAt = src:find("\n-- DOES THIS GHOST REFLECT", startAt, true)
+local endAt = src:find("\ngenderFrames.reflectPalFor = function", startAt, true)
 assert(endAt, "could not find the end of reflectiveSpans")
 local chunk = src:sub(startAt, endAt)
 
