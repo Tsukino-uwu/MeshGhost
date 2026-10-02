@@ -755,7 +755,7 @@ depth  490: extras wire bytes= 986  ValidateState=true
 A 490-level-deep nested value passes every check in under 1KB. The relay forwards it
 (`Room.forwardState` in `relay/states.go`), the receiving core re-serializes it faithfully, and it arrives at every
 other player's adapter — where each Lua adapter's hand-rolled recursive-descent decoder
-(`meshghost_crystal.lua:528`, *"not a general JSON library"*) tries to descend 490 levels. The
+(`jsonDecode` in `meshghost_crystal.lua`; both Lua decoders have since capped nesting at 64) tried to descend 490 levels. The
 `pcall` at the bottom of that decoder should turn a Lua stack overflow into a dropped message
 rather than a hang, **but that is an assumption and has not been run in BizHawk's own Lua.**
 
@@ -815,7 +815,7 @@ numbers it already reads, instead of defending against arbitrary structure.
 "`act` is 0-7" — can only live in the adapter, which is the one component permitted to know what
 those mean. That is the architecture working, not a workaround: the core is the trust boundary for
 *shape*, the adapter is the trust boundary for *meaning*. Crystal already does this correctly for
-`sprite` (`meshghost_crystal.lua:1359`, bounds 1-255 and refuses an implausible ROM pointer) and
+`sprite` (`ENGINE.peerRomIndex` and `spriteGfxInRom` in `meshghost_crystal.lua`, bounds 1-255 and refuses an implausible ROM pointer) and
 ~~**not at all for `act`, `prog` and `face`, which are `tonumber`'d with no range check**
 (`:5084-5099`)~~. The rule belongs in `_template/` so the next adapter starts with it.
 

@@ -1753,7 +1753,7 @@ repeating immediately rather than every 10s.
 **Two defects, and the same line states both wrongly.**
 
 1. **The cooldown is bypassed.** `connectBridge` returns early when `BRIDGE_PORT_OVERRIDE` is set
-   (`connectBridge` in `meshghost_emerald.lua` and `meshghost_crystal.lua`) and that early path never consults
+   (`connectBridge` in `meshghost_emerald.lua`, `connect` in `meshghost_crystal.lua`) and that early path never consults
    `busyUntil`, which is checked only in the port-walk loop below it. So `markPortBusy` logs
    *"skipping it for 10s"* and the next frame retries the same port anyway. The 10s is real for the
    walk and fiction for the override.

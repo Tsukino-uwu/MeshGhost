@@ -936,6 +936,11 @@ Each fact below sat in a code comment beside the code that uses it (at `f64560cc
 
 - And a second, independent shape check: an icon's eight tiles are 128 bytes, so consecutive DISTINCT icons should sit 128 apart. The engine's own comment says as much ([source text not copied]).
 
+**`adapters/emulator/pokemon/crystal/meshghost_crystal.lua`**, checked against adapters/emulator/pokemon/crystal/MEASURED.md, "Where the player is, and whether the overworld is running (2026-09-17)" and "Not measured yet"; also documentation.md (the `wStateFlags` paragraph under "The game's UI covers characters by itself"), UNVERIFIED.md "The sprite engine", and pitfalls/by-lesson.md (bit 0 "strobes between 01, 40 and 41") — none holds bit 0 clearing for the START menu
+
+- wStateFlags: bit 0 clears while the game empties the sprite buffer itself (the START menu).
+  - Moved with a caveat: MEASURED.md's 2026-09-17 entry read wSpriteUpdatesEnabled at 1 through the START menu, with wStateFlags' bit 0 moving with it (0 only while the PACK or POKéGEAR filled the screen), and documentation.md says which way the bit reads is unmeasured; the START-menu claim is unmeasured, and that entry points the other way.
+
 ## Not measured yet
 
 ### The rest of autoplay's Crystal reading (from 2026-09-17)

@@ -34,8 +34,8 @@ local BUSY_PORT_COOLDOWN_FRAMES = 600
 local LOOPBACK_OFFSET_X = (os.getenv("MESHGHOST_LOOPBACK_TRAIL") and 0)
 	or tonumber(MESHGHOST_LOOPBACK_OFFSET_X or os.getenv("MESHGHOST_LOOPBACK_OFFSET_X") or "") or 2
 
--- Dev: renders the loopback echo twice in one frame, spawned on one side and painted on the other,
--- because what the painted tier lacks (a cave's dark, a reflection, a doorway) is a question about a place.
+-- Dev: renders the loopback echo in every tier at once, side by side (COMPARE below), because what the
+-- painted tier lacks (a cave's dark, a reflection, a doorway) is a question about a place.
 local COMPARE_TIERS = (MESHGHOST_COMPARE_TIERS or os.getenv("MESHGHOST_COMPARE_TIERS")) and true or false
 -- Dev, read-only, loopback: a spawned ghost's step lag, split into `wire` (the player takes a tile to
 -- it returning through the core) and `apply` (to stepGhost's write); the engine shows it a frame later.
@@ -56,8 +56,8 @@ stepLag.close = function(id)
 	end
 	stepLag.open[id] = nil
 	local now = emu.framecount()
-	-- Clamped at 40: 250ms of interpolation alone is 15 frames, and a saturated top bucket reads as a
-	-- spread of zero. `lo`/`hi` keep the raw extremes outside the histogram.
+	-- Clamped at 40, above what the core's interpolation delay adds by itself: a saturated top bucket reads
+	-- as a spread of zero. `lo`/`hi` keep the raw extremes outside the histogram.
 	local function bump(h, v)
 		h.n, h.sum = (h.n or 0) + 1, (h.sum or 0) + v
 		h.lo = math.min(h.lo or v, v)
@@ -88,10 +88,6 @@ function COMPARE.hwKey(id) return id .. " (hardware copy)" end
 local DOMAIN = "WRAM"
 local ROM_DOMAIN = "ROM"
 
-----------------------------------------------------------------------------
--- Addresses
-----------------------------------------------------------------------------
-
 local function flat(cpu)
 	if cpu < 0xD000 then
 		return cpu - 0xC000
@@ -107,8 +103,8 @@ local ADDRESSES = {
 		-- wOBPals1 and wMenuBorder*, used by the drawn tier.
 		W_OBPALS = 0x5040,
 		MENUBOX = { top = 0x0F82, left = 0x0F83, bottom = 0x0F84, right = 0x0F85 },
-		OBJECT_STRUCTS = flat(0xD4D6), -- 01:d4d6, 13 x 0x28
-		MAP_OBJECTS = flat(0xD71E), -- 01:d71e, 16 x 0x10
+		OBJECT_STRUCTS = flat(0xD4D6),
+		MAP_OBJECTS = flat(0xD71E),
 		W_MAPGROUP = flat(0xDCB5),
 		W_MAPNUMBER = flat(0xDCB6),
 		-- the visible window's origin, not the player
@@ -124,7 +120,7 @@ local ADDRESSES = {
 		W_MAPWIDTH = flat(0xD19F),
 		-- wUsedSprites: 32 entries of [sprite id, VRAM tile], which sprites this map has loaded and where.
 		W_USEDSPRITES = flat(0xD154),
-		-- wStateFlags: bit 0 clears while the game empties the sprite buffer itself (the START menu).
+		-- wStateFlags: the hardware tier stays out while bit 0 is clear.
 		W_STATEFLAGS = flat(0xD0ED),
 		-- OverworldSprites, 05:4736: six-byte rows by sprite id - 1, where the drawn tier reads peer graphics.
 		OVERWORLD_SPRITES_ROM = 0x14736,
@@ -155,7 +151,7 @@ local ADDRESSES = {
 	-- A missing entry is nil, which refuses or turns a feature off: fill one from a probe, never a delta.
 	archipelago = {
 		label = "Archipelago-patched Crystal",
-		-- Inherited from vanilla, not measured on this build (probes/oam_probe.lua measures them).
+		-- Inherited from vanilla; probes/drive_menu_npc.lua and probes/set_colour.lua read them on any build.
 		W_OBPALS = 0x5040,
 		MENUBOX = { top = 0x0F82, left = 0x0F83, bottom = 0x0F84, right = 0x0F85 },
 		OBPALS_MEASURED = false,
@@ -253,7 +249,7 @@ local ENGINE = {
 	WONT_DELETE = 0x02, -- OBJECT_FLAGS1 bit: the engine's own culler leaves this object alone
 	UNASSIGNED = 0xFF, -- OBJECT_MAP_OBJECT_INDEX for an object with no map-object entry
 	MAPSTATUS_HANDLE = 2, -- wMapStatus while the overworld is the thing on screen
-	-- playerEmote is a field so getLocalState, defined above its readers, can still reach it.
+	-- playerEmote is a field so getLocalState, defined above it, can still reach it.
 	emoteIds = {}, -- the 16 bytes at VRAM $f8 -> which Emotes entry they are (-1 for none)
 }
 
@@ -275,10 +271,6 @@ local emote = {
 	SHADOW_DY = { [0] = 14, [1] = 14, [2] = 12, [3] = 12 },
 }
 local STANDING = 255
-
-----------------------------------------------------------------------------
--- Logging
-----------------------------------------------------------------------------
 
 -- BizHawk often reports `source` as a chunk name, not "@<path>"; its working directory is then the
 -- script's own, which the last-resort fallback relies on.
@@ -375,11 +367,8 @@ do
 	end
 end
 
-----------------------------------------------------------------------------
 -- LuaSocket. lua54.dll is pre-loaded by full path: LoadLibrary does not search the loading DLL's
 -- own directory for it.
-----------------------------------------------------------------------------
-
 local function loadSocketCore()
 	if package.config:sub(1, 1) ~= "\\" then
 		error("MeshGhost: only Windows is supported by the vendored LuaSocket binary so far.")
@@ -408,10 +397,7 @@ end
 
 local socketCore = loadSocketCore()
 
-----------------------------------------------------------------------------
--- Minimal JSON. Encode only what we send; decode enough for what we receive.
-----------------------------------------------------------------------------
-
+-- Minimal JSON: encode only what we send, decode enough for what we receive.
 local ESCAPES = { ["\\"] = "\\\\", ['"'] = '\\"', ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t" }
 
 local function jsonEscape(s)
@@ -451,7 +437,7 @@ end
 -- of input: an infinite loop raises nothing for the pcall to catch, and freezes the emulator.
 local function jsonDecode(s)
 	local pos = 1
-	-- Far above the bridge's three levels of nesting, far below the Lua stack's limit.
+	-- Capped at 64: far above the bridge's three levels of nesting, far below the Lua stack's limit.
 	local depth = 0
 	local function skip()
 		while pos <= #s and s:sub(pos, pos):match("[ \t\r\n]") do
@@ -591,10 +577,6 @@ local function jsonDecode(s)
 	end
 	return nil
 end
-
-----------------------------------------------------------------------------
--- Memory helpers and the ROM guard
-----------------------------------------------------------------------------
 
 local function u8(addr, domain)
 	-- BizHawk's read_u8(nil) returns 0, and a nil address means unmeasured: it must not satisfy a gate.
@@ -831,10 +813,6 @@ function ENGINE.xmap.translate(srcArea, sx, sy)
 	return sx - ENGINE.xmap.signed8(c.xOff), sy + ENGINE.xmap.ourH
 end
 
-----------------------------------------------------------------------------
--- get_local_state
-----------------------------------------------------------------------------
-
 local DIR_NAMES = { [0] = "down", [4] = "up", [8] = "left", [12] = "right" }
 
 -- One letter per dir index (the facing byte / 4), derived from DIR_NAMES so a hand-written order
@@ -843,7 +821,6 @@ DIR_NAMES.letter = {}
 for i = 0, 3 do
 	DIR_NAMES.letter[i] = (DIR_NAMES[i * 4] or "?"):sub(1, 1)
 end
--- A label is data: checked once at load.
 assert(table.concat(DIR_NAMES.letter, "", 0, 3) == "dulr",
 	"DIR_NAMES.letter disagrees with DIR_NAMES -- a direction table changed without its labels")
 
@@ -915,7 +892,6 @@ end
 -- Held across standing frames, so a receiver has it on the frame a peer starts moving.
 local lastGait = 1
 
--- The gait to send: this object's own if it is mid-step, otherwise the last one it was seen at.
 local function rememberGait(base)
 	local group = stepGait(base)
 	if group then
@@ -1027,17 +1003,14 @@ function getLocalState()
 	return st
 end
 
-----------------------------------------------------------------------------
--- Ghosts: spawn, move, despawn (the spawned tier)
-----------------------------------------------------------------------------
-
-local ghosts = {} -- player_id -> { mo, st, mo_base, st_base, area }
+-- The spawned tier: ghosts as real object events.
+local ghosts = {} -- player_id -> { mo, st, mo_base, st_base, area, sprite, ... }
 
 -- Peers painted by the drawn tier: by default every peer, and past the game's limits the rest.
-local overflow = {} -- player_id -> { x, y, sprite }
+local overflow = {} -- player_id -> the peer's latest state, plus the drawn model carried across arrivals
 
--- Per peer, for the collision policy: when it last changed tile, and until when it is passable.
-local activity = {} -- player_id -> { x, y, movedAt, passableUntil }
+-- Per peer: the collision policy's tile and timers, when it was last heard from, and its Fly landing.
+local activity = {} -- player_id -> { x, y, movedAt, passableUntil, seenAt, ... }
 local policyFrames = 0
 
 function ghostCount()
@@ -1052,7 +1025,7 @@ end
 local fullLoggedAt = nil
 
 -- Top down, against the engine's bottom up: the hardware keeps the first ten sprites on a scanline
--- in OAM order, which follows slot order, so when it must drop someone it drops a ghost.
+-- in OAM order, which follows slot order within a priority class, so when it must drop someone it drops a ghost.
 local function freeMapObject()
 	for i = NUM_MAP_OBJECTS - 1, 1, -1 do
 		if u8(MAP_OBJECTS + i * MAPOBJECT_LENGTH + M_SPRITE) == 0 then
@@ -1104,7 +1077,7 @@ local function beginPolicyFrame()
 	end
 end
 
--- OBJECT_ACTION values that mean standing doing nothing: 0 (uninitialised), STAND and STEP.
+-- OBJECT_ACTION values that play no animation of their own: 0 (uninitialised), STAND and STEP.
 local ACTIONS = {}
 ACTIONS.idle = { [0] = true, [1] = true, [2] = true }
 
@@ -1139,7 +1112,7 @@ local function shouldBlock(id, x, y, act)
 	end
 
 	-- Is the player holding the d-pad into this peer's tile, or the tile it is leaving, while
-	-- standing? Facing alone is not pressing. The old tile counts only for a step's ~16 frames.
+	-- standing? Facing alone is not pressing. The old tile counts only for about a step (20 frames).
 	local fs = frameState
 	local into = (fs.wantX == x and fs.wantY == y)
 		or (a.lastX ~= nil and policyFrames - a.movedAt <= 20
@@ -1300,12 +1273,9 @@ local function cameraSettled()
 	return (u8(W_BGMAPOFFSETX) or 0) % 16 == 0 and (u8(W_BGMAPOFFSETY) or 0) % 16 == 0
 end
 
--- ---------------------------------------------------------------------------
--- The drawn tier: peers painted over the emulator's output
--- ---------------------------------------------------------------------------
---
--- The shipped default, and the overflow when the spawned tier is on. No engine limit applies after the
--- PPU, nor its animation, collision or occlusion. Tiles come from VRAM when resident, else the cartridge.
+-- The drawn tier, peers painted over the emulator's output: the shipped default, and the overflow when the spawned
+-- tier is on. No engine limit applies after the PPU, nor its animation, collision or occlusion. Tiles come from VRAM
+-- when resident, else the cartridge.
 local DRAW_OVERFLOW = (MESHGHOST_CRYSTAL_DRAW_OVERFLOW or os.getenv("MESHGHOST_CRYSTAL_DRAW_OVERFLOW")) ~= "0"
 
 -- BGR555 to 8 bits a channel; the <<3 | >>2 keeps white at 0xFF rather than a washed-out 0xF8.
@@ -1406,8 +1376,8 @@ function ENGINE.playerEmote()
 		local b = OBJECT_STRUCTS + i * OBJECT_LENGTH
 		-- EMOTE_OBJECT marks any decoration, the jump shadow included; action 8 is what tells an emote apart.
 		if (u8(b + F_SPRITE) or 0) ~= 0
-			and ((u8(b + F_FLAGS1) or 0) & 0x80) ~= 0 -- EMOTE_OBJECT: decoration, not necessarily "!"
-			and (u8(b + F_ACTION) or 0) == 8 -- OBJECT_ACTION_EMOTE, the half that means emote
+			and ((u8(b + F_FLAGS1) or 0) & 0x80) ~= 0 -- EMOTE_OBJECT
+			and (u8(b + F_ACTION) or 0) == 8 -- OBJECT_ACTION_EMOTE
 			and u8(b + F_MAP_X) == px and u8(b + F_MAP_Y) == py then
 			found = true
 			break
@@ -1643,7 +1613,6 @@ local function learnFacingFromPlayer()
 			facingFrames.standLast = facingFrames.standLast or {}
 			if facingFrames.standLast[facing] ~= k then
 				facingFrames.standLast[facing] = k
-				-- emu.framecount(), not drawFrames, which is declared below and would be a nil global here.
 				logFile(string.format("facing-trace: f=%d STAND facing=%d [%s]",
 					emu.framecount(), facing, k))
 			end
@@ -1664,7 +1633,7 @@ local function learnFacingFromPlayer()
 			parts[i] = string.format("%d%s@%d,%d", frame[i].offset,
 				frame[i].xflip and "F" or "", frame[i].dx, frame[i].dy)
 		end
-		-- Flags any frame in the wrong group or flip for its facing, so the log settles it.
+		-- The invariant the returns above enforce, printed so a frame in the wrong group or flip shows if they break.
 		logFile(string.format(
 			"facing-trace: f=%d LEARNED facing=%d stride=%d group=%d dir=%d face=%02X [%s]%s",
 			emu.framecount(), facing, stride, group, dirNow, prev.face or 0,
@@ -1741,7 +1710,6 @@ function facingFrames.derive(facing)
 			end
 		end
 	end
-	-- Any slot still empty gets the sprite format's own frame.
 	out = out or { step = {}, derived = true }
 	out.stand = out.stand or seedFrame(false)
 	for i = 0, 3 do
@@ -1834,7 +1802,7 @@ end
 -- A Fly landing draws the peer's party mon icon: MonMenuIcons then IconPointers, in bank 0x23; memoised.
 facingFrames.iconRom = {}
 facingFrames.iconGfx = function(species)
-	species = ENGINE.peerRomIndex(species, 1, 251) -- integer and in range; see ENGINE.peerRomIndex
+	species = ENGINE.peerRomIndex(species, 1, 251)
 	if not facingFrames.iconTbl or not facingFrames.iconPtrs or not species then
 		return nil
 	end
@@ -1872,7 +1840,7 @@ facingFrames.ICON_BOX = {
 
 -- One emote's tiles in the cartridge, memoised: VRAM $f8 holds whatever the local game last loaded there.
 facingFrames.emoteGfx = function(idx)
-	idx = ENGINE.peerRomIndex(idx, 0, 11) -- integer and in range; see ENGINE.peerRomIndex
+	idx = ENGINE.peerRomIndex(idx, 0, 11)
 	if not EMOTES_ROM or not idx then
 		return nil
 	end
@@ -1960,11 +1928,8 @@ local function drawCharacter(source, sx, sy, palIndex, facing, walking, prog, st
 	drawRows(partRows(3), sx + 8, sy + 8, colors)
 end
 
--- ---------------------------------------------------------------------------
--- The hardware tier: peers drawn by the Game Boy itself, not painted over it
--- ---------------------------------------------------------------------------
--- The middle rung: a peer in wShadowOAM, drawn by the PPU in the game's live palettes. It adds almost no capacity
--- and needs resident tiles; entries go downward from the top, no lower than hUsedSpriteIndex ($ffbd).
+-- The hardware tier, the middle rung: a peer in wShadowOAM, drawn by the PPU in the game's live palettes. It adds
+-- almost no capacity and needs resident tiles; entries go down from the top, no lower than hUsedSpriteIndex ($ffbd).
 local OAM_TIER = (MESHGHOST_CRYSTAL_OAM_OVERFLOW or os.getenv("MESHGHOST_CRYSTAL_OAM_OVERFLOW")) == "1"
 
 local oam = {
@@ -2188,9 +2153,9 @@ local function spawnGhost(id, x, y, peerSprite)
 	w8(moBase + 0x08, palette | 3)                  -- MAPOBJECT_TYPE = OBJECTTYPE_3 (a no-op event)
 	w8(moBase + 0x09, 0)                            -- MAPOBJECT_SIGHT_RANGE: a ghost sees nobody
 	w8(moBase + 0x0A, 0)                            -- MAPOBJECT_SCRIPT_POINTER, low
-	w8(moBase + 0x0B, 0)                            -- ...and high; never read at type 3
+	w8(moBase + 0x0B, 0)                            -- ...and high
 	w8(moBase + 0x0C, 0xFF)                         -- MAPOBJECT_EVENT_FLAG: the "no flag" sentinel
-	w8(moBase + 0x0D, 0xFF)                         -- both donors seen carried FF FF here
+	w8(moBase + 0x0D, 0xFF)                         -- ...and high
 
 	ghosts[id] = { mo = mo, st = st, mo_base = moBase, st_base = stBase, area = areaId(),
 		sprite = u8(stBase + F_SPRITE) }
@@ -2398,7 +2363,7 @@ function meshghostSampleCamera()
 	end
 end
 
--- Paints every peer the engine had no room for, once a frame.
+-- Paints every peer in `overflow` (every peer, unless the spawned tier is on), once a frame.
 function drawOverflow()
 	drawFrames = drawFrames + 1
 	-- Before every gate below, like the camera sampler: a frame skipped here would paint from tiles that are gone.
@@ -2693,7 +2658,6 @@ function drawOverflow()
 				if have ~= want then
 					local was = tile
 					tile = nil -- not this sprite's pixels right now; fall through to the cartridge
-					-- Logged once: bank 1 held steady through two flies, so this may guard nothing.
 					if not facingFrames.vramMismatch then
 						facingFrames.vramMismatch = true
 						logFile(string.format("resident tiles for sprite %s did not match the "
@@ -2844,7 +2808,7 @@ function drawOverflow()
 			if o.pixX and o.pixY then
 				-- Where: the interpolated position rounded to the engine's 2px grid. When: on the engine's beat,
 				-- latched per burst, since a walk holds one parity and the next may not. The raw stream needs this
-				-- too: about 7% of walking frames receive 0 or 2 messages.
+				-- too: some walking frames receive 0 or 2 messages.
 				local qx = math.floor(o.pixX / 2 + 0.5) * 2
 				local qy = math.floor(o.pixY / 2 + 0.5) * 2
 				-- Born tile-aligned: every later move is a committed 16px step, so it keeps that alignment.
@@ -2952,7 +2916,7 @@ function drawOverflow()
 						-- the two-frame rule binds only the camera-parked fallback.
 						local mgap = drawFrames - (o.modelMovedAt or -99)
 						local budget = 0
-						-- extras.gait carries the engine's StepVectors group (1/2/4px), so the stride is the peer's.
+						-- extras.gait carries the engine's StepVectors group (GAIT_PX), so the stride is the peer's.
 						local stride = GAIT_PX[o.gait or 1] or 2
 						if facingFrames.camMoved then
 							-- The camera's delta is the world moving under the peer: a standing peer shifts by
@@ -3313,7 +3277,7 @@ function drawOverflow()
 					if o.rearm and o.walking then
 						o.rearm = nil
 					end
-					-- The legs run off the model, like the body: the wire's walking flag is a quarter second ahead.
+					-- The legs run off the model, like the body: the wire's walking flag runs ahead of the model.
 					-- Window 2 because the model moves every other frame; a gap of three is a stop.
 					local modelActive = o.modelMovedAt ~= nil
 						and (drawFrames - o.modelMovedAt) <= 2
@@ -3701,7 +3665,6 @@ function drawOverflow()
 				logFile("  camera deltas: " .. table.concat(b, " "))
 			end
 		end
-		-- Only once a resync has fired, so a clean run stays silent.
 		if (facingFrames.modelSnaps or 0) > 0 then
 			logFile(string.format("  model resyncs: %d so far, worst %dpx past the 24px threshold "
 				.. "-- each one is a painted peer being ASSIGNED its position rather than walked "
@@ -3767,7 +3730,6 @@ function drawOverflow()
 				facingFrames.kParkMax or 0, facingFrames.kFix or 0,
 				facingFrames.kNudges or 0, facingFrames.kFlips or 0,
 				facingFrames.camRebase or 0))
-			-- By direction of travel, on its own line.
 			if facingFrames.kParkDir then
 				local ds = {}
 				-- Keys from DIR_NAMES.letter (lowercase initials): a hand-typed key silently matches nothing.
@@ -4838,7 +4800,7 @@ ENGINE.xmap.build(here) end
 			w8(g.st_base + F_SPRITE_X, wantX)
 			w8(g.st_base + F_SPRITE_Y, wantY)
 			snaps.drift = (snaps.drift or 0) + 1
-			-- Signed: 2px short and 2px over are opposite faults.
+			-- driftDir keeps the sign: 2px short and 2px over are opposite faults.
 			snaps.driftPx = math.max(snaps.driftPx or 0, math.abs(ddx) + math.abs(ddy))
 			snaps.driftDir = string.format("%+d,%+d", ddx, ddy)
 			if math.abs(ddx) + math.abs(ddy) > 2 then
@@ -4924,14 +4886,9 @@ ENGINE.xmap.build(here) end
 		end
 		stepGhost(g, stepDir, peerGait)
 	else
-		-- `dropT ~= nil`, not the raw flag, so the engine fall and the painted drop share one envelope.
 		teleportGhost(g, x, y, dropT ~= nil) -- genuinely far (a warp, a long silence): snap, don't fake a walk
 	end
 end
-
-----------------------------------------------------------------------------
--- Bridge
-----------------------------------------------------------------------------
 
 local sock, connected, ready = nil, false, false
 local rxBuffer = ""
@@ -4977,7 +4934,7 @@ local busyUntil = {}
 local currentPort = nil
 local helloSentAtFrame = nil
 local bridgeFrames = 0
--- Set when a core reports the relay is unreachable; until then, do not walk ports or spawn cores.
+-- Set when a core reports the relay is unreachable; until this frame, do not walk ports or spawn cores.
 local relayDownUntil = 0
 
 -- The room's ghost-collision policy (`session_policy`). nil until one arrives keeps peers solid: an older core
@@ -5021,14 +4978,13 @@ local function tryPort(port)
 	return true
 end
 
--- One sweep per cooldown: a refused connect is immediate on loopback, and a closed port costs at most 50ms.
+-- One sweep per RECONNECT_FRAMES: a refused connect is immediate on loopback, and a closed port costs at most 50ms.
 -- firstFreePort: the last sweep's first silent port, where autostart puts a core (the base port may be taken).
 local firstFreePort = nil
 
 local function connect()
 	if BRIDGE_PORT_OVERRIDE then
 		firstFreePort = BRIDGE_PORT_OVERRIDE
-		-- The busy cooldown applies to an override too.
 		if (busyUntil[BRIDGE_PORT_OVERRIDE] or 0) <= bridgeFrames then
 			tryPort(BRIDGE_PORT_OVERRIDE)
 		end
@@ -5048,7 +5004,6 @@ local function connect()
 	end
 end
 
--- ---------------------------------------------------------------------------
 -- Autostart: start a core ourselves, and let it die with the emulator.
 -- luanet's Process with CreateNoWindow is invisible, where os.execute and io.popen flash a console.
 local coreChild, coreSpawnFrame, coreSpawnFailed = nil, nil, false
@@ -5261,10 +5216,6 @@ local function receive()
 	end
 end
 
-----------------------------------------------------------------------------
--- Main loop
-----------------------------------------------------------------------------
-
 local romClass, romWhy, romTable = classifyRom()
 log("=== MeshGhost — Pokémon Crystal ===")
 
@@ -5357,7 +5308,7 @@ end
 -- The mount needs no vocabulary: a player's sprite id changes when they mount. Memoised, six reads per id.
 ENGINE.spriteSigs = {}
 function ENGINE.spriteSig(id)
-	id = ENGINE.peerRomIndex(id, 1, 255) -- integer AND in range; see ENGINE.peerRomIndex
+	id = ENGINE.peerRomIndex(id, 1, 255)
 	if not OVERWORLD_SPRITES_ROM or not id then
 		return nil
 	end
@@ -5529,7 +5480,7 @@ if romClass == "known" then
 elseif romClass == "archipelago" then
 	log("ROM: " .. romWhy .. " — using its own measured address set.")
 else
-	-- One line naming the ROM: every build is attempted, and the log's first line then says which one it was.
+	-- Every build is attempted, so this line names the ROM for whoever reads the log.
 	if os.getenv("MESHGHOST_CRYSTAL_STRICT") == "1" then
 		log("REFUSING TO RUN (strict mode): " .. romWhy)
 		return
@@ -5826,7 +5777,7 @@ local function tick()
 			or seamTo(ENGINE.xmap.prevConns, ENGINE.xmap.prevFor)
 		-- A timestamp, not a flag: the settle window reads it earlier in the frame than this runs.
 		if wasSeam then ENGINE.xmap.seamAt = policyFrames end
-		-- Computed BEFORE the rebuild, like the seam test itself, and for the same reason.
+		-- Computed before the rebuild, like the seam test itself, and for the same reason.
 		local rebaseDX, rebaseDY = nil, nil
 		if wasSeam then rebaseDX, rebaseDY = ENGINE.xmap.rebaseDelta(lastArea, area) end
 		if lastArea and (MESHGHOST_CRYSTAL_XTRACE

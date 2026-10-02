@@ -1626,3 +1626,19 @@ phase presses B, not A. Found and not changed (printed strings are code): `compa
 `trainer_check.lua` heads its list `$f5..$ff` while it reads from $F0, and `square_drive.lua` logs "(crosses the idle
 release)". The docs that pointed into probe headers (`MEASURED.md`, `PROBES.md` for `grant_all_ap`, `cmd_drive`,
 `drive_surf` and `noclip`, and two `UNVERIFIED.md` entries) now point where the text went.
+
+## 2026-10-03 — A5's second pass: the adapter's remaining comments read against the code
+
+Every comment left in `meshghost_crystal.lua` was read beside its code (whole-line comments 865 to 825; the rest is
+mostly reasons and traps at their own lines). Eleven section banners and a handful of restatements went. Comments the
+code contradicts were fixed, among them: compare mode said to render the echo twice (up to three copies, one per tier),
+a probe named as measuring the palette and menu-box addresses that reads neither (`drive_menu_npc.lua` and
+`set_colour.lua` do), the gait list missing the 8 px fourth gait, a cooldown named where the retry loop uses
+`RECONNECT_FRAMES`, and the overflow and activity entries' field lists. One game-fact comment that `MEASURED.md`'s
+2026-09-17 entry contradicts (wStateFlags bit 0 and the START menu) moved to `MEASURED.md` with that caveat. `luac -l -l`
+listings without line numbers identical; the three emulator tests pass. Docs that cited line numbers in the file
+(`FLAGS.md`, `ideas.md`, `security-design.md`) now name the symbol. Found and not changed: action 5 (Dig/Teleport) hides
+the character on every frame though the comment says alternate ones, a fourth argument to `teleportGhost` and a fly
+trace field left over from the removed skyfall path, the compare log still says 2 tiles right (3), and on Archipelago
+the startup log calls the palette and menu-box addresses never measured although `PROBES.md` records two probes that
+read them.
