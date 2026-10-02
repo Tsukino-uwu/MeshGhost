@@ -1,176 +1,34 @@
--- MeshGhost — Pokémon Emerald adapter
+-- MeshGhost: the Pokémon Emerald adapter.
 --
--- *** WRITES GAME RAM. *** Object RAM only (gObjectEvents, gSprites, the sprite-tile
--- allocation bitmap, and the shadow-OAM window above gOamLimit that the hardware tier uses),
--- never a save, cosmetic only. See agent_docs/architecture.md's
--- 2026-08-18 ADR, which extends Crystal's spawn ADR to this adapter, and the ROM guard
--- below. The header used to end "Never writes memory" -- true until the spawn path landed
--- 2026-08-18, and left standing afterwards; it was the most misleading line in the file.
---
--- HOW TO READ A DECOMPILATION POINTER IN THIS FILE (a pokeemerald symbol or file name beside a
--- comment), since 2026-09-16: it says where the decompilation places the mechanism the code
--- next to it imitates. It is a pointer, never the evidence. A claim that names a probe, a trace,
--- a log or the user on screen, with a date, is measured; a claim marked unmeasured is the
--- source's reading only (CLAUDE.md, *measured or observed only*; each such question is in
--- UNVERIFIED.md, from the per-site audit of 2026-09-16). That audit removed every source path and
--- line from these comments, and preflight holds the count of path citations at zero.
---
--- This is the real, actively-maintained Emerald adapter -- what actually ships (see
--- packaging/README.md and .github/workflows/release.yml, which stage this file as
--- games/pokemon/emerald/meshghost_emerald.lua in the release zip) and what any future fix or
--- feature for this game should be made in. adapters/emulator/pokemon/emerald/probes/phase5_5_sprite.lua was a
--- byte-identical copy of this file at the moment it was renamed here from that original
--- development-phase name (2026-08-14, once this had been the stable, shipped adapter for a
--- while and "phase5_5_sprite" no longer read as the current, final one it actually was) --
--- it has since diverged (every fix and feature below this point in the history was made only
--- here) and is kept purely as a historical snapshot, not a live mirror -- edit only this file,
--- not that one, going forward.
---
--- Otherwise unchanged from its original Phase 5.5 content: real Brendan/May ghost sprite
--- instead of the magenta placeholder box. Same adapter <-> bridge <-> core round trip as
--- adapters/emulator/pokemon/emerald/probes/phase4_multiplayer.lua (state reading, screen-position anchor,
--- JSON, bridge protocol, remote-ghost set, tick model, overworld gate, LuaSocket loading --
--- all unchanged, see that script's header for the full derivation and citations, not
--- re-derived here). That inherited content is read-only; the RAM writes this adapter now does
--- are the spawn path added 2026-08-18, described in the banner at the top of this file.
---
--- What's different from phase4_multiplayer.lua: drawRemotes() decodes and draws the real
--- Brendan/May overworld sprite (gender, facing direction, and walk/run animation, including a
--- genuinely separate running pose -- see below) via gui.drawPixel, instead of
--- gui.drawImage-ing a flat placeholder box. Local gender is read once at script start from
--- gSaveBlock2Ptr->playerGender and sent in extras.gender (agent_docs/contract.md's extras
--- field is already free-form/opaque, no core/relay change needed); a remote's advertised
--- gender picks which pic table its ghost is drawn from.
---
--- Sprite decode: see adapters/emulator/pokemon/emerald/probes/sprite_probe.lua (Step 1, confirmed 2026-08-11) and
--- sprite_ghost_test.lua (Step 2, confirmed 2026-08-11) for the 4bpp-tile/BGR555-palette decode
--- math and the gui.drawPixel color-format fix (0xAARRGGBB, not 0xRRGGBBAA), both cited in
--- agent_docs/verified.md. Addresses (pokeemerald.sym, same make-compare-verified build as
--- every other address in this project):
---   gObjectEventPic_BrendanNormal = 0x084975F8, size 0x900 (9 frames x 256 bytes, 2x4 tiles)
---   gObjectEventPal_Brendan       = 0x084987F8, size 0x20 (16 colors, BGR555)
---
--- Facing direction and walk/run animation frame indices + durations (in real game frames, at
--- the same ~60fps this script's own emu.frameadvance() loop runs at, so tracking them with a
--- local frame counter matches the real game's own animation speed exactly). The frame indices and
--- per-pose durations this script uses (walk, run, and east as west mirrored) were first taken from
--- the decompilation's animation tables (sAnim_Go*/sAnim_Run*, object_event_anims.h -- a pointer);
--- the per-pose numbers themselves are not measured on the game, and that is an open question in
--- UNVERIFIED.md. What WAS observed: running is a separate pic table (gObjectEventPic_BrendanRunning/
--- _MayRunning), not a faster walk cycle -- found live 2026-08-11, after an earlier version of this
--- script had wrongly reused the ANIM_STD_GO_FAST_* tier for running.
---
--- Ghost placement, changed from phase4_multiplayer.lua: that script's GHOST_Y_CORRECTION
--- existed because the 16x16 placeholder box was one tile shorter than a real 16x32 overworld
--- sprite, so it needed shifting down to align with the character's feet. This script draws a
--- real 16x32 sprite (same dimensions as the local player's own, which playerScreenPos()'s
--- formula already correctly anchors by top-left corner) -- so no analogous correction is
--- needed here. Confirmed on screen live with two real peers, no offset hack required -- see
--- agent_docs/verified.md's "Phase 5.5 Step 3" entry.
+-- Writes game RAM, object RAM only (gObjectEvents, gSprites, the sprite-tile allocation bitmap, and the shadow-OAM
+-- window above gOamLimit that the hardware tier uses), never a save; cosmetic only, behind the ROM guard below.
+-- A pokeemerald symbol named in a comment says where the decompilation puts a mechanism: a pointer, never evidence.
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
--- gSaveBlock2Ptr = 0x03005D90 (pointer, right next to gSaveBlock1Ptr at 0x03005D8C --
--- pokeemerald.sym, same make-compare-verified build as every other address in this project).
--- This script reads playerGender at +0x08 and takes 0 as male, 1 as female; the decompilation
--- places both in global.h (a pointer), and neither is measured on the game.
--- Read once at script start, not every frame --
--- gender doesn't change mid-session, unlike everything else this script reads from memory.
 local GSAVEBLOCK2PTR_ADDR = 0x03005d90
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
 local OBJECTEVENT_SIZE = 0x24
 local GSPRITES_ADDR = 0x02020630
 local SPRITE_SIZE = 0x44
--- These live in the SAME EWRAM neighbourhood as gSprites (0x02020630), so a build that shifts that
--- region shifts these with it -- SPEEDCHOICE 1.2.2 moves both by +0x4. They are read through
--- spriteCoordOffX/Y below rather than directly, so the shift is applied in one place.
+-- Beside gSprites in EWRAM, so a build that moves gSprites moves these too: read them with spriteAddrOffset added.
 local GSPRITECOORDOFFSETX_ADDR = 0x02021bbc
 local GSPRITECOORDOFFSETY_ADDR = 0x02021bbe
 
--- Archipelago's recompile relocates gObjectEvents/gPlayerAvatar too -- confirmed live
--- 2026-08-14 (same day as the CB2_Overworld/sprite fixes above), via a multi-stage live
--- investigation on a real .apemerald-patched ROM: a scripted snapshot-diff probe
--- (avatar_scan_probe.lua) narrowed all of EWRAM down to gObjectEvents[0].facingDirection by
--- requiring an exact down/left/up/right value match at each of four deliberate direction
--- changes in order; a hex dump (avatar_hexdump_probe.lua) then matched the surrounding bytes
--- field-by-field against pokeemerald's real struct ObjectEvent layout (isPlayer bit set,
--- trackedByCamera bit set, localId=0xFF=LOCALID_PLAYER, mapNum=9/mapGroup=0 matching the
--- already-known Littleroot Town location) to pin down gObjectEvents[0]'s exact base address,
--- 0x020375D4; an array-boundary scan (avatar_array_probe.lua) confirmed this really is index 0
--- (one slot earlier breaks the pattern entirely) and found gPlayerAvatar at the same +0x240
--- relationship vanilla uses (0x02037814); and a final live verification
--- (avatar_verify_probe.lua) confirmed flags/dash/runningState/facingDirection all track real,
--- responsive state at these addresses instead of the frozen garbage the vanilla addresses read
--- (verified.md, 2026-08-11, reproduced 2026-08-14) -- watched live through walking, dashing,
--- and turning in every direction.
--- Both addresses shift by the exact same delta relative to vanilla (0x284) -- detected once at
--- startup below (a live scan, not assumed) by looking for the player's own object event (the
--- isPlayer bit + LOCALID_PLAYER signature above) at each candidate base, the same discipline as
--- the sprite-address detection above. Scoped to this Archipelago Emerald base-patch version,
--- same portability caveat as every other Archipelago-specific address in this file.
+-- Archipelago's recompile moves gObjectEvents and gPlayerAvatar by this much; detected at startup, never assumed.
 local AVATAR_ADDR_ARCHIPELAGO_SHIFT = 0x284
--- SPEEDCHOICE 1.2.2 (cartridge game code "SPDC"), measured 2026-09-11 and corroborated twice.
--- `probes/romvariant_probe.lua` resolved gObjectEvents to six AMBIGUOUS candidates and refused
--- to pick, which was right; `probes/objevents_pick_probe.lua` then decided between them with a
--- fact that probe did not have -- on this build gSaveBlock1Ptr WORKS, so the player's true
--- tile is known, and exactly one candidate (0x020373F4) held it at slot 0 with real NPC tiles
--- in slots 1..3. The other five were solid zeros. 0x020373F4 - 0x02037350 = 0xA4, and the same
--- search independently put gPlayerAvatar at 0x02037634, which is 0xA4 past its vanilla address
--- too: two structures, one shift.
--- The ROM side moves by a different amount, and that is also measured twice: romvariant_probe
--- RESOLVED gObjectEventGraphicsInfoPointers at 0x0850BA28 (+0x6408, 95 of 96 entries
--- validating as ObjectEventGraphicsInfo), and 0x0849EC00 -- the Brendan palette at +0x6408 --
--- was among the palette candidates its byte-signature search turned up.
--- **WRITTEN AS LITERALS AT THEIR USE SITES, NOT AS LOCALS**: this file is at Lua's hard
--- ceiling of 200 locals per main function and three more tipped it into a PARSE failure
--- ("too many local variables"), the same trap Crystal hit the same day.
+-- Other builds' shifts are literals at their use sites: the main chunk is at Lua's 200-local ceiling.
 
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
 
--- Archipelago's Pokemon Emerald patch is one static base ROM recompile shared by every seed
--- (agent_docs/risks.md's Archipelago-coexistence entry: base_patch.bsdiff4 rewrites real game
--- logic, per-seed randomization is small write_token calls on top of that shared recompile) --
--- so CB2_Overworld, being base game code rather than per-seed content, moves to this same
--- address for every player on that patch version, not just one specific seed. No decomp source
--- exists for the patched build to cite the normal way, so this was instead confirmed the way
--- this project's own verification standard treats as equally valid when source isn't available:
--- watched live, 2026-08-14, via adapters/emulator/pokemon/emerald/probes/battle_probe.lua against a real
--- .apemerald-patched ROM. callback2 read 0x080867F1 while standing idle in the overworld, held
--- steady through walking and a route change (no line printed -- no change), and through a full
--- door-transition round trip (entering AND leaving a house) it briefly showed 0x08086965 ->
--- 0x0813873D -> 0x08086995 (warp/fade/map-load handlers) before settling back to 0x080867F1
--- both times -- the same "transient callback during a warp, then reverts to the field callback"
--- shape already documented for vanilla's own CB2_Overworld in verified.md. Scoped to this base
--- patch version; a future Archipelago Emerald world update could recompile to a different
--- address, the same portability risk noted in ideas.md for any other fixed-address assumption.
 local CB2_OVERWORLD_ARCHIPELAGO_ADDR = 0x080867f1
--- SPEEDCHOICE 1.2.2: `romvariant_probe.lua` sampled gMain.callback2 across 900 consecutive
--- overworld frames and read 0x080864D5 on every one of them. Recorded as an OBSERVATION with
--- the caveat the probe itself prints: the site it was read from is a vanilla literal, so a
--- build that moved gMain would make it meaningless. gMain has NOT moved here -- the same probe
--- run read a coherent gSaveBlock1Ptr and map layout through neighbouring IWRAM addresses.
--- Stored even (the thumb bit is added by the comparison below, as for the two above).
 
 local function inOverworld()
     local callback2 = memory.read_u32_le(GMAIN_CALLBACK2_ADDR)
-    -- **WHEN gMain ITSELF HAS MOVED, THIS TEST CANNOT BE ASKED (2026-09-11).** Every entry point
-    -- below is a code address, so a plausible reading is always in ROM. EX SPEEDCHOICE 0.4.0 reads
-    -- E0999086 here -- not a pointer at all, because its IWRAM is relocated and gMain is not where
-    -- this looks. Comparing garbage against three known constants can only ever answer "no", and
-    -- the adapter would then never send or render on that build.
-    --
-    -- The fallback is a different question with the same answer: does the PLAYER'S OBJECT EVENT
-    -- exist and hold a plausible tile? The object event system only runs in the field, so a live
-    -- player entry is itself evidence of being in the overworld -- weaker than reading the
-    -- callback (it cannot tell a paused field state from a running one), and used only where the
-    -- stronger test is unavailable.
-    --
-    -- Through a GLOBAL, and deliberately: `playerObjEventExistsAt` and `avatarAddrOffset` are
-    -- file-scope locals declared ~250 lines BELOW this function, so naming them here would compile
-    -- to nil globals and throw on the first frame -- the forward-reference trap this file
-    -- documents, which bit six times on 2026-09-11 alone. The global is assigned at load time, at
-    -- the definition site, so by the time any frame runs it is there.
+    -- When gMain has moved (EX SPEEDCHOICE), callback2 is not a ROM address and this test cannot be asked; fall
+    -- back to whether the player's object event exists, which cannot tell a paused field state from a running one.
+    -- A global: the locals it needs are declared below this function, so naming them here would read nil.
     if callback2 < 0x08000000 or callback2 >= 0x0A000000 then
         return MG_FIELD_FALLBACK ~= nil and MG_FIELD_FALLBACK()
     end
@@ -179,92 +37,41 @@ local function inOverworld()
         or callback2 == 0x080864d4 or callback2 == 0x080864d5 -- SPEEDCHOICE 1.2.2
 end
 
-local TILE = 16 -- confirmed on screen in Phase 3, see phase4_multiplayer.lua's header.
+local TILE = 16 -- pixels
 
 local BRIDGE_HOST = "127.0.0.1"
--- PORT WALK. A core serves exactly ONE adapter (agent_docs/contract.md): a second bridge
--- connection is answered with `reject` and closed. Two copies of one game on one machine is a
--- normal thing to do, so a fixed port makes the second copy either fail or silently share the
--- first core -- a real mistake already recorded in pitfalls.md, made by launching EmuHawk
--- directly and skipping the environment variable. Instead: probe 7778 upward and take the first
--- core that answers `bridge_ready`. Shape copied from Pseudoregalia's BridgeClient (the tested
--- one) and matching Crystal's; the rationale, including the three things it got wrong first,
--- is in adapters/_template/PROTOCOL.md.
+-- A core serves one adapter, so walk the ports from the base and take the first core that answers bridge_ready.
 local BRIDGE_BASE_PORT = 7778
 local BRIDGE_PORT_COUNT = 8
--- An explicit port is honoured and then NOT walked: someone who names a port means that port.
--- Global FIRST, then the environment -- the same order Crystal's adapter uses, and the reason
--- matters when more than one emulator is open: an environment variable is fixed when BizHawk
--- launches, while a global can be set by whatever loads this script, which is how a dev loader
--- pins an already-running instance to its own core. Emerald read only the environment until
--- 2026-08-19, so a session that pinned the port by global was silently port-walked instead --
--- and walked straight into two other instances' cores, attaching to one of them.
+-- An explicit port is used as is, never walked. The global comes first: a loader can set it on a running emulator,
+-- while the environment is fixed when BizHawk launches.
 local BRIDGE_PORT_OVERRIDE = tonumber(MESHGHOST_BRIDGE_PORT
     or os.getenv("MESHGHOST_BRIDGE_PORT") or "")
--- Silence is NOT acceptance -- see PROTOCOL.md. 90 frames = 1.5s, matching the other adapters.
+-- Silence is not acceptance: 1.5s to answer.
 local HELLO_ANSWER_FRAMES = 90
 local BUSY_PORT_COOLDOWN_FRAMES = 600 -- 10s
 
--- Sent as this adapter's bridge Hello (internal/bridge.Hello) so the core can connect to the
--- relay without the user needing to type "game" into config.json themselves -- see
--- agent_docs/architecture.md's ADR. Opaque to the core; matches the folder name under
--- games/pokemon/emerald/ in the shipped release, per packaging/README.md's convention.
+-- Sent in the bridge hello, so the core needs no "game" in config.json; matches the release folder's name.
 local GAME_ID = "emerald"
 
--- Sent as this adapter's bridge Hello alongside GAME_ID (internal/bridge.Hello's
--- game_version field, added for relay-safety hardening — see the ADR in
--- agent_docs/architecture.md). This is this *script's* own version, not a ROM
--- build/revision read from game memory — no cited address exists for that, and
--- CLAUDE.md's "no addresses from memory" rule means one isn't guessed at here.
--- Opaque to the core/relay, compared only by equality: it catches two peers
--- running different revisions of this adapter script, the most likely real
--- source of a silent protocol mismatch. Bumped from "phase5.5" (2026-08-15,
--- full project sweep): the script has had several substantive rounds of real
--- fixes since Phase 5.5 shipped (Archipelago address auto-detection, gender-
--- read timing, the sub-tile smoothing rewrite, the loopback ghost offset) with
--- the version string never bumped to match — exactly the silent-mismatch
--- failure this field exists to catch. This is a deliberate breaking change: an
--- older client reporting "phase5.5" is now refused a room started by a
--- "phase8" client, and vice versa, rather than silently interoperating with
--- unverified-compatible code on the other end.
+-- This script's version, not the ROM's (no address for one is known); compared by equality only.
 local ADAPTER_VERSION = "phase8-spawn"
 
 local FACING = { [1] = "south", [2] = "north", [3] = "west", [4] = "east" }
 
 ----------------------------------------------------------------------------
--- Sprite decode, both genders (Phase 5.5 Step 4). Decoded once at script
--- start into resolved-color pixel lists per frame index (0-8), since the
--- ROM data never changes at runtime.
+-- Sprite decode, both genders: decoded once at start, since the ROM data never changes.
 ----------------------------------------------------------------------------
 
 local GOBJECTEVENTPIC_BRENDANNORMAL_ADDR = 0x084975f8
 local GOBJECTEVENTPAL_BRENDAN_ADDR = 0x084987f8
--- gObjectEventPic_MayNormal / gObjectEventPal_May, same pokeemerald.sym build as every other
--- address in this project (see agent_docs/phases/phase5_5.md's research summary):
--- 0x084A3078 (size 0x900, same 9-frame layout as Brendan's) and 0x084A4278 (size 0x20).
 local GOBJECTEVENTPIC_MAYNORMAL_ADDR = 0x084a3078
 local GOBJECTEVENTPAL_MAY_ADDR = 0x084a4278
--- Real, separate running-pose pic tables (found live 2026-08-11, see the header), drawn with the
--- same palette as each gender's Normal table. That they share one graphics entry and palette tag
--- with the walk frames is the decompilation's reading (sPicTable_BrendanNormal, a pointer), not
--- measured.
+-- Running is its own pic table, not a faster walk, drawn with the same palette as each gender's Normal table.
 local GOBJECTEVENTPIC_BRENDANRUNNING_ADDR = 0x08497ef8
 local GOBJECTEVENTPIC_MAYRUNNING_ADDR = 0x084a3978
 
--- Archipelago's recompile relocates this whole sprite/palette data block -- confirmed
--- 2026-08-14 by directly comparing ROM file bytes (not a runtime read) between the vanilla ROM
--- and two independent Archipelago-patched-ROM files: the exact 256-byte raw tile block at each
--- vanilla *_PIC_*_ADDR above, and the exact 32-byte raw palette block at each *_PAL_*_ADDR
--- above, were each found at exactly ONE new location in both patched ROMs (identical between
--- the two, i.e. seed-independent, consistent with Archipelago's Emerald patch being one static
--- base recompile shared by every seed -- see agent_docs/risks.md's Archipelago-coexistence
--- entry). All six addresses shifted by the exact same delta: +0x7530. This is a genuinely
--- different address family from CB2_Overworld's own Archipelago shift (which moved by a
--- different amount, 0x995, in ROM code rather than ROM data) -- no single ROM-wide offset
--- applies to everything, only to this contiguous graphics block.
--- Detected once at startup below (a live byte comparison, not assumed) rather than hardcoded as
--- "the" address, since a future Archipelago Emerald world/generator version could recompile to
--- a different offset -- the same portability caveat as every other address in this project.
+-- Archipelago's recompile moves this whole sprite and palette block; detected at startup, never assumed.
 local SPRITE_ADDR_ARCHIPELAGO_SHIFT = 0x7530
 
 local FRAME_WIDTH_TILES = 2
@@ -273,22 +80,13 @@ local FRAME_WIDTH_PX = FRAME_WIDTH_TILES * 8
 local FRAME_HEIGHT_PX = FRAME_HEIGHT_TILES * 8
 local FRAMES_PER_PIC_TABLE = 9
 
--- Direction -> {idle frame index, {4-step frame sequence}, hFlip}. One table serves walking and
--- running; only the pic table and the per-pose hold durations differ. South/North/West are drawn
--- as-is; East reuses West's frames mirrored. MEASURED 2026-09-16 (probes/borrowed_values_probe.lua,
--- the player walking and running a square): the player sprite's animation commands and the VRAM
--- image they drew showed exactly these sequences, idles and East's hardware flip, walking and
--- running (running's images are the same indices nine higher, the second pic table).
+-- Direction -> idle frame, 4-step cycle, flip (east is west mirrored); running uses the same indices in its table.
 local DIRECTION_ANIM = {
     south = { idle = 0, steps = { 3, 0, 4, 0 }, hFlip = false },
     north = { idle = 1, steps = { 5, 1, 6, 1 }, hFlip = false },
     west  = { idle = 2, steps = { 7, 2, 8, 2 }, hFlip = false },
     east  = { idle = 2, steps = { 7, 2, 8, 2 }, hFlip = true },
 }
--- Per-pose hold durations (frames), indexed the same as DIRECTION_ANIM's steps array: uniform for
--- walking, uneven for running. MEASURED 2026-09-16 (same run): each drawn walking pose held 8
--- frames and running poses 5, 3, 5, 3, in all four directions; the drawn image changes one frame
--- after the animation command index does.
 local WALK_POSE_DURATIONS = { 8, 8, 8, 8 }
 local RUN_POSE_DURATIONS = { 5, 3, 5, 3 }
 
@@ -306,9 +104,7 @@ local function decodePalette(addr)
     return pal
 end
 
--- decodeFramePixels decodes one frame at picAddr + frameIndex*256 bytes, returning a flat
--- list of {x, y, color} (0xAARRGGBB, see phase5.5 Step 2's verified.md entry for why),
--- skipping palette index 0 (transparent).
+-- One frame as {x, y, color}, color 0xAARRGGBB for gui.drawPixel, skipping palette index 0 (transparent).
 local function decodeFramePixels(picAddr, frameIndex, palette)
     local frameAddr = picAddr + frameIndex * (FRAME_WIDTH_TILES * FRAME_HEIGHT_TILES * 32)
     local pixels = {}
@@ -337,19 +133,11 @@ local function decodeFramePixels(picAddr, frameIndex, palette)
     return pixels
 end
 
--- genderFrames[gender][pose][i] (i = 0..8) = decoded pixel list for that gender/pose-set's
--- pic table, frame i. pose is "walk" (used for idle too -- idle frames 0-2 only exist in the
--- walk/Normal pic table) or "run" (the separate table above). All four combinations decoded
--- once at startup -- a remote's gender and current anim pick which table drawSpriteFrame reads
--- from, never which tables exist (all always loaded, since any combination could show up).
+-- genderFrames[gender][pose][i]: decoded pixels per frame; idle frames exist only in the walk table. It also holds
+-- file-wide state, since the main chunk is at Lua's 200-local ceiling.
 local genderFrames = { male = { walk = {}, run = {} }, female = { walk = {}, run = {} } }
 
--- Detect once at startup whether the vanilla or Archipelago-shifted sprite/palette addresses
--- are actually live, by comparing Brendan's palette's first 4 raw bytes (0x0E 0x53 0x5F 0x5B,
--- read directly from the vanilla ROM file 2026-08-14) against both candidate locations -- a
--- live verification, not an assumption, same discipline as vram_probe.lua's VRAM<->System-Bus
--- aliasing check. Falls back to vanilla (with a loud warning) if neither matches, e.g. a future
--- Archipelago Emerald world/generator version that recompiles to a third, unknown offset.
+-- Which layout this ROM has, by Brendan's palette's first four bytes at each known shift; vanilla if none matches.
 local BRENDAN_PAL_REF_BYTES = { 0x0e, 0x53, 0x5f, 0x5b }
 local function bytesMatchAt(addr, refBytes)
     for i, expected in ipairs(refBytes) do
@@ -373,22 +161,7 @@ local function detectSpriteAddrOffset()
         console.log("MeshGhost: sprite data found at the known SPEEDCHOICE-shifted ROM address.")
         return 0x6408
     end
-    -- EX SPEEDCHOICE 0.4.0: +0x1E6DBC, from romvariant_probe RESOLVING the graphics table at
-    -- 0x086EC3DC with 95 of 96 entries validating as ObjectEventGraphicsInfo. Note this build is a
-    -- 32MB cartridge and that scan only found it because the probe now MEASURES the ROM bound by
-    -- half-mirror comparison -- its old 16MB fallback was exactly half of this ROM, so the table
-    -- sat in the half it never looked at.
-    -- **EX SPEEDCHOICE MOVES ITS SPRITE DATA AND ITS GRAPHICS TABLE BY DIFFERENT AMOUNTS**, which
-    -- is why this build needs two offsets where every other one needs a single shift. Sprite data
-    -- (pic + palette) is +0x9CB78; the graphics-info table is +0x1E6DBC. Assuming one shift for
-    -- both is what made the first attempt report "sprite data not found" while the table had
-    -- already been RESOLVED at 95/96 entries.
-    --
-    -- Measured offline against the ROM files rather than in the emulator, because it is a question
-    -- about cartridge bytes: vanilla's 32-byte Brendan palette appears three times in this ROM, and
-    -- vanilla's first 256-byte sprite frame appears exactly ONCE -- at 0x08534170, with one of those
-    -- three palettes sitting 0x1200 past it, which is the same gap the two have in vanilla. One
-    -- pair, two independent signatures, no judgement call.
+    -- EX SPEEDCHOICE moves its sprite data and its graphics-info table by different amounts, so it needs two offsets.
     if bytesMatchAt(GOBJECTEVENTPAL_BRENDAN_ADDR + 0x9CB78, BRENDAN_PAL_REF_BYTES) then
         console.log("MeshGhost: sprite data found at the known EX SPEEDCHOICE-shifted ROM address.")
         genderFrames.tableOffset = 0x1E6DBC
@@ -400,26 +173,8 @@ local function detectSpriteAddrOffset()
     return 0
 end
 
--- Scans up to all 16 gObjectEvents entries at the given base for the player's own entry (the
--- isPlayer bit set AND localId == LOCALID_PLAYER (0xFF) -- pokeemerald's own sentinel for the
--- player's object event, confirmed live 2026-08-14 the same way as the header comment above
--- describes). Returns true if found, without needing to know which index it's at in advance.
---
--- BUG FOUND LIVE 2026-08-14, fixed same day: the isPlayer+localId check alone has a real false
--- positive against the OLD vanilla address once it's abandoned/frozen garbage under Archipelago
--- -- that garbage reads as a flat repeating `FF 03 FF 03...` pattern (already confirmed via a
--- hex dump), and since OBJECTEVENT_SIZE (0x24) is even, every entry lands on the same phase of
--- that 2-byte repeat: offset+0x02 and offset+0x08 both read 0xFF, which satisfies BOTH
--- isPlayerBit==1 (0xFF's low bit is set) AND localId==0xFF simultaneously, at every single
--- entry -- a false "found it" on the abandoned vanilla address, which is exactly what
--- happened live (avatarAddrOffset resolved to 0/vanilla on a ROM already confirmed relocated).
--- Fix: also require mapGroup to be a plausible real value -- the same garbage pattern reads
--- mapGroup as 0xFF (255), nowhere close to a real Emerald map group, while the real entry reads
--- 0 (Littleroot Town, already independently confirmed). A uniform repeating byte pattern can
--- satisfy one narrow bit-level check by coincidence; it's much less likely to also produce a
--- plausible, unrelated field at a different offset. Bound is 34 (valid 0-33), the count the
--- decompilation gives as MAP_GROUPS_COUNT (map_groups.h, a pointer) -- not measured on the game;
--- the real entry it was built against read 0 (Littleroot Town, above).
+-- True if one of the 16 object events at this base is the player's: isPlayer set, localId 0xFF, and a plausible
+-- mapGroup, since abandoned memory reading FF 03 FF 03 passes the first two at every entry.
 local MAP_GROUPS_COUNT = 34
 local function playerObjEventExistsAt(gObjectEventsBase)
     for i = 0, 15 do
@@ -434,29 +189,12 @@ local function playerObjEventExistsAt(gObjectEventsBase)
     return false
 end
 
--- Found live 2026-08-14, same day as the fix above: a script loaded WHILE still in the intro
--- cutscene (before the map/object-event system has spawned the player's own entry) fails BOTH
--- candidate checks -- there's no real object event data yet at either address, vanilla or
--- Archipelago-shifted. Calling this once at startup and keeping whatever it returns forever
--- (the original design) permanently locks in the fallback (vanilla) for the rest of the
--- session, even after real gameplay starts and the correct data becomes available -- confirmed
--- live: reloading the script after actually being in-game fixes it every time, proving this is
--- a timing bug, not a wrong address. Same class of problem readLocalGender()'s own header
--- comment already documents for gSaveBlock1Ptr/gSaveBlock2Ptr. Fix: don't call this once and
--- trust the result forever -- call tryDetectAvatarAddrOffset() every frame (see the main loop
--- below) until it actually finds the player's entry, then stop.
---
--- Resolved lazily (see tryDetectAvatarAddrOffset() and the main loop below) -- 0 on vanilla, or
--- AVATAR_ADDR_ARCHIPELAGO_SHIFT once detected. Declared here (before getLocalState() and
--- playerScreenPos() are defined) so both can close over it as an upvalue.
+-- Resolved lazily: retried every frame until the player's object event exists, which it does not during the intro.
 local avatarAddrOffset = 0
--- ON `genderFrames`, not a new local: this file is at Lua's 200-local ceiling and three new
--- constants tipped it into a parse failure earlier today. Read through a helper below.
 
 local avatarAddrConfirmed = false
 
--- The field fallback inOverworld() uses when gMain has moved (see its comment). Assigned here
--- rather than declared up there because both names it needs are locals of this part of the file.
+-- inOverworld()'s fallback when gMain has moved; assigned here, where the locals it needs exist.
 MG_FIELD_FALLBACK = function()
     return avatarAddrConfirmed and playerObjEventExistsAt(GOBJECTEVENTS_ADDR + avatarAddrOffset)
 end
@@ -477,45 +215,26 @@ local function tryDetectAvatarAddrOffset()
     if playerObjEventExistsAt(GOBJECTEVENTS_ADDR + 0xA4) then -- SPEEDCHOICE 1.2.2
         console.log("MeshGhost: gObjectEvents/gPlayerAvatar found at the known SPEEDCHOICE-shifted address.")
         avatarAddrOffset = 0xA4
-        genderFrames.spriteAddrOffset = 0x4 -- gSprites, measured by gsprites_scan_probe.lua
+        genderFrames.spriteAddrOffset = 0x4 -- gSprites
         avatarAddrConfirmed = true
         return
     end
-    -- EX SPEEDCHOICE 0.4.0 ("SPDX"), +0xC80. Measured by `probes/objevents_walk_probe.lua`, which
-    -- had to exist because the trick that decided SPEEDCHOICE does not work here: that one compares
-    -- each candidate against the SAVE BLOCK's tile, and on this build the whole of IWRAM moved --
-    -- 0x03005D8C reads FDFDFFFF and gMain.callback2 reads E0999086, neither a pointer. So the
-    -- candidate was picked by WALKING instead: of six survivors from romvariant_probe's structural
-    -- search, exactly one tracked the player for all 16 steps (four out and four back on each
-    -- axis). romvariant_probe independently put gPlayerAvatar at 0x02038210, which is +0xC80 from
-    -- its vanilla address too.
+    -- EX SPEEDCHOICE 0.4.0, whose IWRAM moved too (iwramOffset).
     if playerObjEventExistsAt(GOBJECTEVENTS_ADDR + 0xC80) then
         console.log("MeshGhost: gObjectEvents/gPlayerAvatar found at the known EX SPEEDCHOICE-shifted address.")
         avatarAddrOffset = 0xC80
-        -- gSprites, +0x20, measured by gsprites_scan_probe.lua: EWRAM narrowed to one candidate by
-        -- cross-link, then the player WALKED 12 steps and the sprite tracked it on both axes.
         genderFrames.spriteAddrOffset = 0x20
         genderFrames.iwramOffset = -0x10E0 -- gSaveBlock1Ptr/2Ptr, see session.saveBlockPtr
         genderFrames.camOffset = -0x10D0 -- the camera block, sixteen bytes off the save block's
         avatarAddrConfirmed = true
         return
     end
-    -- Not found yet -- most likely still in the intro/title/character-creation sequence and
-    -- the object event system hasn't spawned the player's entry yet. Leave avatarAddrOffset at
-    -- its current value and avatarAddrConfirmed false; the main loop will call this again next
-    -- frame rather than latching in a guess.
+    -- Not found yet (intro, title screen): retried next frame rather than latching a guess.
 end
 
 local function loadGenderFrames()
     local offset = detectSpriteAddrOffset()
-    -- CACHED, because this offset is not only about the pictures decoded below. The same
-    -- Archipelago recompile that moved the sprite/palette block moved the ROM POINTER TABLE
-    -- graphicsInfo() reads (measured 2026-08-19: at the vanilla address its entries are not even
-    -- ROM pointers; at +0x7530 every entry is a valid graphics info struct). Nothing applied the
-    -- offset there, so on a patched ROM graphicsInfo() returned nil for every id, spawnGhost()
-    -- hit `if not info then return nil end`, and the adapter silently spawned NOTHING while
-    -- reporting peers received and in the same area. Stored on genderFrames rather than as a new
-    -- local: the main chunk is at Lua's 200-local ceiling.
+    -- Cached: the same shift moves the graphics-info pointer table that graphicsInfo() reads.
     genderFrames.romOffset = offset
     local malePalette = decodePalette(GOBJECTEVENTPAL_BRENDAN_ADDR + offset)
     local femalePalette = decodePalette(GOBJECTEVENTPAL_MAY_ADDR + offset)
@@ -527,23 +246,7 @@ local function loadGenderFrames()
     end
 end
 
-----------------------------------------------------------------------------
--- Paths, resolved relative to this script's own location -- same
--- io.popen("cd") approach as phase4_multiplayer.lua, see its header for why
--- debug.getinfo does NOT work here (BizHawk loads scripts as in-memory
--- string chunks, not files).
-----------------------------------------------------------------------------
-
--- Ask Lua where THIS file is, rather than asking the OS where the process happens to be.
--- Two real bugs fixed here, 2026-08-18:
---   * `io.popen("cd")` returns the CURRENT WORKING DIRECTORY, which is only the script's own
---     directory because BizHawk chdirs into it when a script is opened by hand. Load this file
---     any other way -- from another script, or with a different working directory -- and it
---     looked for lib/x64/ in the wrong place and died with "The specified module could not be
---     found", which reads like a missing DLL rather than a wrong path.
---   * `io.popen` spawns a real `cmd` process, so every launch flashed a console window on screen.
---     The user noticed it; there is no reason for an adapter to start a shell to find itself.
--- debug.getinfo's `source` is the path this chunk was loaded from, which is the actual question.
+-- Where this file is, from debug.getinfo; the working directory is the script's folder only when opened by hand.
 local function scriptDir()
     local info = debug.getinfo(1, "S")
     if info and info.source and info.source:sub(1, 1) == "@" then
@@ -552,15 +255,8 @@ local function scriptDir()
             return dir .. "/"
         end
     end
-    -- MESHGHOST_SCRIPT_DIR, if set. This exists because of the case below it: loaded with
-    -- `--lua=<path>` BizHawk reports `source` as `[string "main"]`, NOT a path, so the branch
-    -- above cannot answer and the io.popen fallback is what actually ran -- every launch, which
-    -- is where the console-window flash came from. Anything launching this script can hand it
-    -- the answer for free instead (dev-scripts do), and then no process is spawned at all.
-    -- Game-specific FIRST. An environment variable is process-wide, and BizHawk runs every Lua
-    -- script in one process -- so a plain MESHGHOST_SCRIPT_DIR set for one adapter is inherited
-    -- by the next one loaded, which sent Crystal's log and DLL search into Emerald's folder
-    -- (found live 2026-08-18, loading both adapters in one emulator).
+    -- Loaded with --lua=, BizHawk reports source as [string "main"], so a launcher can pass the folder instead.
+    -- The game-specific name first: all scripts share one process, so a plain one would reach the next adapter.
     local fromEnv = MESHGHOST_SCRIPT_DIR
         or os.getenv("MESHGHOST_SCRIPT_DIR_EMERALD")
         or os.getenv("MESHGHOST_SCRIPT_DIR")
@@ -568,12 +264,7 @@ local function scriptDir()
         return (fromEnv:gsub("[/\\]$", "")) .. "/"
     end
 
-    -- Last resort, and it DOES get used: `--lua=` with no env var set. It answers with the
-    -- working directory rather than this script's, so it is only right when the two happen to
-    -- agree -- and it spawns a real `cmd` to ask, which is the window that flashes. Removing it
-    -- outright on 2026-08-18 broke `--lua=` loading immediately ("could not determine the
-    -- script's own directory"), which is how we learned the comment calling it unreachable was
-    -- wrong. Kept, and now reached only when nothing better was offered.
+    -- Last resort: the working directory, via a cmd whose window flashes; right only when the two agree.
     local pwd = io.popen and io.popen("cd"):read("*l")
     if not pwd or pwd == "" then
         error("MeshGhost: could not determine the script's own directory. Load this file from "
@@ -585,17 +276,10 @@ end
 local SCRIPT_DIR = scriptDir()
 
 ----------------------------------------------------------------------------
--- LuaSocket: identical to phase4_multiplayer.lua, see its header for the
--- full derivation of why lua54.dll must be pre-loaded by full path first.
+-- LuaSocket, with lua54.dll preloaded by full path: the socket DLL imports it by name, and Windows won't find it.
 ----------------------------------------------------------------------------
 
--- Windows LoadLibrary is documented as NOT supporting forward slashes, and package.loadlib is a
--- thin wrapper over it. Everything else here is happy with either separator, so this conversion is
--- applied to DLL paths only. Found live 2026-08-18: scriptDir() changing from io.popen("cd")
--- (which returns backslashes) to debug.getinfo (which returns whatever separator the loader used)
--- turned a working load into "The specified module could not be found" -- an error that reads as
--- a missing DLL and sends you hunting for the file, when the file is there and the SEPARATOR is
--- the problem.
+-- LoadLibrary does not accept forward slashes, so DLL paths get backslashes.
 local function dllPath(rel)
     return (SCRIPT_DIR .. rel):gsub("/", "\\")
 end
@@ -627,49 +311,23 @@ local function loadSocketCore()
     return loader()
 end
 
--- A log file beside the script, as Crystal's adapter has always had and this one never did --
--- found live 2026-08-18: the adapter failed to connect and there was NO way to see why from
--- outside the emulator, because every message went to the Lua Console only. An adapter that can
--- only be diagnosed by someone sitting in front of the GUI cannot be diagnosed by whoever is
--- actually debugging it, and a user reporting a problem has nothing to send.
--- Prefer a logs/ subfolder so the adapter folder itself stays readable -- a development session
--- reloads the script many times and each run opens its own timestamped file, which buried the
--- four .md files under two dozen logs in one afternoon. No mkdir: io.open simply fails if the
--- directory is missing, which is the fallback, and creating one would mean os.execute -- the same
--- shell call whose console-window flash was removed from this file earlier today.
---
--- THE NAME CARRIES THIS EMULATOR'S PROCESS ID, and that is not decoration. Two emulators running
--- the same game (a vanilla ROM and a patched seed, which is the normal two-instance session here)
--- run this same script, and a name resolved only to the SECOND collides whenever both reload in
--- the same second -- which is exactly what a control-file edit or a shared restart does. Both then
--- hold the same file open and their lines interleave mid-write, producing mangled lines like
--- "atus: frame=..." where one write landed inside another. Found live 2026-08-19 with two Emerald
--- instances; a pid cannot collide while both processes exist, where a port can (the bridge port is
--- walked, and is not known yet at this point anyway).
+-- A log file beside the script, in logs/ when that folder exists (creating it would need a shell). The name carries
+-- the emulator's pid: two instances reloading in the same second would otherwise share one file.
 local logfile
 do
     local okPid, pid = pcall(function()
         luanet.load_assembly("System")
         return luanet.import_type("System.Diagnostics.Process").GetCurrentProcess().Id
     end)
-    -- No pid available (a BizHawk build without luanet): fall back to a pinned bridge port, and
-    -- then to the clock's fractional part -- any discriminator beats none, because the failure
-    -- being prevented is silent corruption of the file rather than a missing one.
+    -- No luanet: fall back to a pinned port, then the clock; any discriminator beats two writers in one file.
     local tag = (okPid and pid) or BRIDGE_PORT_OVERRIDE
         or math.floor((os.clock() % 1) * 100000)
     local name = string.format("meshghost_emerald_%s_%s.log", os.date("%Y%m%d_%H%M%S"), tostring(tag))
     logfile = io.open(SCRIPT_DIR .. "logs/" .. name, "w") or io.open(SCRIPT_DIR .. name, "w")
-    -- BUFFER IT. Every log line used to be followed by a flush -- a synchronous disk write on the
-    -- game thread, which is the emulator's thread. Measured on the Crystal adapter 2026-08-21: a
-    -- script whose only per-second work was one log line produced a 63-83ms stall EVERY SECOND,
-    -- four to five frames, while the frame-rate average still read 59.7fps. The user's report for
-    -- a whole session was *"choppy/laggy"* on a game that measured full speed. probes.md has said
-    -- "buffer, and flush in batches" since the drawn tier was built; both adapters shipped without
-    -- doing it. Fixed here in the same pass as Crystal's.
+    -- Buffered: a flush is a synchronous disk write on the emulator's thread, so it is flushed on a timer instead.
     if logfile then
         pcall(function() logfile:setvbuf("full", 16384) end)
     end
-    -- Beside the logs, and set only here so it inherits whichever directory actually worked.
     genderFrames.xmapCachePath = SCRIPT_DIR .. "logs/xmap_cache.txt"
 end
 
@@ -681,26 +339,10 @@ console.log = function(msg)
     end
 end
 
--- WHERE THE BRIDGE PORT RANGE STARTS, from the player's own config.json.
---
--- Until 2026-08-28 this script walked 7778-7785 whatever that file said, so a player who moved
--- the port moved the CLIENT and not the script, and the two then never found each other -- the
--- config did not fail loudly, it silently broke the connection. Reported on Pseudoregalia as
--- "setting the config to 7780 it still starts at 7778"; the same defect, in a different language.
---
--- Read by hand rather than with a JSON parser: the shape is fixed ("host:port", quoted) and one
--- key does not justify a parser. Anything unrecognised leaves the default alone.
---
--- IN A do ... end BLOCK ON PURPOSE. This file sits two names below Lua's 200-local ceiling for a
--- main chunk (adapters/emulator/CLAUDE.md), and locals inside a block are released at its end, so
--- this costs none of them. Past that ceiling the script does not load AT ALL -- not loudly, just
--- absent, which reads exactly like a dead relay.
---
--- MESHGHOST_BRIDGE_PORT still wins over this: pinning one port for one run is a stronger
--- statement than saying where a range begins.
+-- Where the bridge port range starts, from local_game_bridge in the player's config.json, read by hand: one key of a
+-- fixed shape. In a do block, so its locals cost none of the main chunk's 200. MESHGHOST_BRIDGE_PORT still wins.
 do
-    -- The same places the autostart search looks for meshghost.exe, in the same order: the
-    -- config the client reads is the one sitting beside it.
+    -- The same config files, in the same order, that the autostart switch reads.
     local candidates = {
         SCRIPT_DIR .. "config.json",
         SCRIPT_DIR .. "../../../config.json",
@@ -719,18 +361,13 @@ do
                     port, port + BRIDGE_PORT_COUNT - 1))
                 BRIDGE_BASE_PORT = port
             end
-            -- First readable config wins, even if it has no such key: a later file is a
-            -- different install's, and silently preferring it would be worse than the default.
+            -- The first readable config wins, key or not: a later one belongs to a different install.
             break
         end
     end
 end
 
--- File only. A per-tick line in the Lua Console scrolls the startup lines out of view, and those
--- name the ROM and every address in use -- which is what a reader actually needs. Same split
--- Crystal's adapter uses (probes.md: detail to the log file, headlines to the console).
--- DELIBERATELY UNFLUSHED -- see the buffering note where the file is opened. The callers are
--- periodic diagnostics; the buffer is pushed to disk on the timer below and on the way out.
+-- File only, unflushed: per-tick lines in the console would scroll the startup lines (the ROM, the addresses) away.
 local flushCountdown = 0
 local function logFile(msg)
     if logfile then
@@ -738,8 +375,7 @@ local function logFile(msg)
     end
 end
 
--- One flush every five seconds costs a single frame's hitch that often, instead of one every time
--- anything is written. Called once per frame from the main loop.
+-- One flush every five seconds: a single frame's hitch that often, not one per write. Called once per frame.
 local function flushLogPeriodically()
     if not logfile then
         return
@@ -754,92 +390,36 @@ end
 local socketCore = loadSocketCore()
 
 ----------------------------------------------------------------------------
--- Minimal JSON -- identical to phase4_multiplayer.lua, see its header.
+-- Minimal JSON.
 ----------------------------------------------------------------------------
 
 local JSON_STRING_ESCAPES = {
     ["\\"] = "\\\\", ['"'] = '\\"', ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t",
 }
 local function jsonString(s)
-    -- Every field this feeds is currently a fixed constant (area_id, orientation, anim, gender,
-    -- game_id/version) so this has never fired in practice, but the escaping was still
-    -- incomplete: an unescaped control char, especially \n, would corrupt the NDJSON framing
-    -- (one line on the wire becomes two) rather than just producing invalid JSON.
+    -- Control characters too: a raw newline would split one NDJSON line into two.
     s = s:gsub('[\\"%c]', function(c)
         return JSON_STRING_ESCAPES[c] or string.format("\\u%04x", c:byte())
     end)
     return '"' .. s .. '"'
 end
 
--- gender is sent in extras -- agent_docs/contract.md's packet schema already has extras as a
--- free-form, core/relay-opaque dict for exactly this kind of adapter-specific data; no
--- core/relay change needed. "male"/"female" follows the MALE/FEMALE names, the same way
--- orientation's "south"/"north"/"west"/"east" follows DIR_* naming.
--- The player's CURRENT graphic, which is the whole of their special state: the adapter treats
--- the graphicsId byte as naming the state (bike, surfing, fishing, ...) per gender, so a peer's
--- appearance is this one byte and needs no anim classifier or per-mode timing. That every state
--- has its own id is the decompilation's reading (sPlayerAvatarGfxIds, a pointer), not measured
--- across all states on the game. Sent in `extras`, which contract.md
--- defines as opaque free-form data the core never inspects.
--- DO NOT PUBLISH A STATE THE GAME HAS NOT FINISHED SETTING UP.
---
--- When the player picks up a rod, the game sets the 32-wide fishing graphic about four frames
--- before its fishing task applies the pos2 that re-centres the character on its tile. Those frames
--- are real and briefly visible, but they land while the bag is closing, where an 8px hop cannot be
--- seen. Sent on the wire they become a ghost adopting the rod 8px to the side and then snapping --
--- in a quiet frame, where it is the only thing moving.
---
--- Filtering it at the RECEIVER was tried twice and cannot work: the transient outlives one update
--- and spans two at 20Hz, so "the same state twice" is satisfied by the unsettled state itself.
--- (Traced at the then-20Hz send rate; at today's 15Hz default the updates are further apart, so
--- the argument only strengthens.)
--- The sender is the only place that sees every frame, so it is the only place that can tell a
--- settled state from a half-built one. A new graphic is held until its offset stops changing --
--- typically two frames, and the peer simply keeps seeing the previous state meanwhile, which is
--- exactly what the player looked like then.
+-- The player's graphics id names its state (bike, surf, rod...), sent in extras with the sprite's offset. A new
+-- graphic is held until its offset settles: the rod's pos2 lands four frames after the graphic, and only the sender
+-- sees every frame.
 local function localGraphicsId()
     if not avatarAddrConfirmed then return nil end
     local objId = memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
     if objId > 15 then return nil end
     local gfx = memory.read_u8(GOBJECTEVENTS_ADDR + avatarAddrOffset + objId * OBJECTEVENT_SIZE
         + 0x05)
-    -- Inlined rather than via sprAddr/rs16: those are defined much further down this file, and a
-    -- forward reference here would silently read a nil global.
+    -- Inlined: sprAddr and rs16 are defined further down, and a forward reference would read a nil global.
     local sox = memory.read_s16_le(GSPRITES_ADDR + (genderFrames.spriteAddrOffset or 0)
         + memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04) * SPRITE_SIZE + 0x24)
     if gfx ~= genderFrames.sentGfx then
-        -- HOW LONG TO HOLD IS MEASURED, not picked. The offset arrives four frames after the
-        -- graphic (probes: pos2 0,0 for four frames, then 8,0), and "the same value twice" is
-        -- useless against that -- two of those four frames agree with each other, which is exactly
-        -- why the first version of this published the unsettled state anyway. Holding SIX frames
-        -- clears the measured settle with room to spare, and 100ms is invisible behind the 250ms
-        -- of interpolation already in front of it.
-        -- Counted in CALLS, not frames: frameCounter is declared further down this file and a
-        -- forward reference reads a nil global (caught by the syntax/forward-ref check, and by the
-        -- adapter's own error count, within one reload). This runs once per frame from the send
-        -- path, so a call is a frame.
-        -- THE HOLD IS FOR GRAPHICS WITH AN OFFSET, and only fishing has one. It exists because the
-        -- offset lands four frames after the graphic, and publishing the pair unsettled drew an
-        -- 8px flash -- measured, above. The walker and both bikes sit at offset 0 on every frame,
-        -- so for them the six frames bought nothing and cost exactly the lag the user could see:
-        -- the spawned ghost mounting seven frames after the player (frame-by-frame capture,
-        -- 2026-08-20). Fishing is 137/138 (Brendan/May, verified.md); anything unrecognised keeps
-        -- the hold, which is the conservative side.
-        -- SURFING, THE FIELD-MOVE POSE AND UNDERWATER JOINED THE LIST, 2026-08-21, and the reason
-        -- is the same one that put the bikes in it: they have no lagging offset to wait for, so
-        -- the hold bought nothing and cost lag that showed on screen.
-        --
-        -- Here the lag was not merely visible, it was CORRUPTING. The game sets the surfing
-        -- graphic and the jump onto the water in a single step (`documentation.md`), so holding
-        -- the graphic for six frames while the ACTION goes out immediately delivers them to the
-        -- ghost five frames apart -- and the engine, told to jump, sets the jump's animation
-        -- number on a sprite still wearing the field-move graphic, whose animation table is
-        -- shorter and has no such entry. The ghost then draws a frame that does not exist:
-        -- measured as `anim=20/4 gfx=3` and `frame-out-of-range` in probes/dive_probe.lua, and
-        -- reported from the chair as *"a weird grey/flashing glitched sprite"* every few attempts.
-        --
-        -- The pair these publish together is honest: their offset is set in the same engine step
-        -- as the graphic (the surf blob's bob, the jump arc), not four frames later like the rod's.
+        -- Held six calls (one a frame) to clear the measured four-frame settle; calls, because frameCounter is
+        -- declared below. Graphics with no lagging offset skip the hold (walker, bikes, surf, field-move pose,
+        -- underwater): it only added lag, and for surf it split the graphic from the jump that goes with it.
         local KNOWN_OFFSETFREE = { [0]=true, [89]=true, [1]=true, [90]=true, [63]=true, [91]=true,
             [2]=true, [92]=true, [3]=true, [93]=true, [111]=true, [112]=true }
         if KNOWN_OFFSETFREE[gfx] then
@@ -851,16 +431,7 @@ local function localGraphicsId()
             if genderFrames.pendingTicks >= 6 then genderFrames.sentGfx = gfx end
         end
         if gfx ~= genderFrames.sentGfx then
-            -- HOLD THE OFFSET WITH THE GRAPHIC -- by FREEZING it, not zeroing it. They describe
-            -- one state, and the six frames of hold must publish the pair that was true together:
-            -- the graphic still on the wire and the offset it was last sent with. Zeroing was the
-            -- first attempt at this and it is wrong in exactly one direction: putting the rod
-            -- AWAY held gfx 137 while already sending sox 0, so every cast ended with the peer's
-            -- ghost obeying a mismatched pair -- a 32-wide fishing frame at a walker's offset,
-            -- 8px off for the length of the hold. Measured at all six cast-ends in one trace
-            -- (f=2512, 3027, 5301, 5452, 5613, 5753): sox flips ~9 frames before gfx does.
-            -- Leaving sendSox/sendSoy untouched here publishes 137+8 for the hold, then 0+0
-            -- together, and the start direction stays right too: a walker's frozen offset is 0.
+            -- Frozen with the held graphic, not zeroed: the pair on the wire must have been true together.
             return genderFrames.sentGfx
         end
     end
@@ -870,68 +441,21 @@ local function localGraphicsId()
     return gfx
 end
 
--- `sanim` is the player's own SPRITE ANIMATION NUMBER, and it is what `gfx` alone cannot say.
---
--- Adopting a peer's graphicsId makes a ghost hold a fishing rod; it does not make it FISH. The
--- game drives that animation from its own fishing task -- and a ghost has no task, so it sits on
--- the first frame of the animation forever. The user, watching it: *"neither of them are doing the
--- mid fishing animations, just the starting fishing one"* (2026-08-19).
---
--- The animation number is the missing half. Both ends are on the same graphic by then, so the
--- numbering matches, and the peer's own sprite is the authority on what that character is doing.
--- `spaused` is the third thing a sprite's animation state is made of, after the number and the
--- frame -- IS IT RUNNING. A ghost has no task to start or stop its animation, so this decides
--- whether the engine should be handed the animation to play or told to hold one frame.
---
--- Without it every mirrored state was un-paused, which is right for fishing (the game's task really
--- is animating the player) and wrong for a bike standing still: measured 2026-08-19, the player's
--- own Mach Bike sprite idles at anim 7 frame 3 with animPaused SET, while a spawned ghost pedalled
--- on the spot. The user: *"idle it looks fine on the drawn ghost already, but on the spawned one
--- its doing a 'moving' animation when idle"*.
---
--- `noanim` is `spaused`'s missing partner, and the pair is not redundant. `spaused` says the
--- sprite's animation is not running; `disableAnim` says the OBJECT is forbidden one, and that
--- outranks a movement. Everywhere else in the game those agree, so one bit was enough -- ice is
--- where they come apart. On ice the character CROSSES TILES with its legs held still (the
--- decompilation's ForcedMovement_Slide, field_player_avatar.c, is where to look; the measurement
--- below is what makes it a fact). Without this bit a ghost is told "moving", the engine gives it the walk cycle its action
--- carries, and it strides across the ice while the player glides: measured in Shoal Cave,
--- 2026-08-21 -- the player held anim 10/0 with disableAnim set for the whole slide while the
--- ghost's own copy cycled 10/2, 10/3 under the same action id on the same tile.
--- `invis`, `boat`, `fly` and `flyk` are the four that describe a character the engine has stopped
--- drawing -- Briney's ride and the Fly cutscene. Everything above them assumes there is a
--- character on the tile to describe; see flyRide's header for why that assumption fails at
--- exactly these two moments, and what each field is read from.
---
--- `dk`/`dx`/`dy` -- the door -- are the one group here that is APPENDED rather than always
--- present, and that is the point. Every other field costs its `"name":null` on all ~20 packets a
--- second whether it carries anything or not, which is the right trade for a field that changes
--- constantly. A door is the opposite: three or four events a minute, and three always-null fields
--- would add ~30 bytes to every packet forever -- about 2 MB an hour, per peer, to say "no door"
--- twenty times a second. So the door suffix is written only while the engine actually has a door
--- open, and the steady-state packet is byte-for-byte the one this adapter has always sent.
+-- sanim, sidx and spaused: the sprite's animation number, frame and paused bit, which a ghost has no task to drive.
+-- noanim: disableAnim, which outranks a movement; on ice the character crosses tiles with its legs still.
+-- invis, boat, fly and flyk describe a character the engine stopped drawing (Briney's boat, the Fly cutscene).
+-- The door (dk, dx, dy) is appended only while a door is open, so the everyday packet does not grow.
 local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sanim, sidx, act,
     sox, soy, spaused, pspeed, noanim, invis, boat, fly, flyk, dk, dx, dy, mspd)
     local door = ""
     if dk then
         door = string.format(',"dk":%s,"dx":%s,"dy":%s', jsonString(dk), tostring(dx), tostring(dy))
     end
-    -- `mspd` -- MOVE_SPEED_*, the constant the engine's own step table is indexed by, read off the
-    -- player's sprite at the send site. APPENDED like the door rather than slotted into the format
-    -- above, so not one existing argument position moves: this list is twenty-two long and a silent
-    -- off-by-one in it would put a peer's graphic id into its animation field.
-    --
-    -- It is the only field that describes EVERY gait. `anim` knows walking and running; `pspeed`
-    -- (gPlayerAvatar.bikeSpeed) reads STANDING on foot and on the acro bike. A receiver that has to
-    -- move a ghost at the peer's real speed needs this one, and a peer too old to send it simply
-    -- leaves it nil, which is the behaviour that shipped before.
+    -- mspd is MOVE_SPEED_*, appended like the door so no argument position moves. It is the only field that names
+    -- every gait (anim knows walking and running, pspeed reads standing on foot); an older peer leaves it nil.
     local ms = ""
     if mspd then ms = string.format(',"mspd":%d', mspd) end
-    -- WHAT THIS MACHINE ACTUALLY PUT ON THE WIRE, for the seam trace on the OTHER side of the same
-    -- rig (2026-09-12). Every seam reading so far has inferred the sender's stream from what a peer
-    -- received, and a receiver cannot tell "the peer moved" from "the peer's coordinates were
-    -- rebased" -- which is the whole question at a connection. Three assignments on a table, no
-    -- formatting and no I/O: the trace pays for the string, not this.
+    -- What went on the wire, for the seam trace: a receiver cannot tell a move from a rebase.
     genderFrames.sentArea, genderFrames.sentX, genderFrames.sentY = areaId, x, y
     return string.format(
         '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s,"act":%s,"sox":%s,"soy":%s,"spaused":%s,"pspeed":%s,"noanim":%s,"invis":%s,"boat":%s,"fly":%s,"flyk":%s%s}}}}',
@@ -968,17 +492,7 @@ local function decodeString(s, i)
             elseif e == "t" then table.insert(out, "\t")
             elseif e == "r" then table.insert(out, "\r")
             elseif e == "u" then
-                -- **THE FOUR HEX DIGITS HAVE TO BE THERE (review I47's sibling, fixed
-                -- 2026-09-11).** `tonumber("ZZ", 16)` is nil and `nil % 256` RAISES, which
-                -- jsonDecode's pcall turns into "this line does not decode" -- so one malformed
-                -- escape anywhere in a message cost the WHOLE message, and a peer can put one in
-                -- `extras`, which is free-form peer-controlled data. Crystal had the same class of
-                -- bug in a different shape (its cursor stepped past the closing quote) and both
-                -- are fixed the same way: require the digits, and consume only what is there.
-                --
-                -- The well-formed case is unchanged, `% 256` included -- what this game's font
-                -- draws for a non-ASCII codepoint is a separate question from not dropping the
-                -- line, and this is not the change to settle it in.
+                -- The four hex digits must be there: one malformed escape in peer extras would cost the whole line.
                 local hex = s:sub(j + 2, j + 5)
                 local cp = #hex == 4 and hex:match("^%x%x%x%x$") and tonumber(hex, 16) or nil
                 if cp then
@@ -1036,12 +550,7 @@ local function decodeArray(s, i, depth)
     while true do
         local val
         val, i = decodeValue(s, i, depth)
-        -- NOT table.insert: decodeValue returns nil for JSON `null`, and table.insert(t, nil)
-        -- is an error in Lua 5.4 -- so a single null anywhere inside an array threw, jsonDecode
-        -- swallowed it, and the WHOLE line was dropped. `extras` is free-form peer-controlled
-        -- data (contract.md), so a peer can put one there; the effect was that peer's ghost
-        -- silently freezing while every other message kept flowing. Assigning leaves a hole
-        -- instead, which the `if pos[1] and pos[2]` guard below already rejects on its own.
+        -- Not table.insert: a JSON null is nil, and table.insert(t, nil) raises in Lua 5.4, dropping the line.
         arr[#arr + 1] = val
         i = skipWs(s, i)
         local c = s:sub(i, i)
@@ -1056,13 +565,7 @@ local function decodeArray(s, i, depth)
 end
 
 decodeValue = function(s, i, depth)
-    -- DEPTH CAP, matching Crystal's (meshghost_crystal.lua). `extras` and `orientation` are
-    -- bounded by SIZE and never by SHAPE, so a peer fits several hundred levels of nesting
-    -- into the 1KB the relay forwards without complaint; this decoder used to follow every
-    -- one of them. Measured 2026-09-03 by adapters/emulator/tests/json_fuzz.lua at 5000
-    -- levels accepted, against Crystal refusing at 65. Threaded as a PARAMETER because this
-    -- file sits at 199 of Lua's 200-local ceiling (emulator/CLAUDE.md) and a file-scope
-    -- counter would spend the last one.
+    -- Depth cap: extras is bounded by size, not shape. A parameter, not a counter local (the 200-local ceiling).
     depth = (depth or 0) + 1
     if depth > 64 then error("json: too deeply nested") end
     i = skipWs(s, i)
@@ -1094,37 +597,26 @@ local function jsonDecode(line)
 end
 
 ----------------------------------------------------------------------------
--- Bridge connection -- identical to phase4_multiplayer.lua, see its header.
+-- Bridge connection.
 ----------------------------------------------------------------------------
 
--- Declared here, not down with the movement state, because the bridge's port walk below reads it
--- and Lua would otherwise resolve it to a nil GLOBAL -- which surfaces as "attempt to compare
--- number with nil" on the first connect attempt, once per frame, forever. Found live 2026-08-18.
+-- Declared here because the port walk below reads it; a later local would be a nil global there.
 local frameCounter = 0
 
 local sock = nil
 local connected = false
--- Forward declaration. resetBridge() below has to drop every spawned ghost, but the spawn code
--- that defines this is far further down (it needs the address/offset detection above it). Without
--- the forward local, the call site would resolve to a GLOBAL, find nil, and the pcall around it
--- would swallow that silently -- leaving a peer's ghost standing in the game forever after a
--- bridge drop, which is exactly the bug the call exists to prevent.
+-- Forward-declared: resetBridge() calls it, and its pcall would swallow a nil global and leave ghosts standing.
 local despawnAllGhosts
--- Forward-declared because the despawn HANDLER (handleBridgeLine) is above its definition
--- and is the only caller that always runs. See its comment for why.
+-- Forward-declared: the despawn handler (handleBridgeLine) sits above its definition.
 local forgetPeerRenderState
--- `connected` is a socket fact; `ready` is a protocol one. The core answers every hello with
--- bridge_ready or reject (agent_docs/contract.md), and only bridge_ready means this core is ours.
+-- connected is the socket; ready means the core answered bridge_ready, so this core is ours.
 local ready = false
-local recvPartial = "" -- straddling-line remainder from the last drainBridge() timeout; belongs
-                        -- to the current connection, so resetBridge() clears it too.
+local recvPartial = "" -- a line split across reads; per connection, so resetBridge() clears it
 
 -- Ports that answered but would not have us, with the frame their cooldown ends.
 local busyUntil = {}
 
--- ONE table rather than two names, because this file sits at 198 of Lua'''s 200-local ceiling
--- (../CLAUDE.md) and spending the last two on a two-line feature would leave the next change
--- with none. `frames` is the backoff, `until_` the deadline it sets.
+-- frames is the backoff, until_ the deadline it sets; one table, for the 200-local ceiling.
 local relayDown = { frames = 600, until_ = 0 } -- 600 frames = 10s
 local currentPort = nil
 local helloSentAtFrame = nil
@@ -1137,9 +629,7 @@ local function markPortBusy(port, why)
     end
 end
 
--- A short blocking timeout rather than the non-blocking connect this used to do: a sweep needs a
--- yes/no per candidate within the same frame, and on loopback a closed port refuses immediately,
--- so the timeout is a ceiling that is essentially never reached.
+-- A short blocking connect: a sweep needs a yes or no per port within one frame, and loopback refuses at once.
 local function tryPort(port)
     local s = socketCore.tcp()
     if not s then return false end
@@ -1150,40 +640,22 @@ local function tryPort(port)
         return false
     end
     s:settimeout(0)
-    -- Nagle off: this bridge writes one small line per frame, and Nagle holds each write until
-    -- the previous is acknowledged -- a 40 ms floor on Linux, measured as 46 ms delivery bunches
-    -- in a tester's replay files 2026-09-06. pcall'd because setoption is a luasocket extension
-    -- and a vendored build that lacks it must not take the adapter down over a tuning flag.
+    -- Nagle off: one small line a frame. pcall'd: setoption is an extension a vendored build may lack.
     pcall(function() s:setoption("tcp-nodelay", true) end)
     sock, connected, ready, recvPartial = s, true, false, ""
     currentPort = port
     return true
 end
 
--- The first port in the range with NOTHING listening on it, as observed by the last sweep. That
--- is where autostart puts a new core, and getting it from the sweep rather than assuming
--- BRIDGE_BASE_PORT is what makes a second copy of the game work: the base port is taken by the
--- first copy's core, so spawning there produced a core that could not bind and exited instantly,
--- leaving the second emulator with no core at all (found live 2026-08-18, two Emeralds).
---
--- A port that answered and then REJECTED us is not free -- it is somebody else's core, and it is
--- skipped by busyUntil above rather than recorded here.
+-- The first port with nothing listening, from the last sweep: where autostart puts a new core, since the base port
+-- may be another copy's. A port that rejected us is somebody else's core, skipped through busyUntil instead.
 local firstFreePort = nil
 
--- One sweep across the whole range per attempt, not one port per attempt -- one port per retry
--- interval would take many seconds to find a free core a few ports up.
+-- One sweep across the whole range per attempt, so a free core a few ports up is found at once.
 local function connectBridge()
     if BRIDGE_PORT_OVERRIDE then
         firstFreePort = BRIDGE_PORT_OVERRIDE
-        -- The cooldown applies here TOO. It used to be checked only in the walk below, so an
-        -- override -- which every dev launcher sets, and which any two-instance setup needs --
-        -- retried the same port on the very next frame while markPortBusy had just printed
-        -- "skipping it for 10s". The log said one thing and the code did another.
-        --
-        -- Found live 2026-08-28: with the relay down, the core rejects every adapter, and this
-        -- produced four console lines per frame indefinitely. crowd-limits.md already records
-        -- console spam as a frame-rate killer in this adapter (~1,400 writes/second took Emerald
-        -- to 3fps), so a hot loop that logs is not a cosmetic problem.
+        -- The cooldown applies here too, or a rejecting core is retried and logged every frame.
         if (busyUntil[BRIDGE_PORT_OVERRIDE] or 0) <= frameCounter then
             tryPort(BRIDGE_PORT_OVERRIDE)
         end
@@ -1203,29 +675,12 @@ end
 -- ---------------------------------------------------------------------------
 -- Autostart: start a core ourselves, and let it die with the emulator.
 --
--- Every adapter is meant to do this (agent_docs/plans.md). It looked impossible from Lua for a
--- while, because os.execute and io.popen both run `cmd /c ...` -- so the console window that
--- flashes belongs to the SHELL doing the launching, and no amount of hiding the child helps.
--- Confirmed by watching all five shell variants flash, `powershell -WindowStyle Hidden` longest.
---
--- The way through is luanet, NLua's .NET bridge, which this BizHawk build exposes: build a
--- System.Diagnostics.ProcessStartInfo with UseShellExecute=false and CreateNoWindow=true and
--- there is no shell and no window at all. Confirmed invisible by the user against a deliberate
--- window-showing control, 2026-08-18 -- see agent_docs/environment.md and
--- dev-scripts/bizhawk-spawn-probe.lua.
---
--- Auto-close comes from the same bridge: GetCurrentProcess().Id is EmuHawk's pid, so the core
--- gets -exit-with-pid and exits when the emulator does, however the emulator goes away. That is
--- the same mechanism TEVI and Pseudoregalia use.
+-- os.execute and io.popen run cmd, whose window flashes. luanet's ProcessStartInfo with UseShellExecute false and
+-- CreateNoWindow true has no shell and no window, and -exit-with-pid (EmuHawk's pid) ends the core with it.
 local coreChild, coreSpawnFrame, coreSpawnFailed = nil, nil, false
 
--- Opting out is supported, not a debug switch: an antivirus that objects to one program starting
--- another is a real thing, and the documented answer is to set this and run the core yourself.
--- ... and "autostart": false in config.json says the same thing in the file a player already
--- edits (the user's call 2026-09-03: "environment variable" means nothing to most players).
--- Own folder first, then the release root, then a source checkout's root -- the same order the
--- core's config is found in. The first config.json found decides, key or no key. An IIFE, not a
--- helper: this file has no local to spare (the 200-local ceiling).
+-- MESHGHOST_NO_AUTOSTART or "autostart": false in config.json opts out (an antivirus may object to one program
+-- starting another). The first config.json found decides; an IIFE, since the file has no local to spare.
 local AUTOSTART = os.getenv("MESHGHOST_NO_AUTOSTART") == nil and (function()
     for _, dir in ipairs({ SCRIPT_DIR, SCRIPT_DIR .. "../../../", SCRIPT_DIR .. "../../../../" }) do
         local f = io.open(dir .. "config.json", "rb")
@@ -1238,21 +693,8 @@ local AUTOSTART = os.getenv("MESHGHOST_NO_AUTOSTART") == nil and (function()
     return true
 end)()
 
--- BESIDE THIS SCRIPT IS THE ONLY PLACE AUTOSTART LOOKS (2026-09-11): a player copies
--- meshghost.exe into this folder, and the core then reads the config.json here, writes
--- meshghost.log here, and keeps its replay\ folder here -- the same per-game separation TEVI and
--- Pseudoregalia have. It is not SHIPPED here (9 MB, once per game), and making that copy IS the
--- opt-in.
---
--- THE TWO ../ FALLBACKS ARE GONE, and removing them is the point (the user's call, 2026-09-11).
--- Reaching back to the release root meant an install that never opted in still had a process
--- spawned for it, which is the one thing autostart must not do: it is a convenience a player
--- chooses, not a requirement, and starting one program from another is exactly what an antivirus
--- objects to. There are now two shapes and never both at once -- exe in the release root means
--- "run it yourself", exe beside this script means autostart, still switchable with
--- "autostart": false. MESHGHOST_CORE_DIR stays ahead of it as the dev escape hatch, the same name
--- and the same position TEVI's CoreSearchDirs gives it, because a repo checkout runs this script
--- where it sits and no player ever copies an exe there.
+-- Only beside this script: copying meshghost.exe here is the opt-in, so an install that never opted in spawns
+-- nothing. MESHGHOST_CORE_DIR comes first, for a repo checkout.
 local function findCoreExe()
     local candidates = { SCRIPT_DIR .. "meshghost.exe" }
     local devDir = os.getenv("MESHGHOST_CORE_DIR")
@@ -1277,27 +719,16 @@ local function coreStillRunning()
 end
 
 local function startCore(port)
-    -- THE WALK MOVED OFF OUR OWN CHILD'S PORT WHILE THE CHILD IS ALIVE: another instance reached
-    -- it first and it answered us busy. Read as "my child is running, so I have a core", nothing
-    -- below would ever spawn again and the walk would find silence on every other port for the
-    -- rest of the session -- watched on TEVI's launcher 2026-09-02, fixed there and in
-    -- Pseudoregalia's, mirrored here. The child is forgotten, never killed: a game is using it.
-    -- The port rides in coreSpawnFrame (a table since 2026-09-02) because this file cannot afford
-    -- another local (the 200-local ceiling, emulator/CLAUDE.md).
-    -- Forgotten ONLY when that port answered "busy" (coreSpawnFrame.busy, set by the reject
-    -- handler), never because the cursor moved on: the first version forgot the child on silence
-    -- too, and two instances restarting together then chased each other's fresh cores round the
-    -- range (three cores for two games, and the emulator at 3fps under the connect storm).
+    -- Our child answered busy (another instance took it): forget it, never kill it, and start another. Only on
+    -- busy, never on silence, or two instances restarting together chase each other's cores round the range.
     if coreStillRunning() and coreSpawnFrame and coreSpawnFrame.busy and port then
         console.log(string.format("MeshGhost: the core this script started on port %d is serving another instance -- leaving it and starting another on port %d.", coreSpawnFrame.port, port))
         coreChild = nil
     end
     if not AUTOSTART or coreSpawnFailed or coreStillRunning() then return end
-    -- No free port in the whole range: every one of them is somebody else's core. Spawning
-    -- anywhere here would just produce a process that cannot bind and exits.
+    -- No free port in the range: a core spawned here could not bind.
     if not port then return end
-    -- A core takes a moment to bind; spawning again before then is how you get a pile of
-    -- processes fighting over one port.
+    -- A core takes a moment to bind; spawning again sooner piles up processes on one port.
     if coreSpawnFrame and (frameCounter - coreSpawnFrame.frame) < 300 then return end
 
     local exe = findCoreExe()
@@ -1315,30 +746,11 @@ local function startCore(port)
         local StartInfo = luanet.import_type("System.Diagnostics.ProcessStartInfo")
         local si = StartInfo()
         si.FileName = exe
-        -- No relay settings: the core reads config.json from its own directory, which is the file
-        -- a player edits. Passing -relay here would silently override it.
+        -- No relay settings: the core reads config.json, and -relay here would override it.
         si.Arguments = string.format("-exit-with-pid=%d -bridge=%s:%d",
             Process.GetCurrentProcess().Id, BRIDGE_HOST, port)
-        -- THE CORE READS ITS config.json FROM ITS WORKING DIRECTORY, so it has to be the
-        -- directory the exe lives in -- which is where the player's config.json is, and where
-        -- every README says to keep the pair together.
-        --
-        -- Without this the child inherits the emulator's working directory, finds no config.json
-        -- there, and silently falls back to built-in defaults: connect_to 127.0.0.1:7777, the
-        -- player's own machine. Someone who edited the release-root config.json to reach a
-        -- friend's host would autostart a core that quietly ignored it and connected to nobody,
-        -- with a log line in a folder they were never told to look in. Measured 2026-08-28 with
-        -- a staged release, which reported exactly that:
-        --   "no config file at ...\games\pokemon\emerald\config.json -- using built-in defaults"
-        --
-        -- TEVI (WorkingDirectory) and Pseudoregalia (CreateProcessW's lpCurrentDirectory) have
-        -- always set this; these two adapters were the pair that did not.
-        --
-        -- OWN FOLDER FIRST (2026-09-02, plans.md "Settings" step 3, the user's ask): a config.json
-        -- beside THIS script wins, so each Pokemon game carries its own settings the way TEVI and
-        -- Pseudoregalia do; with none there, the exe's folder (the release root) as before. One
-        -- file wins entirely, never a merge; the core logs which path it loaded, and meshghost.log
-        -- lands in the same folder as the config it read.
+        -- The core reads config.json from its working directory: this game's own folder when it has one, else the
+        -- exe's. Inheriting the emulator's directory left it on built-in defaults.
         do
             local own = io.open(SCRIPT_DIR .. "config.json", "rb")
             if own then own:close() end
@@ -1364,13 +776,9 @@ local function resetBridge()
         console.log("MeshGhost: bridge connection lost, will retry connecting.")
     end
     if sock then pcall(function() sock:close() end) end
-    -- A dropped bridge means every remote's state is now stale, so their ghosts go with it --
-    -- the same "nothing else would ever notice and clear this" failure the overlay path already
-    -- had, except a spawned object persists in the game rather than simply stopping being drawn.
+    -- A dropped bridge makes every remote stale, and a spawned object would persist in the game.
     pcall(despawnAllGhosts)
-    -- ...and the hardware tier's entries, for the same reason and one more: nothing in the engine's
-    -- per-frame path clears them, so a dropped bridge would otherwise leave a row of frozen bodies
-    -- on screen until the next map load.
+    -- And the hardware tier's entries: nothing in the engine clears them before the next map load.
     pcall(hwReleaseAll, true)
     sock = nil
     connected = false
@@ -1384,24 +792,18 @@ local function sendLine(line)
     local sent, err, lastByte = sock:send(line)
     if sent then return end
     if err == "timeout" and (lastByte or 0) == 0 then
-        -- Nothing went out at all -- PROTOCOL.md's tick loop resends fresh state next tick
-        -- regardless, so a fully-dropped send here just means this tick's frame is skipped.
+        -- Nothing went out: the next tick sends fresh state anyway.
         return
     end
-    -- A partial send (0 < lastByte < #line) previously went uncounted as success -- the
-    -- unsent tail is gone, and resuming next tick with a fresh line would deliver a truncated,
-    -- newline-less fragment to the core, corrupting NDJSON framing for the rest of the
-    -- connection (the core would concatenate it with whatever line comes next). Same
-    -- "when in doubt, drop and reconnect cleanly" posture as any other hard send error, and
-    -- mirrors the fix already made in the C++ adapter's BridgeClient::send_line.
+    -- A partial send would leave a newline-less fragment that corrupts the framing: drop and reconnect.
     resetBridge()
 end
 
 ----------------------------------------------------------------------------
--- Local state reading -- identical to phase4_multiplayer.lua, see its header.
+-- Local state reading.
 ----------------------------------------------------------------------------
 
--- One table, not two locals: the main chunk is at Lua's 200-local ceiling (see frameErrors).
+-- One table, not two locals (the 200-local ceiling).
 local lastMap = { group = nil, num = nil }
 
 local function mapJustChanged(mapGroup, mapNum)
@@ -1411,63 +813,16 @@ local function mapJustChanged(mapGroup, mapNum)
     return changed
 end
 
--- SESSION GATE: nothing is sent until the player is actually IN THE GAME.
--- gSaveBlock1Ptr being non-null is NOT that question. Observed live 2026-08-19: the pointer is
--- already populated at the CONTINUE screen, so the adapter used to broadcast the player's saved
--- position (pos=(10,10), overworld=false) for as long as anyone sat in the main menu -- a peer
--- saw a ghost of them standing at their last save point while they were in a menu. The user's
--- answer (2026-08-19): "it should not show/send the ghost for other people if you are in the main
--- menu/intro. should only show when you are actually in game."
---
--- The gate is a LATCH, not a per-frame inOverworld() test, and the difference matters. Being
--- outside the overworld is not by itself "not in game": a battle, a warp fade and a map load all
--- leave CB2 pointing somewhere else for a while, and contract.md's closed question already
--- decided that position stays valid (and worth sending) through all of them -- the ghost simply
--- stands still. So: the latch OPENS on the first frame the player is confirmed in the overworld,
--- and CLOSES only when gSaveBlock1Ptr reads null again, which is the title screen / intro with no
--- save loaded -- the one state contract.md always agreed warrants nil, and the state a soft reset
--- lands in on its way back to the continue screen.
---
--- One TABLE rather than two plain locals on purpose: Lua's compiler allows at most 200 local
--- variables per function, the main chunk included, and this script's file scope is already at
--- 198 of them -- two more would be within one edit of "too many local variables" at load time,
--- which is a hard parse failure, not a warning.
---   session.live  -- the latch itself.
---   session.ended -- set on the latch's true->false edge, consumed by runFrame.
---
--- Leaving the game has to be ANNOUNCED, not merely gone quiet about. The core holds a peer's newest sample forever
--- (core/interp.go's remoteBuffer.at does not expire), so a client that just stops sending leaves
--- its ghost FROZEN on every other screen rather than gone. Dropping the bridge is the mechanism
--- the core already documents and tests for exactly this ("backing out to the main menu",
--- core_test.go's TestBridgeDisconnectDespawnsForPeer): the core turns a bridge disconnect into a
--- goodbye to the relay, the relay into a real leave, and every peer despawns the ghost. The
--- adapter reconnects on the next frame and sits there sending nothing, so re-entering the game
--- starts sending immediately.
+-- Session gate: nothing is sent until the player is in game. A non-null gSaveBlock1Ptr is not that (it is set at
+-- the CONTINUE screen), so it is a latch: it opens on the first overworld frame, stays open through battles and
+-- warps, and closes when the pointer reads null again (title screen, soft reset). session.ended marks the close,
+-- and the bridge is dropped so peers despawn the ghost: the core never expires a peer's last sample.
 local session = { live = false, ended = false }
 
--- **A POINTER THE GAME NEVER SET IS NOT A POINTER OF ZERO, and every deref site below only ever
--- checked for zero (2026-09-11).** On a ROM whose save blocks live elsewhere -- both Speedchoice
--- builds, and any future romhack -- this address holds whatever happens to sit there: 0xF5F8FD09
--- and 0xFB000309 were read live. Neither is zero, so every guard passed and the adapter read
--- through them, once per frame per site. BizHawk answers an out-of-range read with a console
--- WARNING rather than an error, so nothing failed and nothing stopped: the Lua console filled
--- with "attempted read of 4126735625 outside the memory size of 268435456" and the emulator
--- visibly lagged (the user, live on EX Speedchoice 0.4.0).
---
--- Returning 0 for an implausible pointer makes the ten `== 0` guards that already exist do the
--- right thing, which is why this is a READER and not ten new branches. The range is the GBA's
--- EWRAM, which is where the engine puts the save blocks -- a pointer outside it cannot be one,
--- whatever ROM this is. On `session` rather than a new file-scope local for two reasons: this
--- file's 200-local ceiling, and `session` is declared above every caller (the forward-reference
--- trap, five bites and counting).
+-- A pointer outside EWRAM reads as 0, so the existing == 0 guards skip a ROM whose save blocks live elsewhere;
+-- BizHawk answers an out-of-range read with a console warning, not an error.
 session.saveBlockPtr = function(addr)
-    -- **THE IWRAM SHIFT IS APPLIED HERE, so all ten deref sites get it without knowing about it.**
-    -- EX SPEEDCHOICE 0.4.0 relocates IWRAM: gSaveBlock1Ptr sits at 0x03004CAC, -0x10E0 from its
-    -- vanilla address, with gSaveBlock2Ptr adjacent at +4 exactly as in vanilla. Found by
-    -- `probes/saveblock_find_probe.lua` (every word-aligned IWRAM slot holding an EWRAM pointer
-    -- whose target's first two halfwords are the player's tile, then WALKED to see which survived)
-    -- and disambiguated by `probes/saveblock_pair_probe.lua` -- two slots pointed at the same
-    -- struct, and only one has a second save-block pointer beside it.
+    -- The IWRAM shift (EX SPEEDCHOICE) is applied here, so every deref site gets it.
     local ptr = memory.read_u32_le(addr + (genderFrames.iwramOffset or 0))
     if ptr >= 0x02000000 and ptr < 0x02040000 then return ptr end
     if ptr ~= 0 and not session.badPtrLogged then
@@ -1497,16 +852,7 @@ local function getLocalState()
 
     local x = memory.read_s16_le(base + 0x00)
     local y = memory.read_s16_le(base + 0x02)
-    -- **UNSIGNED, matching the engine's own type and the cross-map table (review I35, fixed
-    -- 2026-09-11).** These were read SIGNED here while `xmapScan` reads the connection entries'
-    -- own `mapGroup`/`mapNum` with `read_u8` -- so for any id of 128 or more the two spellings
-    -- disagree ("-1:5" against "255:5"), the connection lookup misses, and cross-map ghosts
-    -- silently stop working at a seam with no error anywhere.
-    --
-    -- Read unsigned to agree with `xmapScan`. The decompilation declares both unsigned (global.h,
-    -- a pointer); no id of 128 or more has been observed, so that is unmeasured. Latent today --
-    -- no group or number that high has been seen in play -- which is exactly why it would have
-    -- been found the hard way, at a seam, by a player.
+    -- Unsigned, as xmapScan reads the connection entries: signed, an id of 128 or more would miss the seam lookup.
     local mapGroup = memory.read_u8(base + 0x04)
     local mapNum = memory.read_u8(base + 0x05)
 
@@ -1539,16 +885,7 @@ local function getLocalState()
     }
 end
 
--- readLocalGender returns "male"/"female", or nil if no save is loaded yet (mirrors
--- getLocalState's own base==0 gate). Called once, the first time getLocalState succeeds AND
--- the player is confirmed in the overworld (see the inOverworld() gate at the call site below,
--- added 2026-08-14) -- not every frame, since gender doesn't change mid-session. The
--- inOverworld() gate specifically guards against gSaveBlock1Ptr/gSaveBlock2Ptr already being
--- non-null before the intro cutscene/title screen/character select finish -- unverified
--- whether that's actually true on this game (flagged, not confirmed, see risks.md), but if it
--- is, resolving gender the moment getLocalState() alone succeeds could latch in a
--- default/uninitialized byte before the player ever actually chose a gender, and (since this
--- only ever runs once) never self-correct for the rest of the session.
+-- Called once, after the player is in the overworld, so an uninitialised byte from the intro cannot latch.
 local function readLocalGender()
     local base = session.saveBlockPtr(GSAVEBLOCK2PTR_ADDR)
     if base == 0 then return nil end
@@ -1557,123 +894,22 @@ local function readLocalGender()
 end
 
 ----------------------------------------------------------------------------
--- Sub-tile position smoothing. getLocalState() above returns pos.x/y as
--- read straight from gSaveBlock1Ptr -- a whole-tile coordinate that only
--- changes once per completed tile-step, not a continuous pixel position.
--- Found live 2026-08-11: sending that raw value made a remote's ghost look
--- choppy/teleport-y on the other client's screen. Fix: track locally, in
--- the adapter, when pos.x/y last changed and linearly blend from the
--- previous committed tile to the new one over STEP_DURATION_FRAMES[anim]
--- frames.
---
--- History, both dead ends kept as notes so they aren't re-attempted blind:
--- (1) MEASURING the real gap between commits and using that as the glide
--- duration (added 2026-08-11 to self-correct for a possibly-wrong assumed
--- constant, replacing an earlier fixed-only version) turned out to be a net
--- regression, root-caused live 2026-08-14 via a real per-frame raw-position
--- trace (see git history/DIAG_RAW_POS if this needs re-deriving): normal
--- tap-then-pause play (not holding a direction key continuously) produces
--- commit-to-commit gaps that are MOSTLY idle time plus one real step, which
--- a plausibility-range check alone can't distinguish from a genuinely slow
--- single step -- so the ghost visibly crawled through what should have
--- been "stand still, then snap." The same trace also proved the fixed
--- constants below have ZERO measured variance across many real continuous
--- steps (always exactly 8 or exactly 16, never 9/10/14/15/etc.) -- the
--- self-correction measuring was supposedly there for was never actually
--- happening. (2) Also tried and reverted same-day: gating the measured gap
--- on whether `anim` matched the prior step (to fix cross-pace reuse) --
--- also proved wrong by the same trace, since `anim` can already show the
--- NEXT pace before the CURRENT (still-old-paced) step's commit event
--- lands, so gating on it forced some steps to animate at the WRONG pace's
--- duration. Given (1) and (2), reverted to fixed-only: no measuring, no
--- gating, just the plain constant for whatever anim is active right now.
+-- Sub-tile position smoothing. The save block holds whole tiles, so the sender ramps from the previous tile to the
+-- new one over the step's fixed frame count; measuring the gap instead misreads tap-then-pause play.
 ----------------------------------------------------------------------------
 
--- Real per-tile frame counts. Originally measured live 2026-08-11 (temporary diagnostic
--- printing every real gap between consecutive tile commits) and re-confirmed live 2026-08-14
--- with zero variance across many real continuous steps -- see agent_docs/verified.md.
 local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 
--- The SAME pacing, applied to a DRAWN peer. A spawned ghost never needed this: the engine walks
--- it tile to tile at exactly these durations, which is most of why it looks right. A drawn one had
--- nobody doing that, so it was painted wherever the newest sample said -- and the user, seeing
--- both renderers side by side for the first time (MESHGHOST_COMPARE_TIERS, 2026-08-19), described
--- precisely what that does: *"really stuttery/choppy"*, and *"moving/catching up with the player
--- too fast"* next to a spawned ghost that "properly follows". Both are one bug. Samples arrive at
--- the relay's rate, not the game's, so a renderer that follows them literally moves at the
--- NETWORK's pace, in jumps of whatever distance arrived.
---
--- So a drawn peer now glides between TILES over the same 16/8 frames the game gives a step, from
--- per-peer state kept on the peer's own table (no new chunk locals -- this file is at 196 of
--- Lua's 200). A jump longer than one tile is a warp, a respawn or first sight, and snaps.
--- SMOOTH WITH A FILTER, WHICH HAS NO CLOCK OF ITS OWN.
---
--- Seven attempts at moving a drawn ghost, and the measurements finally separate the two questions
--- that were tangled together the whole time:
---
---   * WHY it looked wrong. Every model before this one had its own timing -- a step duration, a
---     speed, a state machine -- running against a world that scrolls on the game's clock. Two
---     clocks beat, and the beat was the chop. That diagnosis was right and is why nothing here
---     schedules anything any more.
---   * Why "just draw the peer where it is" was ALSO wrong. Measured
---     (probes/tier_compare.log): a peer's position changes in 549 frames out of 4140 -- one frame
---     in eight -- in jumps of 2 to 4 pixels. The core interpolates (`-interp`, 100ms by default)
---     but it DELIVERS at the relay's rate, around 8-20 a second, while this tier redraws at 60.
---     Between deliveries the position is a constant, so drawing it faithfully draws a staircase.
---     The engine hides the same staircase for a spawned ghost by walking it a tile at a time.
---
--- So the adapter does have to smooth -- it just must not schedule. An exponential filter is the
--- shape that fits: it has a lag and nothing else. No step duration to disagree with the game's,
--- no phase to drift, no state machine to be out of sync with the world's scroll. Whatever rate
--- positions arrive at, and however uneven, it turns them into continuous motion, and it cannot
--- beat against anything because there is no periodicity in it to beat with.
---
--- THE TRAILING DELAY IS ZERO, AND THE REASON IT USED TO BE EIGHT IS WORTH KEEPING (2026-09-13).
---
--- It was 8 frames to match the SPAWNED tier: the user's call on 2026-08-19 asked for the two
--- renderers to be *"1:1 to the spawned ghost as much as possible"*, and a drawn ghost is naturally
--- AHEAD of a spawned one -- not by error, but because the engine cannot begin a step until its
--- object is standing on a tile, so an engine-driven ghost always trails the truth by up to one
--- step. Ours has no such rule and sits where the peer actually is, so the lag was reproduced here
--- rather than the step machine that causes it.
---
--- THAT IS THE WRONG STANDARD, and the user said so plainly once the difference was on screen
--- (2026-09-13): *"a ghost is never in the same game, but its supposed to look 1:1 to what a player
--- did in another game"*. The bar is the PEER'S OWN MOTION, not our other renderer -- and a spawned
--- ghost trails only because of an engine limitation the painted tier does not share. Imitating it
--- made the faithful renderer less faithful.
---
--- What the delay cost, measured all of one session: the camera is slaved to the player's own sprite
--- and stops the instant the player does, so a ghost N frames behind spends those N frames sliding
--- across a stationary screen -- 8px walking, a WHOLE TILE running (documentation.md, "What that
--- means for a ghost that is DELAYED"). With it at zero the user's verdict was *"it actually looks
--- identical now"*.
---
--- The env var still sets it, so a TIER-COMPARISON session -- the case the 8 was written for, both
--- renderers of one peer side by side -- can have the old behaviour back with
--- dev-scripts/drawn-delay-8.lua. On genderFrames rather than as a chunk local, for the ceiling
--- reason above.
+-- A drawn peer is smoothed by a rate-limited filter with no clock of its own, so it cannot beat against the game's
+-- scroll. drawnDelay trails the target by N frames: 0, since a delayed ghost slides across a screen that stopped
+-- with the player; 8 reproduces the spawned tier, for a side-by-side comparison.
 genderFrames.drawnDelay = tonumber(MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES
     or os.getenv("MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES") or "") or 0
 
 local function glideRemote(r, targetX, targetY)
-    -- The delay line: a short ring of recent positions, read from DRAWN_DELAY_FRAMES ago.
+    -- The delay line: a 32-slot ring of recent positions, read drawnDelay frames back.
     r.hist = r.hist or {}
-    -- **THE RING SLOT IS REUSED, NOT REALLOCATED (2026-09-11).** This line built a fresh two-element
-    -- table per peer per FRAME -- about 3,800 a second at 64 peers -- for a ring that only ever
-    -- holds 32 slots. After the first 32 frames every slot already exists, so writing into it
-    -- allocates nothing at all. Same GC pressure, same fix, as the painted tier's span buffers.
-    -- THE FACING RIDES IN THE RING WITH THE POSITION (2026-09-12).
-    --
-    -- Everything visible about a ghost has to describe the SAME INSTANT. The position this tier
-    -- paints comes from `drawnDelay` frames ago; the facing was taken live off the wire. So the
-    -- ghost turned eight frames before the motion belonging to that turn arrived -- it faced the
-    -- new way while still travelling the old one, which is a slide no character can perform. The
-    -- user, who spotted the shape of it exactly: *"its turning before its actually supposed to
-    -- turn... it turns, slides a bit, then moves in that direction"*.
-    --
-    -- A third slot in the same ring, so the facing cannot drift from the position it belongs to --
-    -- no second buffer to keep in step, and no extra allocation (the slots are reused).
+    -- Slots are reused, not reallocated, and carry the facing so it describes the same instant as the position.
     local slot = r.hist[frameCounter % 32]
     if slot then
         slot[1], slot[2], slot[3] = targetX, targetY, r.orientation
@@ -1681,14 +917,11 @@ local function glideRemote(r, targetX, targetY)
         r.hist[frameCounter % 32] = { targetX, targetY, r.orientation }
     end
     local old = r.hist[(frameCounter - genderFrames.drawnDelay) % 32]
-    -- Published for the painted tier. Nil until the ring has filled, and the draw site falls back
-    -- to the live value then -- which is right: before the ring is full there is no older facing to
-    -- honour, and a peer standing still has the same one either way.
+    -- For the painted tier; nil until the ring fills, when the draw site uses the live facing.
     r.gOrient = old and old[3] or nil
     if old then targetX, targetY = old[1], old[2] end
 
-    -- First sight, a new area, or further than two tiles: a warp or a dropped peer. Snap, and do
-    -- not drag a filter across a discontinuity that is not movement.
+    -- First sight, a new area, or over two tiles: a warp or a dropped peer, so snap rather than filter.
     if r.gX == nil or r.gAreaId ~= r.areaId
         or math.abs(targetX - r.gX) > 2 or math.abs(targetY - r.gY) > 2 then
         r.gX, r.gY, r.gAreaId = targetX, targetY, r.areaId
@@ -1697,60 +930,10 @@ local function glideRemote(r, targetX, targetY)
     end
     r.gAreaId = r.areaId
 
-    -- CONSTANT SPEED, NOT AN EASE. The filter here used to be `x += (target - x) * 0.25`, which is
-    -- an exponential ease: it never travels at a steady rate, and its steady-state lag grows with
-    -- how fast the peer is going. That is invisible at walking pace and obvious on a bike -- the
-    -- user asked for the square test on one, 2026-08-20, and the log answered it: while the peer
-    -- was at tile 27.19 the drawn ghost sat at 26.019 and closed at 0.002, 0.015, 0.026, 0.036,
-    -- 0.042, 0.048 tiles a frame -- accelerating, never constant, over a tile behind. A character
-    -- that drifts toward where it should be instead of travelling there IS the definition of
-    -- gliding, whatever its legs are doing.
-    --
-    -- A character in this game crosses a tile at a fixed speed and stops. So: move toward the
-    -- (delayed) target at the speed the TARGET ITSELF is moving, which is the peer's own speed
-    -- whatever they are riding, with a quarter extra so a gap closes instead of persisting, and
-    -- never overshoot. The delay line above still provides the trailing distance the engine's own
-    -- step machine would produce; this only decides how the ground between is covered.
+    -- Constant speed toward the target, never an ease: a character crosses a tile at a fixed speed and stops.
     local prevX, prevY = r.gX, r.gY
-    -- TARGET SPEED OVER A WINDOW, NOT FRAME TO FRAME -- fixed 2026-08-21, and the frame-to-frame
-    -- version was a real defect rather than a rough edge.
-    --
-    -- The peer's position stream is bursty by nature: it advances a little for several frames and
-    -- then jumps at a tile boundary (the Mach Bike measurement in the comment above). Measured
-    -- between consecutive frames, tspd is therefore ZERO on most frames, which collapses the limit
-    -- below to its 0.02 floor -- and a ghost that may move 0.025 tiles a frame cannot follow a
-    -- player RUNNING at 0.25. It falls further behind every frame until the two-tile discontinuity
-    -- guard above fires and snaps it forward.
-    --
-    -- Measured on the scripted left/right ride (probes/tier_compare.log, 2026-08-21): the camera
-    -- moved 4px a frame while the glide advanced 1.25px, and the ghost sawtoothed -- drifting ~3px
-    -- a frame for seventeen frames and then jumping 2.4 tiles. That is what the user saw as
-    -- *"really choppy"* and *"lagging behind"*. It was never the tier being judged; all three
-    -- non-engine renderers share this filter.
-    --
-    -- The same history ring the delay line uses already holds where the target was N frames ago, so
-    -- average speed is one subtraction and needs no new state. Averaging over the window turns
-    -- "nothing arrived this frame" into the peer's real speed instead of a standstill.
-    --
-    -- MEASURE THE STREAM YOU ARE CHASING, NOT THE ONE IN FRONT OF IT (2026-09-12). This window sat
-    -- on the RAW target while the filter moves toward a target `drawnDelay` frames older, and the
-    -- two lengths are the same number -- 8 and 8 -- so a burst entered the window exactly when it
-    -- happened and left it exactly when the delayed target began to move. The measurement expired
-    -- on the frame it was needed: a perfect miss, by construction.
-    --
-    -- Invisible on an ordinary step, because the wire carries sub-tile progress and the target
-    -- creeps every frame. A SEAM has no such ramp: crossing a map connection rebases the peer's
-    -- coordinate, so a whole tile arrives in ONE frame. The speed burst was then spent dragging the
-    -- ghost toward the OLD delayed target, `gSpd`'s high-water mark was cleared by the arrival
-    -- (`dist <= 0.05`), and the real tile that followed was covered at the 0.02 floor -- 0.025 tiles
-    -- a frame, 0.4px, a fifth of walking pace, ~40 frames for one tile. Measured on the watcher's
-    -- side of the user's back-and-forth repro (probes/seamtrace.log, the user: *"on emerald1, the
-    -- ghost is moving slow while crossing"*).
-    --
-    -- Looking back `drawnDelay + WINDOW` puts the measurement in the same time frame as the target,
-    -- so the burst lands on the frame the ghost has to spend it. The ring holds 32 slots, so the
-    -- pair has to fit inside it -- an over-large DRAWN_DELAY_FRAMES would wrap onto the slot being
-    -- written this frame and measure a speed of zero forever.
+    -- Target speed over an 8-frame window: the stream is bursty, so frame to frame it reads zero most frames. It
+    -- is measured drawnDelay + WINDOW back, in the same time frame as the delayed target; the pair must fit the ring.
     local WINDOW = 8
     local lookBack = genderFrames.drawnDelay + WINDOW
     if lookBack >= 32 then lookBack = WINDOW end
@@ -1762,126 +945,29 @@ local function glideRemote(r, targetX, targetY)
         tspd = math.abs(targetX - r.tgtPrevX) + math.abs(targetY - r.tgtPrevY)
     end
     r.tgtPrevX, r.tgtPrevY = targetX, targetY
-    -- The floor matters: with the target still, a zero limit would freeze a ghost that is not yet
-    -- where it belongs. 0.02 tiles a frame closes a sub-pixel gap without being visible as motion.
-    --
-    -- CAPPED, because the peer's own position stream is not continuous. Measured on the Mach Bike
-    -- across 1x1 and 2x2 squares: the peer's reported position advances 0.06 a frame and then
-    -- JUMPS about 0.6 of a tile at the boundary -- it reports roughly half a tile of sub-tile
-    -- progress and then arrives. Taking the speed from that jump let the ghost cover 0.81 of a
-    -- tile in a single frame, which is a pop, not motion. The old ease hid this by never following
-    -- anything faithfully.
-    --
-    -- 0.25 tiles a frame is the game's own ceiling -- a tile in four frames, the fastest a Mach
-    -- Bike moves -- so nothing legitimate is ever slowed by this, and a wire discontinuity is
-    -- absorbed over three frames instead of popped in one.
+    -- Floor 0.02 tiles a frame closes a sub-pixel gap; cap 0.25 (a tile in four frames, the Mach Bike) spreads a
+    -- jump in the stream over several frames instead of one.
     local ddx, ddy = targetX - r.gX, targetY - r.gY
     local dist = math.abs(ddx) + math.abs(ddy)
-    -- A CHARACTER FINISHES ITS STEP AT SPEED. IT NEVER CRAWLS THE LAST BIT IN.
-    --
-    -- The floor is the right answer for a sub-pixel gap and the wrong one for a real distance, and
-    -- the two are told apart by `dist` rather than by tspd. When the peer stops, tspd decays to
-    -- zero over the window above and the limit drops to the floor -- so whatever ground the ghost
-    -- still owed got paid off at 0.025 tiles a frame however far it was.
-    --
-    -- After an ice slide that is most of a tile, because a slide is fast and the position stream
-    -- is bursty. Measured on the scripted left/right slide (probes/tier_compare.log, 2026-08-21):
-    -- the peer stopped at f=224 with the drawn copy 0.86 tiles behind, which then closed at 0.025
-    -- a frame and took 34 frames -- over half a second of visible creep after the player had
-    -- already come to rest. The user: the drawn ghost *"is doing the ending part a bit slow"*.
-    --
-    -- So the travelling speed is held as the floor until the ghost has actually arrived: it
-    -- finishes at the pace it was going and then stops, which is what the engine's own step
-    -- machine does. `move` is still clamped to `dist`, so this cannot overshoot.
-    -- THE PEAK, NOT THE LATEST. tspd is an 8-frame average, so when the peer stops it does not
-    -- drop to zero -- it DECAYS across the window. Assigning it every frame therefore walked the
-    -- floor down with it and left the last value above the threshold, which measured 0.023 against
-    -- a travelling 0.0625: the crawl came back at three quarters of its old length and the fix
-    -- read as almost no fix at all. Held at the high-water mark instead, and dropped only once the
-    -- ghost has arrived, so the next movement starts from its own speed rather than this one's.
+    -- A character finishes its step at speed: the peak speed is the floor until the ghost arrives, then cleared.
     if tspd > (r.gSpd or 0) then r.gSpd = tspd end
     if dist <= 0.05 then r.gSpd = nil end
     local limit = math.min(math.max(tspd, r.gSpd or 0, 0.02) * 1.25, 0.25)
 
-    -- MOVE AT A SPEED THE ENGINE ACTUALLY PRODUCES (2026-09-12).
-    --
-    -- The limit above is a measured rate times 1.25 -- a catch-up factor -- so after a turn, where
-    -- the model still owes ground on the axis it was walking, it closes that gap at 1.25x the
-    -- peer's speed. At running pace that is 2.5px a frame, and NOTHING in this game moves at 2.5px
-    -- a frame. The user, watching a running square: *"like its sliding after running another
-    -- direction"*. A character here is stepped by a fixed table -- `NpcTakeStep`, documented in
-    -- documentation.md -- and every entry in it is a whole number of pixels:
-    --
-    --     MOVE_SPEED_NORMAL 1px   FAST_1 2px   FAST_2 2,3,3,2,3,3   FASTER 4px   FASTEST 8px
-    --
-    -- The peer tells us which one it is: `pspeed` is that same MOVE_SPEED constant, already on the
-    -- wire and already validated to 0..4. So the ghost moves at the peer's OWN quantum, and a frame
-    -- of motion is a frame the engine could have produced.
-    --
-    -- CATCHING UP IS ALSO DONE AT A REAL SPEED. Falling behind cannot be answered with a fraction,
-    -- so a model more than a tile adrift steps up to the next quantum -- a character that needs to
-    -- cover ground RUNS; it does not walk faster. Anything larger than that is a discontinuity, and
-    -- the two-tile guard above has already snapped it.
-    --
-    -- FAST_2 IS APPROXIMATED, and says so: its 2,3,3,2,3,3 is uneven per frame and reproducing it
-    -- exactly needs the peer's step PHASE, which is not on the wire. The average (16/6 px) is used
-    -- until it is -- the one place here that is not frame-exact.
-    -- `pspeed` IS NOT `MOVE_SPEED_*`, AND ASSUMING IT WAS COST AN ITERATION (2026-09-12).
-    --
-    -- It is `gPlayerAvatar.bikeSpeed`, which this adapter treats as PLAYER_SPEED_* with 0 meaning
-    -- standing -- one MORE than the step table's index, where 0 is already walking. The value-to-
-    -- speed mapping is the decompilation's (bike.h, a pointer) and unmeasured; what is measured is
-    -- the on-foot 0 below. Indexed as MOVE_SPEED it made a running
-    -- peer (`pspeed` 0 on foot) move at 1px a frame against a target advancing 2px, so the model
-    -- lost a pixel every frame until it was a full tile behind and the catch-up rule lurched it
-    -- forward. Measured in probes/movetrace.log: `d(tgt)=-0.1250 d(model)=-0.0625` for five frames
-    -- running, `dist` climbing 0.75 -> 1.06.
-    --
-    -- AND ON FOOT THE FIELD READS 0 ANYWAY: the adapter sends the raw `bikeSpeed` byte, and a
-    -- running player on foot reports 0 (the movetrace.log run above). So the gait comes from `anim`, which this
-    -- adapter already derives from runningState and the dash flag, and `pspeed` covers the vehicles
-    -- `anim` cannot describe. The larger of the two wins: a mach bike reads FASTEST while its anim
-    -- is still "walking", and a dash reads "running" while pspeed is 0.
-    --
-    -- Check what a field IS and DOES, never what its name suggests -- adapters/_template/probes.md
-    -- has carried that rule since 2026-08-19, and this is the fourth entry under it.
-    -- The engine's own per-frame pixel counts, indexed by MOVE_SPEED_* (documentation.md, "A step
-    -- is a fixed table").
-    --
-    -- FAST_2 -- the acro bike -- is the uneven one: 2,3,3,2,3,3. It is entered here as its MAXIMUM
-    -- rather than its average, and that is not a fudge: this number is a CEILING, and the model
-    -- lands exactly on its target whenever the target is within one frame's reach. A ceiling of 3
-    -- therefore reproduces 2 on the frames the engine moves 2 and 3 on the frames it moves 3,
-    -- because the WIRE is already carrying the real pattern -- the sender ramps on the engine's own
-    -- step length now. The average was worse than either: it could not keep up on a 3px frame and
-    -- overshot the 2px ones, which is the gait the user called out first.
+    -- Move at a speed the engine produces, whole pixels a frame by MOVE_SPEED_*: 1, 2, 2-3, 4, 8. FAST_2 (the acro
+    -- bike, 2,3,3,2,3,3) is entered at its maximum: this is a ceiling, and the wire carries the real pattern.
+    -- pspeed is gPlayerAvatar.bikeSpeed, 0 standing and on foot even when running, so anim covers walking.
     local ENGINE_PX = { [0] = 1, [1] = 2, [2] = 3, [3] = 4, [4] = 8 }
     local ANIM_PX = { walking = 1, running = 2 }
     local PLAYER_SPEED_PX = { [1] = 1, [2] = 2, [3] = 4, [4] = 8 }
-    -- THE ENGINE'S OWN SPEED FIRST. `mspd` is MOVE_SPEED_*, which indexes the same step table the
-    -- game uses, so it is exact for every gait including both bikes: 1, 2, (2,3,3,2,3,3), 4, 8
-    -- pixels a frame. The two older sources stay as the fallback for a peer that does not send it,
-    -- and neither can describe a bike -- `anim` says "walking" on one and `pspeed` says STANDING.
+    -- mspd first: it indexes the engine's own step table. anim and pspeed are the fallback, and neither knows a bike.
     local quantum = r.mspd and ENGINE_PX[r.mspd]
     if not quantum then
         quantum = ANIM_PX[r.anim]
         local vehiclePx = r.pspeed and PLAYER_SPEED_PX[r.pspeed]
         if vehiclePx and (not quantum or vehiclePx > quantum) then quantum = vehiclePx end
     end
-    -- IT FINISHES AT THE SPEED IT WAS TRAVELLING (2026-09-13).
-    --
-    -- The gait comes from `anim`, so the frame the peer stops -- or blips through idle while
-    -- turning around -- `anim` is "idle", the quantum is nil, and the limit falls back to the
-    -- measured filter with its 0.02 floor: 0.4px a frame, a fifth of walking pace, for whatever
-    -- ground the model still owed. That is a slide at exactly the two moments the user reported,
-    -- *"running and then stopping causes a small slide at the end"* and *"walking left/right causes
-    -- a small slide when turning around"* -- the ghost arriving in slow motion after the peer has
-    -- already finished.
-    --
-    -- This file already had the rule, written for the old high-water mark: A CHARACTER FINISHES ITS
-    -- STEP AT SPEED. IT NEVER CRAWLS THE LAST BIT IN. So the travelling quantum is held until the
-    -- model actually arrives, and only then forgotten -- the next movement starts from its own
-    -- gait rather than inheriting this one.
+    -- The travelling quantum is held until the model arrives, so a stop or a turn never crawls the last bit in.
     if quantum then
         r.gQuantum = quantum
     elseif r.gQuantum and dist > 0.02 then
@@ -1890,62 +976,21 @@ local function glideRemote(r, targetX, targetY)
     if dist <= 0.02 then r.gQuantum = nil end
     if quantum then
         if dist > 1 then
-            -- A character that needs to cover ground RUNS; it does not walk faster. The next real
-            -- quantum up, never a fraction.
+            -- Covering ground means the next real quantum up (running), never a fraction.
             local faster = (quantum <= 1 and 2) or (quantum <= 2 and 4) or 8
             if faster > quantum then quantum = faster end
         end
         limit = quantum / TILE
     end
-    -- WITHIN ONE FRAME'S REACH, BE THE TARGET -- do not carry a permanent gap (2026-09-12).
-    --
-    -- Moving at exactly the peer's speed means a gap once opened is never closed: the model chases
-    -- a target receding at its own rate, and `dist` sat at a constant 0.1250 -- two pixels -- for
-    -- entire runs. Two pixels is invisible in a straight line and is NOT invisible at a corner: the
-    -- peer turns on the tile boundary while the model is still two pixels short of it, so the ghost
-    -- keeps walking the old way for two frames and then turns. The user, watching exactly that:
-    -- *"walking left, turning down, they keep sliding a bit left before starting to move down"*.
-    --
-    -- Closing it with extra SPEED is what the 1.25x catch-up did, and that produced a slide of its
-    -- own at a rate no character moves at. So the model instead simply IS the delayed target
-    -- whenever it is within one frame's legal movement of it: no motion is invented, nothing moves
-    -- faster than the engine can, and the ghost turns on the same frame its target does.
-    --
-    -- The rate limit still governs everything further away, which is the case the filter exists for
-    -- -- a sparse or bursty stream, where a whole tile can arrive at once.
+    -- Within one frame's reach, become the target: moving at the peer's own speed would never close a gap.
     if dist > 0 and dist <= limit then
         r.gX, r.gY = targetX, targetY
         r.gAxis = nil
     elseif dist > 0 then
         local move = math.min(dist, limit)
-        -- ONE AXIS AT A TIME, DOMINANT AXIS FIRST -- because the character never moves diagonally.
-        --
-        -- This split the frame's budget across BOTH axes in proportion (`ddx/dist`, `ddy/dist`),
-        -- which walks a straight line toward the delayed target. A straight line to a point past a
-        -- CORNER is a diagonal, so every direction change had the ghost cut across the turn instead
-        -- of walking it: the user, watching a square at 0 interp -- *"slides a bit when changing
-        -- walking direction"*. Nothing in Emerald moves diagonally; a corner is two axis-aligned
-        -- legs, and a renderer that rounds it off is showing a motion the game cannot produce.
-        --
-        -- Dominant axis first is what reproduces the ORDER of those legs without storing a path:
-        -- just after a corner the axis the peer was already walking still holds the larger
-        -- remainder, so it finishes, and only then does the new one start. The frame's total
-        -- movement is unchanged -- `limit` is spent either way -- so this is not a speed change,
-        -- and `move` is still clamped to `dist`, so it cannot overshoot.
+        -- One axis at a time, dominant first: nothing in Emerald moves diagonally, so a corner is two legs.
         local ax, ay = math.abs(ddx), math.abs(ddy)
-        -- AND IT COMMITS TO THE AXIS UNTIL THAT AXIS IS DONE (2026-09-12).
-        --
-        -- "Dominant axis first" is only half the rule. Once the model has nearly caught up, the
-        -- remainder on BOTH axes is a pixel or two, so the dominant one flips frame to frame and
-        -- the ghost walks a 2px staircase -- a diagonal, drawn as alternating single steps, which
-        -- is what the user kept seeing through a corner: *"the turns still look a bit off, as if
-        -- the player is sliding/gliding"*. The engine cannot produce it: a character commits to a
-        -- direction for a whole step and only reconsiders when the step ends (Crystal reached the
-        -- same rule from the other side -- "commit whole tiles; decide only at boundaries").
-        --
-        -- So the axis is STICKY: it is re-chosen only when the axis we are on has nothing left to
-        -- give. A quarter-pixel is the "nothing left" threshold -- below it the remainder cannot
-        -- move a pixel on screen, so holding the axis for it would stall the other one.
+        -- The axis sticks until its remainder is under a quarter pixel, or near arrival it would staircase.
         local EPS = 0.015
         if r.gAxis == "x" and ax <= EPS then r.gAxis = nil end
         if r.gAxis == "y" and ay <= EPS then r.gAxis = nil end
@@ -1969,15 +1014,7 @@ local function glideRemote(r, targetX, targetY)
             end
         end
     end
-    -- MESHGHOST_EMERALD_MOVE_TRACE (probe, off by default): the delayed target this filter is
-    -- chasing, the model, and the per-frame delta -- one line per frame per peer.
-    --
-    -- The question it exists for: this filter was chosen because the position stream was SPARSE
-    -- (measured 2026-08-19: one frame in eight, in 2-4px jumps, because the core delivered at the
-    -- relay's 8-20/s). At 100Hz with interp 0 and the sender's own per-frame sub-tile ramp the
-    -- stream is nearly dense, so the premise may no longer hold -- and "the filter still helps" and
-    -- "the filter is now only lag" produce very different numbers here. d(model) against d(target)
-    -- is what tells them apart; the ENGINE's answer for comparison is a flat 1px or 2px a frame.
+    -- MESHGHOST_EMERALD_MOVE_TRACE (probe, off by default): target, model and deltas, a line per frame per peer.
     if MESHGHOST_EMERALD_MOVE_TRACE then
         genderFrames.mvBuf = genderFrames.mvBuf or {}
         local b = genderFrames.mvBuf
@@ -1998,21 +1035,7 @@ local function glideRemote(r, targetX, targetY)
             genderFrames.mvBuf = {}
         end
     end
-    -- FACE WHERE IT IS ACTUALLY GOING (2026-09-12).
-    --
-    -- The wire's facing is the engine's `facingDirection`, which is set at the START of a step --
-    -- so it flips while the previous step's pixels are still playing out, and a ghost that believes
-    -- it turns early and then finishes the old leg: *"there is still a small slide/glide in the
-    -- current walking direction after turning to move in another direction"*. Delaying the facing
-    -- with the position (the ring) fixed the 8-frame version of this; it cannot fix the part that
-    -- is ALREADY early on the sender.
-    --
-    -- Crystal reached the same rule from its own stutter work: the stride's axis came from the
-    -- peer's reported facing, and it now comes from where the ghost is going (pitfalls/by-lesson,
-    -- "from stuttery to clean", layer 3). A character in this game cannot face one way and travel
-    -- another, so the MOTION is the honest source and the wire's facing is what to use when there
-    -- is no motion to read -- standing still, or turning on the spot, which is the one case the
-    -- wire is describing something real that no position can show.
+    -- Face the way it moves: the wire's facing flips at the start of a step, while the last one is still playing.
     local mvx, mvy = r.gX - prevX, r.gY - prevY
     if math.abs(mvx) > 0.001 or math.abs(mvy) > 0.001 then
         if math.abs(mvx) >= math.abs(mvy) then
@@ -2023,32 +1046,16 @@ local function glideRemote(r, targetX, targetY)
     end
     local dx, dy = math.abs(r.gX - prevX), math.abs(r.gY - prevY)
 
-    -- Movement, for the walk cycle: a filter never quite arrives, so "is it moving" is a question
-    -- about whether it is still meaningfully closing, not about being exactly equal.
+    -- A filter never quite arrives, so moving means still meaningfully closing.
     r.gMoved = (math.abs(targetX - r.gX) + math.abs(targetY - r.gY)) > 0.02
-    -- STOPPED: hand the facing back to the wire. A character standing still can still TURN, and
-    -- that turn is real -- it is the only facing change no amount of watching a position can show.
+    -- Stopped: the facing comes from the wire again, since a turn on the spot shows in no position.
     if not r.gMoved then r.gFacing = nil end
-    -- Distance covered, in tiles. The engine changes pose every 8 pixels, so this keeps a tile at
-    -- two poses whatever rate the peer's positions arrived at.
+    -- Tiles covered: the engine changes pose every 8 pixels, whatever rate positions arrived at.
     r.gDist = (r.gDist or 0) + dx + dy
-    -- WALKING INTO A WALL covers no ground, and a distance-driven cycle therefore froze on a
-    -- single pose: the user, comparing, *"does not animate the walking into a wall animations, it
-    -- just does the pose and stays in it"*. The peer is plainly walking; it is the GROUND that is
-    -- missing. So when a peer reports walking or running without moving, the cycle advances at
-    -- that pace anyway -- a sixteenth of a tile per frame walking, an eighth running, which are
-    -- the same 8 frames per pose the engine spends.
-    -- "Is the peer moving" is asked of the TARGET, not of the filter's own step. A filter
-    -- approaches a new position asymptotically and never lands exactly on it, so testing its
-    -- per-frame delta against zero was true only when the ghost had ALREADY been standing still --
-    -- exactly the difference the user found: the wall animation played *"if im next to a wall, and
-    -- walk into it"* but not *"if i walk and hit a wall and keep walking"*, where the filter was
-    -- still converging from the approach. The target is a discrete value off the wire; it either
-    -- changed this frame or it did not, with no residue to threshold.
+    -- Walking into a wall covers no ground, so a peer reported walking with a still target advances the cycle
+    -- anyway. Asked of the target, a discrete wire value, not of the filter, which never lands exactly.
     if targetX == r.lastTX and targetY == r.lastTY then
-        -- HALF pace, because walking into a wall is not walking: at full walking pace the user's
-        -- verdict was that the drawn ghost did it *"a bit too fast"*. (That the game uses a SLOW
-        -- walk-in-place there is the decompilation's reading -- see BUMP_ACTION -- not measured.)
+        -- Half pace: walking into a wall is slower than walking.
         if r.anim == "running" then r.gDist = r.gDist + 0.0625
         elseif r.anim == "walking" then r.gDist = r.gDist + 0.03125 end
     end
@@ -2060,68 +1067,25 @@ local prevTileX, prevTileY = nil, nil
 local committedTileX, committedTileY = nil, nil
 local committedAreaId = nil
 local tileChangeFrame = 0
--- The duration used to glide the CURRENT step, locked in once when that step commits rather
--- than re-derived from anim on every frame of the glide. Found live 2026-08-11: re-deriving it
--- live let the denominator itself change mid-glide whenever anim changed before the glide
--- finished (e.g. running -> idle the instant you stop, or a step right after unblocking from a
--- wall), which made the fraction jump backward or lurch -- exactly the "snaps when I suddenly
--- stop running" and "wall bump then running" reports. Locking it to whatever anim was active
--- at the moment the step STARTED fixes that: the rest of that one glide always finishes at the
--- pace it began at, regardless of what anim does before it completes.
+-- The current step's duration, fixed when it commits, so a change of anim mid-glide cannot make it jump.
 local activeStepDuration = STEP_DURATION_FRAMES.walking
--- True only while gliding a REAL committed step (the elseif branch below) -- explicitly false
--- for the first-sample/map-transition bootstrap case, which also starts a fraction-driven
--- window but was never an actual step. Added 2026-08-14 after the diagnostics below fired
--- during the ~16-frame bootstrap window right after connecting, before the player had moved at
--- all -- confusing and wasted the log budget on a non-event. Used to gate DIAG_STEP_CURVE/
--- DIAG_SCREENPOS_PARTS below onto only genuine movement.
+-- True only while gliding a real committed step, not the snap after a first sample or map change; gates diagnostics.
 local inRealGlide = false
--- Set when a glide finishes (fraction reaches 1), but not ACTED on until the START of the next
--- call -- deferred by one frame on purpose so the completion frame itself still reads
--- inRealGlide == true (the diagnostics' caller reads it AFTER this function returns, so
--- clearing it in the same call that finishes the glide would silently drop the last, most
--- relevant frame -- exactly the one a reported "snap at the end" needs to be visible in).
+-- Cleared one call late, so the completion frame still reads inRealGlide for the diagnostics.
 local glideJustCompleted = false
 
--- `stepFrames` is the ENGINE'S OWN step length for the gait the player is in, passed in rather
--- than inferred here (2026-09-13). Inferring it from `anim` worked for the two gaits `anim` can
--- describe and failed completely on a bike: `anim` reads "walking" on both of them, so a tile the
--- acro bike crosses in FOUR frames was ramped over SIXTEEN. The wire then crept a pixel a frame
--- and leapt eleven when the tile flipped again -- measured on the watcher, `d(tgt)=0.6875` in one
--- frame -- and no receiver can render that as anything but a teleport.
---
--- It is a PARAMETER because this function sits two thousand lines above `rs16` and `sprAddr`: the
--- value is read at the send site, where the memory readers exist. Nil keeps the old `anim`-derived
--- behaviour, which is what a caller that cannot read it should get.
+-- stepFrames is the engine's step length for the player's gait, read at the send site (anim reads walking on a bike).
 local function smoothPosition(rawX, rawY, areaId, anim, stepFrames)
     if glideJustCompleted then
         inRealGlide = false
         glideJustCompleted = false
     end
 
-    -- A SEAM IS NOT A WARP, AND THIS IS THE SEND PATH'S HALF OF THAT (2026-09-12).
-    --
-    -- Crossing a map CONNECTION changes the area id while the world stays continuous and the
-    -- player's step stays in flight. Snapping here threw that step's phase away and put a WHOLE
-    -- TILE on the wire in a single frame -- measured 48.9 -> 50.0 while the player was walking one
-    -- tile at 1/16 per frame. No receiver can tell that from real movement, so every peer rendered
-    -- a tile of travel that never happened, and it is the same defect at every gait: the phase is
-    -- lost whether the player is walking, running or on a Mach Bike, because the step duration is
-    -- whatever this function was already using.
-    --
-    -- `xmapRebase` leaves the seam's tile delta for exactly this: express the interpolator's two
-    -- endpoints in the new map's numbering and let the ramp finish. A WARP leaves no delta (the
-    -- connection lookup misses, which is what a door IS), so it still snaps, and it should -- the
-    -- engine rebuilt the world and there is nothing to carry.
+    -- A seam is not a warp: xmapRebase leaves the seam's tile delta, so both endpoints move into the new map's
+    -- numbering and the step in flight finishes. A warp leaves no delta and snaps.
     local seam = genderFrames.xmapSeam
     local carried = false
-    -- AND IT HAS TO PROVE THE STEP IS REAL. The carry claims "the same step is still in flight",
-    -- and that claim is checkable: the rebased endpoint must land on the tile the ENGINE says the
-    -- player is on, give or take the step itself. A savestate load crosses the same two maps
-    -- without walking -- measured 2026-09-12, loading slot 5 from eighteen tiles away had this
-    -- branch glide the wire across all eighteen at 1.125 tiles a frame -- and so does any other
-    -- teleport that happens to land on a connected map. Those fall through to the snap below,
-    -- which is what a discontinuity deserves.
+    -- Only if the rebased tile is where the engine has the player, so a savestate load onto a connected map snaps.
     if committedTileX ~= nil and areaId ~= committedAreaId and seam
         and seam.from == committedAreaId and seam.to == areaId
         and math.abs((committedTileX + seam.dx) - rawX) <= 1
@@ -2133,8 +1097,7 @@ local function smoothPosition(rawX, rawY, areaId, anim, stepFrames)
         carried = true
     end
     if not carried and (committedTileX == nil or areaId ~= committedAreaId) then
-        -- First sample, or a map transition -- nothing to interpolate from, snap instead of
-        -- gliding across a map boundary or from nothing. Never a real glide.
+        -- First sample or a map change: nothing to glide from, so snap.
         prevTileX, prevTileY = rawX, rawY
         committedTileX, committedTileY = rawX, rawY
         committedAreaId = areaId
@@ -2158,22 +1121,10 @@ local function smoothPosition(rawX, rawY, areaId, anim, stepFrames)
            prevTileY + (committedTileY - prevTileY) * fraction
 end
 
--- DIAGNOSTIC, added 2026-08-14 -- checks a specific live-reported symptom: a single-tile walk
--- still looks "slightly off" between the real player and the ghost even ignoring network delay,
--- with a visible snap right as the step completes. Working theory: our own synthetic glide
--- (smoothX/Y above, a fixed linear ramp over STEP_DURATION_FRAMES[anim] frames) might not land
--- in exact frame-for-frame lockstep with the REAL sprite's own pixel motion that
--- playerScreenPos() reads -- if the real sprite's per-frame pixel delta isn't a clean, constant
--- 1px/frame (e.g. it moves in an uneven pattern, or finishes/resets a frame earlier or later
--- than our own frameCounter-based timing expects), the mismatch would show up exactly as a
--- small end-of-step correction. Logs both curves side by side, gated to only real glides (see
--- inRealGlide above) and capped to DIAG_STEP_CURVE_MAX_LOGS actual logged frames -- generous
--- (a full minute's worth of real step-frames) so there's no rush between reloading the script
--- and actually moving.
+-- Diagnostic: our glide against the real sprite's per-frame motion, during real glides only.
 local DIAG_STEP_CURVE = false
 local DIAG_STEP_CURVE_MAX_LOGS = 3600
--- Same reason as lastMap above: diagnostics share one table so shipped behaviour keeps the
--- scarce local slots.
+-- Diagnostics share one table, so shipped code keeps the local slots.
 local diag = { stepCurveLogs = 0, prevRealX = nil, prevRealY = nil, screenPosLogs = 0 }
 
 local DIAG_SCREENPOS_PARTS = false
@@ -2181,12 +1132,7 @@ local DIAG_SCREENPOS_PARTS_MAX_LOGS = 200
 
 local function playerScreenPos()
     local spriteId = memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)
-    -- **THROUGH THE REGION SHIFT (2026-09-11).** This built its own address instead of going
-    -- through `sprAddr`, so on a build that moves gSprites it read the WRONG sprite -- and this
-    -- function is the anchor the whole painted tier positions peers against. On SPEEDCHOICE that
-    -- put every peer off-screen: remotes counted, areas matching, three tiles away, nothing
-    -- painted, no error. Its own ghost appeared correctly on every OTHER client the whole time,
-    -- because the send path never touches this.
+    -- Through the gSprites shift: every painted peer is positioned against this.
     local spriteAddr = GSPRITES_ADDR + (genderFrames.spriteAddrOffset or 0)
         + (spriteId * SPRITE_SIZE)
 
@@ -2197,21 +1143,10 @@ local function playerScreenPos()
     local cx = memory.read_s8(spriteAddr + 0x28)
     local cy = memory.read_s8(spriteAddr + 0x29)
 
-    -- Same region, same shift. These were missed by an earlier pass that rewrote the `rs16(...)`
-    -- call sites only -- this pair uses `memory.read_s16_le` directly, which is exactly the kind of
-    -- near-miss a grep-driven edit leaves behind.
     local coordOffsetX = memory.read_s16_le(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0))
     local coordOffsetY = memory.read_s16_le(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0))
 
-    -- DIAGNOSTIC, added 2026-08-14 -- the combined return value stayed frozen across an entire
-    -- real walked tile (see the DIAG CURVE trace), which could mean either "correct, camera
-    -- absorbs all scroll" or "reading a stale/wrong address never checked for this Archipelago
-    -- ROM's shift" -- logging each component separately (spriteId included, to catch a wrong
-    -- sprite-slot read too) instead of just the sum should show directly which one, if any, is
-    -- the one not moving. Gated to only log during a real committed step's glide (inRealGlide,
-    -- an upvalue from smoothPosition() above) -- found live: gating on raw fraction/timing alone
-    -- also fired during the bootstrap window right after connecting, before the player had
-    -- moved at all.
+    -- Diagnostic: each term of the sum, spriteId included, during real glides only.
     if DIAG_SCREENPOS_PARTS and inRealGlide and diag.screenPosLogs < DIAG_SCREENPOS_PARTS_MAX_LOGS then
         diag.screenPosLogs = diag.screenPosLogs + 1
         console.log(string.format(
@@ -2223,64 +1158,20 @@ local function playerScreenPos()
 end
 
 ----------------------------------------------------------------------------
--- Remote ghost set. Per the tick model (agent_docs/contract.md): an
--- adapter-owned map the core upserts into via render_remote and removes
--- from via despawn_remote, redrawn every frame regardless of when new
--- network data last arrived. Extended from phase4_multiplayer.lua with
--- per-remote animation state (animTimer/animStepIndex), which must survive
--- across render_remote updates (a new position update every ~1/10s must
--- NOT reset which walk-cycle frame is currently showing) -- so updates
--- merge into the existing entry instead of replacing it wholesale.
+-- Remote ghost set (the tick model): upserted by render_remote, removed by despawn_remote, redrawn every frame.
+-- Updates merge into the entry, so the walk cycle survives a new position.
 ----------------------------------------------------------------------------
 
 local remotes = {}
 
--- ===== CROSS-MAP GHOSTS: a peer across a route seam is visible, a peer in a house is not =====
---
--- The user's ask, 2026-08-20: *"see ghosts when going between routes, but still hide them when
--- entering houses"*, with distance culling so nothing far away costs anything, and *"i want it to
--- exist before appearing on a screen so that ghosts never pop in/out"*.
---
--- The game's own map system already draws this exact line. Maps join two ways: CONNECTIONS (route
--- touching town -- seamless, you can see across) and WARPS (doors, cave mouths). Houses are only
--- ever reached by warp, so the rule "translate peers on maps CONNECTED to mine, hide everyone
--- else" is routes-visible-houses-hidden with no house special-case, and it is also the distance
--- cull: two maps away is not in my connection list, so it does not exist for me.
---
--- HOW: translated AT INGEST into the local map's tile frame, so the entire downstream pipeline --
--- anchor, glide, both tiers, collision -- sees ordinary local coordinates and needs no changes.
--- Re-translated every frame from the stored wire coordinates, so the local player crossing a seam
--- rebases every peer the same frame instead of waiting a delivery.
---
--- Structures measured live 2026-08-20 (`probes/connections.lua`, and its log): the header copy at
--- 02037318 carries the connections pointer at +0x0C -> {count s32, list ptr}, entries 12 bytes
--- {direction u8, offset s32 +4, mapGroup u8 +8, mapNum u8 +9}, directions 1/2/3/4 =
--- south/north/west/east. Verified on both sides of a real seam, including a double west
--- connection whose offset=20 is the field doing its job. Field names point at the decompilation's
--- (global.h); the layout is the probe's measurement, not trust.
---
--- gMapGroups (group:num -> ROM header, for a NEIGHBOR's dimensions) is SELF-LOCATED, never
--- hardcoded: find the ROM original of the live header copy by its own first 16 bytes, then the
--- pointer to it, then the pointer to that -- each step read back before use, the same posture as
--- the Archipelago sprite-shift detection. Located across ~6s of frames in 128KB chunks; until it
--- completes, cross-map stays off and behaviour is exactly yesterday's.
---
--- THE MARGIN is the no-pop rule: a translated peer within 7 tiles of the map edge exists on both
--- tiers, and 7 is the engine's own border width -- one tile more than the screen can show past a
--- seam vertically. (The far screen CORNER can exceed it by a tile; accepted for v1 and noted.)
+-- Cross-map ghosts: a peer on a map connected to ours (a route seam) is translated at ingest into our tile frame, so
+-- everything downstream sees local coordinates; any other peer stays hidden. Houses are reached only by warp and a
+-- map two away is not in the connection list, so this is also the house rule and the distance cull.
 genderFrames.xmap = { scanStep = 1, scanAt = 0, hits = {}, groupsAt = nil,
     conns = nil, connsFor = nil, ourW = 0, ourH = 0 }
 
--- THE SCAN RESULT IS CACHED ACROSS LOADS, because the ~7-second self-location window is not
--- cosmetic: a seam crossed before arming gets the old teardown, and during a dev session the
--- adapter reloads constantly -- the user kept seeing "spawned vanishes fully, drawn slightly" at
--- crossings that were all landing inside fresh arming windows, while every armed measurement was
--- clean. Keyed by the ROM's own 4-byte game code and VERIFIED before trust: the cached address
--- must resolve the CURRENT map's header to the same bytes as the live copy, so a wrong or stale
--- cache costs one failed check and falls back to the full scan, never a wrong read.
--- genderFrames.xmapCachePath is set in the log-open block ABOVE (beside the logs) -- no
--- declaration here: this line runs later in the load than that block, and an `= nil` "declaration"
--- wiped the already-set path, which the loud save caught as "path never set".
+-- The scan result is cached across loads, keyed by the ROM's game code and checked against the live header copy
+-- before use. xmapCachePath is set in the log-open block above; declaring it here would wipe it.
 genderFrames.xmapTryCache = function()
     local xm = genderFrames.xmap
     if not genderFrames.xmapCachePath then return false end
@@ -2305,8 +1196,7 @@ genderFrames.xmapTryCache = function()
     return true
 end
 genderFrames.xmapSaveCache = function()
-    -- Loud on every exit: the first version failed SILENTLY (path nil or open failed, no way to
-    -- tell which), and a silent cache miss re-opens the 7-second window it exists to close.
+    -- Loud on every exit: a silent miss re-opens the arming window the cache exists to close.
     if not genderFrames.xmapCachePath then
         console.log("MeshGhost: xmap cache NOT saved -- path never set")
         return
@@ -2328,13 +1218,10 @@ genderFrames.xmapLocalKey = function()
     return memory.read_u8(sb1 + 0x04) .. ":" .. memory.read_u8(sb1 + 0x05)
 end
 
--- One 128KB chunk of the ROM scan per frame; three passes as in the probe.
+-- One 128KB ROM chunk per frame; three passes find the map header, its group array, then gMapGroups.
 genderFrames.xmapScan = function()
     local xm = genderFrames.xmap
-    -- A failed pass RETRIES rather than giving up: the scan takes ~400 frames, and the player
-    -- crossing a seam mid-pass swaps the header under it -- the verify then finds zero candidates
-    -- and a permanent give-up leaves cross-map off for the whole session, measured live when a
-    -- driven crossing raced the scan. A short pause between attempts keeps the retry polite.
+    -- A failed pass retries after a pause: a seam crossed mid-pass can leave it with no candidate.
     if xm.groupsAt then return end
     if xm.scanStep > 3 then
         if not xm.retryAt then xm.retryAt = frameCounter + 300 end
@@ -2347,11 +1234,7 @@ genderFrames.xmapScan = function()
         xm.hits = {}
         if xm.scanStep == 1 then
             xm.target = memory.read_u32_le(GMH)
-            -- SNAPSHOT, not a live comparison: the pass takes ~130 frames and the player crossing
-            -- a seam mid-pass swaps the header under it -- verifying against the LIVE copy then
-            -- fails every pass that straddles a crossing, and in real roaming the scan can retry
-            -- for minutes. The signature and the map identity are captured HERE, so the pass finds
-            -- the map it started on regardless of where the player has wandered since.
+            -- A snapshot, not the live copy: a seam crossed mid-pass swaps the header under the scan.
             xm.sig = {}
             for k = 0, 12, 4 do xm.sig[k] = memory.read_u32_le(GMH + k) end
             local sb1s = session.saveBlockPtr(0x03005d8c)
@@ -2371,7 +1254,6 @@ genderFrames.xmapScan = function()
     end
     xm.scanAt = xm.scanAt + 0x20000
     if xm.scanAt < 0x09000000 then return end
-    -- pass complete: interpret
     local sb1 = session.saveBlockPtr(0x03005d8c)
     if sb1 == 0 then xm.scanAt = 0 return end
     if xm.scanStep == 1 then
@@ -2449,9 +1331,7 @@ genderFrames.xmapBuild = function(localKey)
     end
 end
 
--- Mutates r.x / r.y / r.areaId from the stored wire values. Local peers pass through untouched;
--- connected peers inside the margin arrive in OUR tile frame; everyone else keeps their real
--- areaId and stays hidden exactly as before this feature existed.
+-- From the wire values: a peer on a connected map within the margin moves into our tile frame; any other stays hidden.
 genderFrames.xmapTranslate = function(r, localKey)
     if not r.srcAreaId then return end
     if r.srcAreaId == localKey then
@@ -2462,17 +1342,12 @@ genderFrames.xmapTranslate = function(r, localKey)
     local c = xm.conns and xm.connsFor == localKey and xm.conns[r.srcAreaId] or nil
     if not c then r.areaId = r.srcAreaId return end
     local lx, ly
-    -- Stitch arithmetic: the offset shifts along the seam (the decompilation's connection handling
-    -- in fieldmap.c is where to look). Signs verified live with a test peer before shipping.
     if c.dir == 2 then lx, ly = r.sx + c.off, r.sy - c.h          -- north: neighbor above
     elseif c.dir == 1 then lx, ly = r.sx + c.off, r.sy + xm.ourH  -- south
     elseif c.dir == 3 then lx, ly = r.sx - c.w, r.sy + c.off      -- west
     else lx, ly = r.sx + xm.ourW, r.sy + c.off end                -- east
-    -- 10, not the border 7: the user, 2026-08-20 -- *"2-3 tiles extra as a safety measure, just
-    -- to make sure its always spawned before appearing on the screen"*. Existence reaches 10
-    -- tiles past the edge; the SPAWNED tier still stops at the engine border (its grid coordinate
-    -- would go negative past 7 -- chooseSpawned gates it), so a peer in the 8..10 band exists for
-    -- the tier system and promotes to a real object well before the screen can show it.
+    -- Existence reaches 10 tiles past the edge, 3 beyond the engine's 7-tile border, so a peer exists before the
+    -- screen can show it; chooseSpawned still stops the spawned tier at 7, past which its grid coordinate is negative.
     if lx >= -10 and ly >= -10 and lx <= xm.ourW + 9 and ly <= xm.ourH + 9 then
         r.areaId, r.x, r.y = localKey, lx, ly
     else
@@ -2480,32 +1355,13 @@ genderFrames.xmapTranslate = function(r, localKey)
     end
 end
 
--- MESHGHOST_EMERALD_TEST_PEER = "g:n,x,y" (x may be the literal "px" for the player's own x):
--- injects a synthetic standing peer so cross-map rendering is testable without a second client.
--- Probe flag, never shipped set; the loopback ghost cannot test this because it always shares the
--- player's own map.
+-- MESHGHOST_EMERALD_TEST_PEER = "g:n,x,y" (x may be "px"): a synthetic standing peer to test cross-map with. Dev only.
 genderFrames.xmapTestPeer = function(localKey)
     local cfg = MESHGHOST_EMERALD_TEST_PEER or os.getenv("MESHGHOST_EMERALD_TEST_PEER")
-    -- "off" TURNS IT OFF, and that needs saying because nothing else can. This flag is normally set
-    -- in the EMULATOR'S PROCESS ENVIRONMENT at launch, which outlives every script reload -- so a
-    -- Lua global cannot clear it: `nil or os.getenv(...)` falls straight through to the environment,
-    -- and even setting the global to false does the same. Until 2026-08-21 the only way to remove
-    -- the synthetic peer was to relaunch BizHawk, which means closing the user's game.
-    --
-    -- So an explicit "off" (or "none", or empty) is honoured before the pattern match, and a
-    -- one-line loader script can now retire it mid-session. Found when the user asked to remove a
-    -- peer left over from earlier cross-route testing -- exactly the "an unset flag keeps its
-    -- previous value" trap agent_docs/environment.md records, in its most durable form.
+    -- "off", "none" or empty retires it: the flag usually lives in the emulator's environment, which no reload unsets.
     if not cfg or cfg == "off" or cfg == "none" or cfg == "" then
-        -- And it must be REMOVED, not merely left unrefreshed: a peer this function stops updating
-        -- would otherwise sit in `remotes` forever, still rendered, answering to nobody.
-        --
-        -- Dropping the entry is the whole job -- deliberately, rather than tearing the ghost down
-        -- here. Both tiers already reap a peer that has gone: syncRemoteGhosts despawns any ghost
-        -- whose remote is nil, and renderHardwareGhosts releases any slot whose peer is nil. Using
-        -- those paths means a retired test peer leaves exactly the way a real departing player does,
-        -- and it also avoids a forward reference -- despawnGhost is a file-scope local declared far
-        -- below this line, so calling it from here would resolve to a nil global at runtime.
+        -- Dropping the entry is enough: both tiers reap a peer whose remote is gone, the way a real player leaves
+        -- (and despawnGhost is declared below, so calling it here would hit a nil global).
         remotes["xmap-test"] = nil
         return
     end
@@ -2515,8 +1371,6 @@ genderFrames.xmapTestPeer = function(localKey)
     if xs == "px" then
         local sb1 = session.saveBlockPtr(0x03005d8c)
         x = memory.read_s16_le(sb1 + 0x00)
-        -- The player's x only means anything on the neighbor's frame when the seam offset is 0;
-        -- good enough for a dev flag.
     else
         x = tonumber(xs)
     end
@@ -2530,15 +1384,8 @@ genderFrames.xmapTestPeer = function(localKey)
     r.gfx, r.sanim, r.sidx, r.act, r.spaused, r.sox, r.soy = 0, 4, 1, 0, 1, 0, 0
 end
 
--- CROSSING A SEAM REBASES EVERYTHING, IN THE FRAME IT HAPPENS. When the local player walks over a
--- connection the whole coordinate frame shifts by the seam delta, and every piece of per-peer
--- state that holds old-frame numbers -- the glide filter, its delay ring, a spawned ghost's
--- bookkeeping -- suddenly reads as "this peer teleported a map away", which tears the ghost down
--- and rebuilds it: *"the ghosts that are following are still reloading whenever i go between
--- routes"*. The delta is knowable from the OLD map's connection entry toward the new map
--- (crossing north into B: y += B's height, x -= the seam offset), so shift the state instead of
--- letting it be wrong. A WARP has no connection entry, deltas stay nil, and the old teardown
--- behaviour stands -- which is exactly right for a door.
+-- A seam crossing shifts every peer's old-frame state by the seam delta, read from the old map's connection entry
+-- toward the new one, instead of letting it read as a teleport. A warp has no entry and keeps the teardown.
 genderFrames.xmapRebase = function(newKey)
     local xm = genderFrames.xmap
     local c = xm.conns and xm.conns[newKey] or nil
@@ -2556,49 +1403,14 @@ genderFrames.xmapRebase = function(newKey)
             for _, p in pairs(r.hist) do p[1], p[2] = p[1] + dx, p[2] + dy end
         end
     end
-    -- THE PAINT ANCHOR IS PART OF THE FRAME, AND MOVES WITH IT (2026-09-12).
-    --
-    -- Every peer's model has just been shifted into the new map's numbering. The drawn tier paints
-    -- `origin + (glide - anchor) * TILE + camPix`, so leaving `anchorX/anchorY` in the OLD map's
-    -- numbering makes the subtraction span two coordinate frames for as long as the anchor lasts.
-    -- It did not last long, and that was the other half of the defect: `anchorFrame`'s `fresh` test
-    -- fires on the area change and re-latches from the engine mid-handover, exactly the one-tile
-    -- spike its own `settled` guard exists to prevent -- the tile counter flips to the destination
-    -- tile a frame before the picture does. Measured across one crossing: a STATIONARY peer's
-    -- painted x went 48 -> (not painted at all) -> 64 while the camera moved one pixel, a ~15px
-    -- jump, which is the user's *"the ghost is snapping/teleporting around a bit when the player is
-    -- crossing"* (probes/seamtrace.log, 2026-09-12).
-    --
-    -- So shift the anchor by the same delta and stamp its area, which suppresses the re-latch: one
-    -- coordinate frame, no spike, and the anchor still re-calibrates normally the next time the
-    -- player stands still. ONLY the tile-valued half moves -- `origin`/`originStill` are SCREEN
-    -- positions and the screen is continuous across a seam, so shifting those would manufacture a
-    -- twitch and nothing else (Crystal learned that one first: `xmap.rebaseEntry`'s comment).
-    -- The per-frame cache is dropped too, or the tiers would paint this frame from the numbers
-    -- anchorFrame worked out before the rebase.
-    -- HANDED TO `anchorFrame`, NOT APPLIED HERE. `tiering` is declared a thousand lines below this
-    -- block, so touching it from inside this function reads a nil GLOBAL and throws -- the same
-    -- late-binding trap the comment below records for `ghosts` and `ghostAlive`. The first version
-    -- of this fix did exactly that; `dev-scripts/lua-forward-refs.py` caught it before it ran.
-    -- `genderFrames` is defined early and is how this block reaches anything, so the delta waits
-    -- there. anchorFrame applies it at the top of the next call, which is this same frame: xmapTick
-    -- runs before either tier paints.
+    -- The paint anchor is in tile units too, so it moves by the same delta, and stamping its area stops anchorFrame
+    -- re-latching mid-handover; origin/originStill are screen positions and stay. Handed over through genderFrames
+    -- because `tiering` is declared below; anchorFrame applies it this frame, before either tier paints.
     genderFrames.xmapAnchorShift = { dx = dx, dy = dy, key = newKey }
-    -- AND THE SAME DELTA GOES TO THE SEND PATH, which has the identical problem one layer up:
-    -- `smoothPosition` snaps its sub-tile interpolator whenever the area changes, so a step that is
-    -- in flight when the player crosses loses its phase and this machine puts a WHOLE TILE on the
-    -- wire in one frame. Every peer then renders a tile of travel that never happened -- at a fifth
-    -- speed before 2026-09-12 and at a sprint after, which is the same defect read twice.
-    --
-    -- Stashed rather than computed there because only this function has the departing map's
-    -- connection table: `xmapBuild` replaces it later this same frame. A WARP reaches neither site
-    -- (no connection entry, this function returns before here), so a door still snaps, which is
-    -- correct -- the world really was rebuilt. "A seam is not a warp" is already this adapter's
-    -- rule for freeing tiles (agent_docs/pitfalls, 2026-09-02); this is the same line drawn on the
-    -- send path.
+    -- The send path takes the same delta: smoothPosition would otherwise snap on the area change and put a whole tile
+    -- on the wire in one frame. Stashed here because xmapBuild replaces the departing map's connections this frame.
     genderFrames.xmapSeam = { dx = dx, dy = dy, from = xm.lastKey, to = newKey, at = frameCounter }
-    -- Count only: ghostAlive is ALSO defined later than this function, the same late-binding trap
-    -- that just cost an hour with `ghosts` itself. The count is enough for the log.
+    -- Count only: ghostAlive is declared below this function.
     local n = 0
     for _, g in pairs(genderFrames.xmapGhosts or {}) do
         if g.mapX then g.mapX, g.mapY = g.mapX + dx, g.mapY + dy end
@@ -2612,8 +1424,6 @@ genderFrames.xmapTick = function()
     if not localKey then return end
     local xm = genderFrames.xmap
     if not xm.groupsAt then
-        -- The verified cache first -- instant arming on every reload after the first scan -- and
-        -- the full scan only when the cache is missing, stale, or for another ROM.
         if not xm.cacheTried then
             xm.cacheTried = true
             genderFrames.xmapTryCache()
@@ -2636,31 +1446,13 @@ local function handleBridgeLine(line)
         console.log(string.format("MeshGhost: bridge_ready on port %s -- this core is ours.",
             tostring(currentPort)))
     elseif env.type == "reject" then
-        -- The reason is never BRANCHED on -- the right response to any rejection is the same, try
-        -- the next port -- but it is carried into the cooldown message rather than replaced by a
-        -- guess. The old text said "is a core that already has an adapter" for every rejection,
-        -- so a core that could not reach the RELAY reported itself as busy with a game: the line
-        -- above printed the truth and the line below contradicted it. Not branching on a reason
-        -- is a good rule; inventing one is a different thing (2026-08-28).
+        -- The core's reason is logged as given: never branched on, never replaced by a guess.
         local payload = env.payload
         local reason = tostring(type(payload) == "table" and payload.reason or "no reason given")
         console.log("MeshGhost: rejected (" .. reason .. ")")
-        -- ONE rejection means something different from the others. "busy" means this core has an
-        -- adapter, so try the next port. Anything else means this core is fine and something
-        -- upstream is not -- there is nothing to walk to, and walking anyway is what produced the
-        -- 5fps measurement Crystal cites. Wait on the same core: it retries by itself.
-        --
-        -- BRANCHED ON `code`, NOT ON THE PROSE (ADR 0058; review D4/N2, fixed 2026-09-11). This
-        -- used to search the reason for the substring "relay", and that heuristic is inverted:
-        -- every PERMANENT refusal contains that word, because the core renders relay refusals as
-        -- "core: relay refused connection: %s", while the one refusal that means "try the next
-        -- port" does not. So a wrong room code read as "the relay is briefly down" and was
-        -- retried forever, with the player never told. bridge.Reject has carried a frozen code
-        -- since 2026-09-08; the reason stays a sentence for the line above.
-        --
-        -- An EMPTY code is a core older than that field, and only then does the old substring
-        -- rule run -- which is what keeps this adapter working against a core that has not been
-        -- updated alongside it.
+        -- Only "busy" or "already_serving" means walk to the next port; any other refusal means this core is fine and
+        -- something upstream is not, so wait on it. Branch on `code`, never the prose: every permanent refusal
+        -- contains the word "relay". An empty code is an older core, the one case the substring rule still runs.
         local code = type(payload) == "table" and type(payload.code) == "string" and payload.code or ""
         local retryable = type(payload) == "table" and payload.retryable == true
         local walkOn
@@ -2671,8 +1463,7 @@ local function handleBridgeLine(line)
         end
         if not walkOn then
             if code ~= "" and not retryable then
-                -- Said plainly, because this is the case the old heuristic hid: a refusal that
-                -- will not fix itself, retried silently forever.
+                -- A refusal that will not fix itself is said plainly, never retried in silence.
                 console.log("MeshGhost: that refusal is PERMANENT (" .. code .. ") -- waiting will not "
                     .. "fix it; check the client's config.json")
             end
@@ -2692,20 +1483,13 @@ local function handleBridgeLine(line)
         markPortBusy(currentPort, "refused us (" .. reason .. ")")
         resetBridge()
     elseif env.type == "session_policy" then
-        -- One field matters here. "disabled" and "enabled" are the only values acted on; anything
-        -- else leaves the policy untouched, because guessing "off" on a value we do not
-        -- understand is a visible change nobody asked for.
+        -- Only "disabled" and "enabled" are acted on: guessing "off" for an unknown value is a change nobody asked for.
         local payload = env.payload
         local want = type(payload) == "table" and type(payload.ghost_collision) == "string"
             and payload.ghost_collision or ""
         if want == "disabled" or want == "enabled" then
             local off = (want == "disabled")
-            -- **ON `session`, NOT `tiering` -- the FIFTH bite of the forward-reference trap this
-            -- file documents (caught by preflight, 2026-09-11).** `tiering` is a file-scope local
-            -- declared ~900 lines BELOW this dispatch, so naming it here reads a nil GLOBAL and
-            -- `tiering.policyNoCollision` raises "attempt to index a nil value" -- inside the
-            -- bridge dispatch, on the first policy message a room ever sends. `session` is
-            -- declared above this point, so it is the real local.
+            -- On `session`, not `tiering`: tiering is declared below this dispatch, so here it is a nil global.
             if off ~= session.noCollisionPolicy then
                 session.noCollisionPolicy = off
                 console.log("MeshGhost: ghost collision " .. want .. " by the session policy -- "
@@ -2714,25 +1498,13 @@ local function handleBridgeLine(line)
         end
     elseif env.type == "render_remote" then
         local payload = env.payload
-        -- **A PLAYER ID IS A STRING, and it is checked here rather than anywhere downstream
-        -- (review I30, fixed 2026-09-11).** This used to admit a peer on truthiness alone, and
-        -- every tier below then does `playerId:match("%-ghost$")` -- which RAISES in Lua 5.4 on a
-        -- number, and there is no area or tier guard above the first of them. `guardedFrame`'s
-        -- pcall swallows the error, so every tier after that point stopped for the rest of the
-        -- session, with one throttled line every 300 frames and no despawn ever sent. A table id
-        -- was worse again: it grows `remotes` without bound, one entry per distinct table.
-        --
-        -- The case is already a row in `tests/json_fuzz.lua`'s WRONG_TYPES, whose comment says in
-        -- as many words that rejecting it is the dispatch's job. This is the dispatch doing it.
+        -- A player id must be a string: every tier below calls playerId:match, which raises on a number, and a table
+        -- id would grow `remotes` without bound.
         if type(payload) == "table" and type(payload.state) == "table" and type(payload.player_id) == "string" then
             local st = payload.state
             local pos = st.position
-            -- BOTH COORDINATES MUST BE FINITE NUMBERS (2026-09-16; SYNCED.md said "that they
-            -- are numbers is not checked yet"). They go straight into r.x/r.y and from there
-            -- into the tile arithmetic and the delay ring: a string raises on the first `-`,
-            -- and a NaN or 1e999 (both decoders produce one) walks through every comparison
-            -- as a ghost that is nowhere. Refused here means the update is dropped whole, the
-            -- same as a missing coordinate.
+            -- Both coordinates must be finite numbers: a string raises in the tile arithmetic, and NaN or 1e999
+            -- passes every comparison as a ghost that is nowhere. Refused, the update is dropped whole.
             local function finite(n)
                 return type(n) == "number" and n == n and n ~= math.huge and n ~= -math.huge
             end
@@ -2745,88 +1517,33 @@ local function handleBridgeLine(line)
                 r.areaId = st.area_id
                 r.x = pos[1]
                 r.y = pos[2]
-                -- The wire truth, kept beside the working copy: xmapTranslate rewrites areaId/x/y
-                -- into the LOCAL map's frame when the peer stands on a connected neighbor, and it
-                -- re-runs every frame from these -- so the local player crossing a seam rebases
-                -- every peer immediately instead of a delivery later. Translated inline here too,
-                -- so a fresh state is never one frame stale.
+                -- The wire values, kept: xmapTranslate re-derives areaId/x/y from them every frame, and runs here
+                -- too so a fresh state is never a frame stale.
                 r.srcAreaId, r.sx, r.sy = st.area_id, pos[1], pos[2]
                 genderFrames.xmapTranslate(r, genderFrames.xmapLocalKey())
                 r.orientation = st.orientation
                 r.anim = st.anim
-                -- extras is free-form/opaque per agent_docs/contract.md; default to "male" if
-                -- absent (e.g. an older client without this field) rather than erroring, same
-                -- forward-compatibility posture the relay/core already apply.
-                -- Only the two values the frame tables know. Anything else -- a number, a
-                -- table, or a string that happens to name a genderFrames method -- made the
-                -- draw loop error every frame for every peer sorted after this one.
-                -- Found by the 2026-09-02 adversarial review of the peer-to-adapter path.
+                -- Only the two genders the frame tables know, else "male": any other value (a number, a table, a
+                -- genderFrames method name) broke the draw loop for every peer sorted after it.
                 local g = type(st.extras) == "table" and st.extras.gender or nil
                 r.gender = (g == "male" or g == "female") and g or "male"
-                -- The peer's own graphic. Absent from an older peer, in which case the ghost
-                -- falls back to borrowing this machine's player graphic, exactly as before.
-                -- ADOPT A NEW GRAPHIC ONLY ONCE IT HAS SETTLED.
-                --
-                -- Measured frame by frame: when the player picks up a rod, the game gives it the
-                -- 32-wide fishing graphic FOUR FRAMES before its fishing task applies the pos2
-                -- that keeps the character on its tile. The player is visible throughout, so those
-                -- four frames are real -- but they land while the bag is still closing, where an
-                -- 8px hop is invisible. A ghost replaying them 250ms later, in a clean frame, is
-                -- the only thing moving on screen, and it reads as a snap.
-                --
-                -- The bar is that a ghost LOOKS like the player doing it (CLAUDE.md), so a pose
-                -- the player's own hop was imperceptible in is not one to reproduce. Taking the
-                -- graphic only after two consecutive updates agree means the swap lands together
-                -- with the settled offset, and the intermediate is never drawn. Costs one update
-                -- of delay on a state change -- invisible next to the interpolation already in
-                -- front of it -- and nothing at all in the steady state.
+                -- The peer's own graphic (absent from an older peer, which borrows this machine's player graphic).
+                -- A new graphic is adopted only once two consecutive updates agree on it and its offset: the game
+                -- sets a new graphic before its task applies the offset (fishing), a pose nobody sees on the player
+                -- but a ghost would replay in a clean frame.
                 local newGfx = (type(st.extras) == "table" and tonumber(st.extras.gfx)) or nil
                 local newSox = (type(st.extras) == "table" and tonumber(st.extras.sox)) or 0
-                -- The graphic AND its offset have to agree twice, not the graphic alone.
-                --
-                -- First attempt required two consecutive updates to agree on the GRAPHIC, which
-                -- did not help: the player holds the new graphic at pos2 0 for four frames while
-                -- its task catches up, and at 20Hz that spans two updates -- so both carried the
-                -- unsettled pair and the ghost adopted it anyway. Traced from inside the adapter:
-                -- gfx=137 arriving with sox=0, twice, then sox=8.
-                --
-                -- Pairing them means a state is taken only once it has stopped changing, which is
-                -- what the player looks like by the time anyone can see it.
-                -- A JUMP_SPECIAL SKIPS THE WAIT, because it can only arrive already settled.
-                --
-                -- The pairing above exists for a state whose OFFSET catches up after its graphic
-                -- (fishing, measured). The surf start is the opposite case: the game sets the
-                -- graphic and the jump onto the water in the SAME engine step
-                -- (`documentation.md`), so a state carrying 0x3A..0x3D cannot be half-formed --
-                -- and waiting one more update means the ghost performs the jump still wearing the
-                -- field-move graphic, hopping onto the sea in the wrong pose.
+                -- A surf jump (act 0x3A..0x3D) skips the wait: the game sets that graphic and the jump in one step,
+                -- so it cannot arrive half-formed.
                 local newAct = (type(st.extras) == "table" and tonumber(st.extras.act)) or nil
                 local pair = tostring(newGfx) .. ":" .. tostring(newSox)
                 if pair == r.statePair
                     or (newAct and newAct >= 0x3a and newAct <= 0x3d) then r.gfx = newGfx end
                 r.statePair = pair
                 if r.gfx == nil then r.gfx = newGfx end
-                -- THE ANIMATION IS HELD WITH THE GRAPHIC, because it only means anything against
-                -- one. Every special state has its own animation table, of its own length, so an
-                -- animation number from the new state applied to the still-current graphic can name
-                -- a frame that graphic does not have.
-                --
-                -- The graphic above is deliberately deferred by one update; the animation used to
-                -- be adopted immediately. That gap MANUFACTURED a pair the peer was never in.
-                -- Measured 2026-08-21 with probes/dive_probe.lua, which logged the player's own
-                -- (graphic, animation) every time either changed across many surf starts: it goes
-                -- gfx=3 anim=0/0..0/4, then straight to gfx=2 anim=20/0 -- `gfx=3 anim=20` never
-                -- happens. The ghost was in it for one frame at every transition, and both
-                -- self-drawn tiers plus the spawned one each showed it differently: the spawned
-                -- ghost drew a frame that does not exist (*"a weird grey/flashing glitched
-                -- sprite"*), and the painted tier could not resolve it and fell back to a walker
-                -- (*"the drawn ghost still disappear for a bit when surf is started"*). Three
-                -- separate consumer-side defences were written before the pair itself was measured;
-                -- the lesson is in pitfalls.md.
-                --
-                -- `act` is deliberately NOT held with them: it is a movement action, not indexed by
-                -- graphic, and the receive side already declines to start one while a swap of this
-                -- ghost's graphic is pending.
+                -- The animation is taken only with its graphic: an animation number means nothing against another
+                -- graphic's table, and adopting it early made a (graphic, animation) pair the peer was never in.
+                -- `act` is not held: it is a movement action, not indexed by graphic.
                 local sa = (type(st.extras) == "table" and tonumber(st.extras.sanim)) or nil
                 local si = (type(st.extras) == "table" and tonumber(st.extras.sidx)) or nil
                 if r.gfx == newGfx then
@@ -2835,55 +1552,36 @@ local function handleBridgeLine(line)
                 end
                 local ac = (type(st.extras) == "table" and tonumber(st.extras.act)) or nil
                 r.act = (ac and ac >= 0 and ac <= 255 and math.floor(ac) == ac) and ac or nil
-                -- Peer-controlled, so bounded: a sprite offset beyond a tile or two is not a pose,
-                -- it is someone trying to put a ghost through a wall.
+                -- Peer-controlled, so bounded: an offset beyond a tile or two is a ghost pushed through a wall.
                 local ox = (type(st.extras) == "table" and tonumber(st.extras.sox)) or nil
                 local oy = (type(st.extras) == "table" and tonumber(st.extras.soy)) or nil
                 r.sox = (ox and ox >= -32 and ox <= 32) and math.floor(ox) or nil
                 r.soy = (oy and oy >= -32 and oy <= 32) and math.floor(oy) or nil
-                -- Whether the peer's own sprite is HELD or running. nil (an older peer) keeps the
-                -- previous behaviour of handing the animation to the engine.
+                -- Whether the peer's sprite animation is held; nil (an older peer) leaves it to the engine.
                 local sp = (type(st.extras) == "table" and tonumber(st.extras.spaused)) or nil
                 r.spaused = sp ~= nil and sp ~= 0 or nil
-                -- And whether the peer is FORBIDDEN an animation, which is a stronger statement
-                -- than "not running" and is the only one that survives a movement. nil for a peer
-                -- that predates the field, which keeps exactly the old behaviour.
+                -- Whether the peer is forbidden an animation, the one statement that survives a movement.
                 local na = (type(st.extras) == "table" and tonumber(st.extras.noanim)) or nil
                 r.noanim = na ~= nil and na ~= 0 or nil
                 local ps = (type(st.extras) == "table" and tonumber(st.extras.pspeed)) or nil
                 r.pspeed = (ps and ps >= 0 and ps <= 4 and math.floor(ps) == ps) and ps or nil
-                -- MOVE_SPEED_*, the constant the engine steps by, and the only field that describes
-                -- every gait: `anim` knows walking and running, `pspeed` reads STANDING on foot and
-                -- on the acro bike. Bounded exactly like every other peer-controlled number here --
-                -- it indexes a table, and a peer is not trusted to stay in range.
+                -- MOVE_SPEED_*, the one field that describes every gait: `anim` knows walking and running, and
+                -- `pspeed` reads standing both on foot and on the Acro Bike.
                 local ms = (type(st.extras) == "table" and tonumber(st.extras.mspd)) or nil
                 r.mspd = (ms and ms >= 0 and ms <= 4 and math.floor(ms) == ms) and ms or nil
-                -- THE ENGINE IS NOT DRAWING THIS CHARACTER. Four fields, all nil for a peer that
-                -- predates them, and nil everywhere means exactly the old behaviour -- a ghost
-                -- drawn as a character, which is right for every state but these two.
+                -- The states where the engine does not draw the character; all nil from an older peer.
                 local iv = (type(st.extras) == "table" and tonumber(st.extras.invis)) or nil
                 r.invis = iv ~= nil and iv ~= 0 or nil
-                -- Bounded like every other peer-controlled id here: this is fed to graphicsInfo,
-                -- whose own range check is the backstop, and the receive side additionally refuses
-                -- any vehicle it does not recognise.
+                -- Fed to graphicsInfo, whose range check is the backstop; the receive side refuses an unknown vehicle.
                 local bt = (type(st.extras) == "table" and tonumber(st.extras.boat)) or nil
                 r.boat = (bt and bt >= 0 and bt <= 255 and math.floor(bt) == bt) and bt or nil
                 local fl = (type(st.extras) == "table" and tonumber(st.extras.fly)) or nil
                 r.fly = (fl == 1 or fl == 2) and fl or nil
-                -- The bird's arc parameter. The engine steps it by 4 and wraps at 0x100, ending
-                -- the swoop at 0x80, so anything outside that is not a phase of this animation.
+                -- The bird's arc phase: the engine steps it by 4 and wraps at 0x100, so nothing else is a phase.
                 local fk = (type(st.extras) == "table" and tonumber(st.extras.flyk)) or nil
                 r.flyk = (fk and fk >= 0 and fk < 0x100 and math.floor(fk) == fk) and fk or nil
-                -- THE DOOR. Absent from the packet on every frame there is no door -- and absent
-                -- entirely from a peer that predates the field -- so nil here is the ordinary
-                -- case, not a fallback.
-                --
-                -- Bounded like every other peer-controlled value: this becomes a grid coordinate
-                -- fed to a task the engine will DMA tiles for, so an id outside the three this
-                -- adapter plays, or a tile off the map, is somebody trying to make our engine
-                -- draw somewhere it should not. genderFrames.door.gfxFor's own range check is the
-                -- backstop -- it refuses any tile whose metatile is not in this build's door
-                -- table -- and this is the gate in front of it.
+                -- The door, absent on every frame without one. Bounded: it becomes a grid coordinate the engine will
+                -- DMA tiles for, and door.gfxFor's metatile check is the backstop behind this gate.
                 local dk = type(st.extras) == "table" and st.extras.dk or nil
                 local dx = (type(st.extras) == "table" and tonumber(st.extras.dx)) or nil
                 local dy = (type(st.extras) == "table" and tonumber(st.extras.dy)) or nil
@@ -2893,43 +1591,18 @@ local function handleBridgeLine(line)
                     r.dk, r.dx, r.dy = dk, dx, dy
                 else
                     r.dk, r.dx, r.dy = nil, nil, nil
-                    -- **A PACKET WITH NO DOOR IS WHAT SEPARATES ONE DOOR EVENT FROM THE NEXT**,
-                    -- and forgetting the last key here is the whole of that (2026-09-12). The key
-                    -- is (kind, tile) and carries no notion of time, so using the same door twice
-                    -- produces the same key twice -- and *"vanilla can see ap entering, but not
-                    -- exiting a house"* is exactly that: entering publishes an open and then a
-                    -- close at that tile, leaving publishes a close at the SAME tile, and the
-                    -- second one was suppressed as already seen.
-                    --
-                    -- The engine hands us the gap for free. A door animation is ~20 frames and
-                    -- every real pair is separated by frames with no door task at all -- the walk
-                    -- up into the doorway, or a whole visit to the house -- so "the peer says
-                    -- there is no door right now" is the end of an event, and the next one is new
-                    -- however much it resembles the last. Cheaper and more exact than putting a
-                    -- sequence number on the wire for something that happens twice a minute.
+                    -- A packet with no door ends a door event: the key (kind, tile) carries no time, so the same
+                    -- door used twice would otherwise be suppressed as already seen.
                     r.dKey = nil
                 end
             end
         end
     elseif env.type == "despawn_remote" then
         local payload = env.payload
-        -- Same string check as render_remote above: a despawn naming a non-string id can only
-        -- be a bug or a hostile core, and indexing `remotes` with a table would silently do
-        -- nothing while looking like it worked.
         if type(payload) == "table" and type(payload.player_id) == "string" then
             remotes[payload.player_id] = nil
-            -- HERE, NOT IN despawnGhost, and that correction is the whole point.
-            --
-            -- The rows this drops were first cleared from `despawnGhost` on 2026-09-12, which
-            -- returns immediately unless the peer holds an ENGINE OBJECT SLOT -- and the shipped
-            -- ladder is drawn-only with a spawned cap of ZERO (see engineBudget), so `ghosts` is
-            -- always empty and the clear never ran once. Meanwhile `tiering.lastTile` is written
-            -- by the DRAWN path, which is the tier that actually ships. A fix on a dead path is
-            -- worse than no fix: it reads as done.
-            --
-            -- This drop is tier-independent and always runs, which is what the rows need.
-            -- Found by the growth cell of the third adversarial review (P2f-3), reviewing the
-            -- earlier fix on the same day it landed.
+            -- Here, not in despawnGhost: that returns early unless the peer holds an engine object slot, which the
+            -- shipped drawn-only ladder never gives one.
             forgetPeerRenderState(payload.player_id)
         end
     end
@@ -2937,40 +1610,19 @@ end
 
 local function drainBridge()
     while true do
-        -- handleBridgeLine() below can tear the connection down from inside this loop: a
-        -- `reject` calls resetBridge(), which closes the socket and sets `sock` to nil. Without
-        -- this check the very next iteration indexes a nil `sock` and throws, so every single
-        -- rejection -- the ordinary outcome of the port walk meeting somebody else's core --
-        -- cost a Lua error and the rest of that frame's work. Found by reading, 2026-08-19.
+        -- A reject inside handleBridgeLine closes the socket and nils `sock`.
         if not connected or not sock then return end
-        -- With settimeout(0), a line straddling this call's read boundary comes back as
-        -- nil, "timeout", partial -- LuaSocket 3.0's documented behavior for a pattern that
-        -- can't complete before the timeout (see adapters/emulator/pokemon/emerald/lib/x64/
-        -- luasocket.LICENSE.txt for the vendored version). The old code discarded that
-        -- partial outright, which is almost certainly the "receive-side corruption" noted in
-        -- MeshGhostPseudo/Mod/src/BridgeClient.hpp:4-6 -- every line after the first split
-        -- would lose its leading bytes. Feed the partial back in as the prefix for the next
-        -- receive() so it resumes mid-line instead of dropping it.
+        -- With settimeout(0) a line split across reads comes back as (nil, "timeout", partial); the partial is
+        -- fed back as the next receive's prefix.
         local line, err, partial = sock:receive("*l", recvPartial)
         if line then
             recvPartial = ""
             handleBridgeLine(line)
         elseif err == "timeout" then
             recvPartial = partial or ""
-            -- **BOUNDED (review I33, 2026-09-11).** A core that sends bytes and never a newline
-            -- -- desynced, or a connection stuck mid-line -- grows this without limit, and the
-            -- cost is not only memory: the whole partial is COPIED back into receive() as a
-            -- prefix on every frame, so the work per frame is O(length) and the total is
-            -- quadratic in how long the stall lasts. On the emulator thread, that is the game
-            -- getting slower every frame for as long as it continues.
-            --
-            -- 16 KiB, Pseudoregalia's MAX_RECV_BUFFER_BYTES. It was protocol.MaxLineBytes (4096)
-            -- on the belief that every core line is bounded by it, which is false for the line
-            -- this adapter reads most: the relay bounds a peer's STATE line at 4095, and the core
-            -- re-wraps it as render_remote with the player_id again and re-encoded positions, so
-            -- a peer padding its state to the relay's limit made this adapter drop its bridge
-            -- over and over (pass 5 of the adversarial review, 2026-09-16, PM-4). Dropping and
-            -- reconnecting is still the answer to a line longer than that.
+            -- Bounded: a core that never sends a newline grows this, and it is copied into every receive, so the
+            -- cost is quadratic. 16 KiB, as Pseudoregalia's buffer: the core's re-wrapped render_remote line can
+            -- exceed the relay's 4095-byte state line.
             if #recvPartial > 16384 then
                 logFile(string.format("bridge buffered %d bytes with no newline -- reconnecting",
                     #recvPartial))
@@ -2991,15 +1643,9 @@ local function drainBridge()
 end
 
 ----------------------------------------------------------------------------
--- Drawing. See the header for the placement-formula change from
--- phase4_multiplayer.lua (no GHOST_Y_CORRECTION needed -- confirmed live).
+-- Drawing
 ----------------------------------------------------------------------------
 
--- advanceAnim steps a remote's walk/run animation forward by one frame (called once per emu
--- frame, only while the remote is walking/running) and returns the frame index to draw for its
--- current direction. Resets to step 0 whenever the direction or anim tag changes, so a fresh
--- movement always starts from a consistent pose rather than resuming wherever a previous,
--- different-direction cycle left off.
 local function advanceAnim(remote, dirInfo)
     if remote.lastAnim ~= remote.anim or remote.lastOrientation ~= remote.orientation then
         remote.animTimer = 0
@@ -3018,25 +1664,13 @@ local function advanceAnim(remote, dirInfo)
     return dirInfo.steps[remote.animStepIndex]
 end
 
--- RUN-LENGTH CACHE for the drawn tier. One gui.drawPixel per opaque pixel is affordable for one
--- or two overlay ghosts, which is all this path ever had to do before the two-tier renderer; it is
--- not affordable for a screenful. Measured 2026-08-19 with 137 drawn peers: ~40,000 pixel calls a
--- frame took the emulator to 17fps. A character's rows are mostly flat colour, so each row is
--- collapsed into horizontal runs ONCE per (gender, pose, frame) and cached; drawing then costs one
--- gui.drawLine per run. Mirroring is applied to a run's endpoints, so a flipped frame needs no
--- second cache entry.
--- The cache and its builder hang off genderFrames, the decoded-sprite table they are derived
--- from, rather than becoming file-scope locals of their own: the main chunk is AT Lua's hard
--- ceiling of 200 locals, and one more makes the script fail to parse (found exactly that way,
--- 2026-08-19). genderFrames is only ever indexed by gender, so extra string keys are safe.
+-- Run-length cache for the drawn tier: each row becomes horizontal runs once per (gender, pose, frame), so drawing
+-- costs a gui.drawLine per run, not a drawPixel per pixel. A mirrored frame flips the run endpoints. On genderFrames,
+-- not a local: the main chunk is at Lua's 200-local ceiling.
 genderFrames.runCache = {}
 
--- A decoded pixel list -> a run list. Split out from runsFor when the walker needed a SECOND
--- decode of the same frames in the reflection palette (2026-08-21): the run building is identical,
--- only the colours differ, and a second copy of it is how two paths drift apart.
 genderFrames.runsFromPixels = function(pixels)
-    -- Bucket by row first: the decoded pixel list is not guaranteed to be row-major, and a run
-    -- built from an unsorted list would be silently wrong rather than merely slow.
+    -- Bucket by row: the pixel list is not guaranteed row-major.
     local rows = {}
     for i = 1, #pixels do
         local px = pixels[i]
@@ -3079,16 +1713,9 @@ genderFrames.runsFor = function(gender, pose, frameIndex)
     return runs
 end
 
--- THE WALKER'S OWN FRAME, DECODED AGAIN IN THE REFLECTION PALETTE.
---
--- The peer-graphic path gets this from runsFromImages, which takes a palette slot. The cached
--- walker path cannot: its frames were decoded once, at load, with the character's ROM palette
--- baked into each pixel's colour, and a colour cannot be mapped back to the palette index it came
--- from. So the same picture is decoded a second time from the same ROM address with the live
--- reflection palette -- no approximation, and the same machinery the load path uses.
---
--- Cached like every other decode, and stamped with the palette's own contents so a fade or a map
--- change invalidates it rather than leaving a ghost reflected in yesterday's colours.
+-- The walker's frame decoded again with the live reflection palette: the cached frames have the ROM palette baked
+-- in, and a colour cannot be mapped back to its index. Stamped with the palette's contents, so a fade or map change
+-- invalidates it.
 genderFrames.walkerReflectRuns = function(gender, pose, frameIndex, palSlot)
     local key = string.format("wr:%s:%s:%d:%d", gender, pose, frameIndex, palSlot & 0x0f)
     local stamp = genderFrames.paletteStamp(palSlot)
@@ -3102,13 +1729,10 @@ genderFrames.walkerReflectRuns = function(gender, pose, frameIndex, palSlot)
         pic = (pose == "run") and GOBJECTEVENTPIC_BRENDANRUNNING_ADDR
             or GOBJECTEVENTPIC_BRENDANNORMAL_ADDR
     end
-    -- decodePalette's shape, from live palette RAM instead of ROM: OBJ palettes are 16 colours of
-    -- 32 bytes each at 0x05000200 (GBA hardware).
+    -- OBJ palette RAM: 16 palettes of 16 colours, 32 bytes each, from 0x05000200.
     local pal = {}
     for i = 0, 15 do
-        -- memory.read_u16_le, not the file's `r16` shorthand: that is a LOCAL declared several
-        -- hundred lines below this function, so naming it here compiles to a nil global lookup --
-        -- the trap this file carries a note about at its first occurrence.
+        -- Not `r16`: that local is declared below this function.
         local c = memory.read_u16_le(0x05000200 + (palSlot & 0x0f) * 32 + i * 2)
         pal[i] = { r = expand5to8(c & 0x1F), g = expand5to8((c >> 5) & 0x1F),
             b = expand5to8((c >> 10) & 0x1F) }
@@ -3119,8 +1743,6 @@ genderFrames.walkerReflectRuns = function(gender, pose, frameIndex, palSlot)
     return runs
 end
 
--- One horizontal span of one colour. Split out because the clip can turn a single run into two,
--- and a line-or-pixel decision repeated three times is how the two paths drift apart.
 local function drawRun(x1, x2, y, color)
     if x2 < x1 then return end
     if x1 == x2 then
@@ -3130,103 +1752,43 @@ local function drawRun(x1, x2, y, color)
     end
 end
 
--- panelRows, when given, is the region the GAME drew its own UI into this frame: panelRows[row]
--- is {x1, x2} in screen pixels for that 8-pixel row, or nil where the row is clear. It comes from
--- the background tilemap (tiering.scanPanel), i.e. from what the game DREW.
---
--- Clipping is per RUN and per ROW, which is what makes this behave like the engine rather than
--- like a blunt switch: with a text box open (bottom six rows, full width) a drawn ghost keeps its
--- head and shoulders above the box; with the START menu open (right-hand columns, rows 0-13) a
--- ghost standing to the LEFT of the menu is untouched, and one behind it loses only the part the
--- menu covers. Blanking every drawn ghost whenever any panel opened would be the easy version and
--- would look wrong for exactly the case the user cares about -- most of the screen is still the
--- world.
--- `dim` is how bright the SCENE is right now, 0 (black) to 1 (full), measured from the hardware
--- palette by the caller. A spawned ghost is drawn by the PPU and so is dimmed by every fade, cave
--- and night the game applies; a painted one is put on top of the finished frame and is dimmed by
--- nothing, which is why it shone through a house exit. Scaling the run colours is the same
--- operation the hardware performs, applied where we draw instead.
--- keepSpans reaches this path too, and forgetting it here is why the first occlusion attempt
--- changed nothing on screen: a peer on FOOT is drawn from the gender frames, not from the peer's
--- own graphic, so the mask was applied to the branch that only runs on a bike, a rod or a
--- surfboard. Both paths draw a character and both need hiding behind the map.
+-- panelRows[row] is the {x1, x2} the game drew its own UI into on that 8-pixel row (tiering.scanPanel). The clip is
+-- per run and per row, so a ghost beside the START menu stays whole and one behind a text box keeps its head.
+-- dim is the scene's brightness, 0 to 1: a painted ghost sits on the finished frame and dims only if we scale it.
+-- keepSpans applies here too: a peer on foot is drawn from these frames, not its own graphic.
 local function drawSpriteFrame(gender, pose, frameIndex, hFlip, screenX, screenY, panelRows, dim,
     keepSpans)
     drawRunList(genderFrames.runsFor(gender, pose, frameIndex), FRAME_WIDTH_PX, hFlip,
         screenX, screenY, panelRows, dim, nil, nil, keepSpans)
 end
 
--- One run list, at a screen position: the clip against the game's own panels and the scene-
--- brightness scaling, shared by both draw paths. Split out when the peer-graphic path arrived --
--- a second copy of the clipping is exactly how two paths drift apart.
---
--- A GLOBAL, deliberately: this chunk is at 198 of Lua's 200 locals, and a shared helper is a
--- better use of the remaining budget than a name. Assigned before anything calls it.
--- vFlipHeight: draw the frame upside down within a box that tall, for a REFLECTION. The engine's
--- reflection is the sprite flipped vertically (measured by framebuffer diff, see the mirror note
--- in the body); this tier has no OAM, so the row index is mirrored instead. nil for everything
--- that is not a reflection, which is everything else.
--- xScale: squeeze or stretch the frame horizontally about its own centre, for a rippling
--- reflection. 1.0 (or nil) for everything else.
---
--- keepSpans: draw ONLY inside these x ranges, keyed by absolute screen y -- the opposite of
--- panelRows, which excludes. A reflection needs it because the engine's reflection is covered by
--- the land (by OAM priority, per the decompilation's SetUpReflection -- a pointer, the priority
--- value not measured) and a painted tier
--- has no priority at all: it draws on top of the finished frame, so a reflection that reaches past
--- the shore lands on the grass. Reported on screen 2026-08-19: *"the drawn ghosts reflection,
--- draws outside of water as well"*. nil means "no restriction", which is every other caller.
+-- One run list at a screen position, with the panel clip and scene tint both draw paths share. A global: the main
+-- chunk is at Lua's 200-local ceiling.
+-- vFlipHeight draws the frame upside down in a box that tall (a reflection); xScale scales it about its centre (a
+-- rippling reflection); keepSpans[y] lists the only x ranges drawable on screen row y, the opposite of panelRows,
+-- because a painted reflection has no OAM priority to sink it under the land.
 function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, vFlipHeight,
     xScale, keepSpans)
-    -- GAP DETECTOR (dev, COMPARE_TIERS sessions): every call is counted so the frame's end can
-    -- ask "was ANYTHING painted?". The user sees the drawn copy vanish for a moment at the start
-    -- of surfing, and a vanish is not a fallback -- a fallback still paints a walker. A vanish is
-    -- a frame where the overlay was CLEARED and this function then never ran, and no probe of
-    -- stored state can see that; only counting the paints can.
-    -- A bare GLOBAL, deliberately: `tiering` is a file-scope local declared 450 lines BELOW this
-    -- function, so naming it here reads a nil global and errors -- which is exactly what happened
-    -- on this counter's first version (2026-08-21): every paint died on this line, the drawn tier
-    -- vanished entirely, and the "gap" lines it produced were the error's shadow. The fourth bite
-    -- of the forward-reference trap this file documents.
+    -- Counted so the frame's end can tell a vanish (nothing painted) from a fallback. A bare global: `tiering` is
+    -- declared below this function.
     MG_DRAWN_CALLS = (MG_DRAWN_CALLS or 0) + 1
-    -- UNDER THE PROFILE FLAG ONLY: how many PASSES this frame, and how many RUNS they carry.
-    -- The section timer says the painter is 94% of the frame; it cannot say whether that is many
-    -- cheap calls or few expensive ones, and those have different fixes. Counting is the cheapest
-    -- instrument that tells them apart -- two adds, and only when the flag is on.
-    -- BARE GLOBALS, for the same reason MG_DRAWN_CALLS above is one: `tiering` is a file-scope
-    -- local declared ~480 lines BELOW this function, so naming it here reads a nil global and
-    -- every paint RAISES -- swallowed by the frame guard, so the drawn tier silently renders
-    -- nothing and the log says "unrendered" with no error anywhere. That is exactly what happened
-    -- when this counter was first written (2026-09-11), the sixth bite of the trap this file
-    -- documents, and the second one in a single day.
+    -- Under the profile flag: passes and runs this frame, to tell many cheap calls from few costly ones.
     local profT0
     if MESHGHOST_EMERALD_PROFILE then
         MG_DRAWN_PASSES = (MG_DRAWN_PASSES or 0) + 1
         MG_DRAWN_RUNS = (MG_DRAWN_RUNS or 0) + #runs
-        -- Times THIS FUNCTION only, so the profiler's `draw` section can be split into the
-        -- per-RUN loop (here) and the per-PEER setup around it (occlusion spans, pose selection,
-        -- cache lookups). Two os.clock calls per PASS -- ~63 a frame, not per run -- so the
-        -- instrument is ~0.1% of what it measures. Those have different fixes, which is the only
-        -- reason to separate them.
+        -- Times this function only, separating the per-run loop from the per-peer setup around it.
         profT0 = os.clock()
     end
-    -- HOISTED OUT OF THE RUN LOOP (2026-09-11): neither the scene's additive tint nor the
-    -- decision to apply it changes between runs of the same pass, and this loop runs ~8,100 times
-    -- a frame at 64 peers. It was a table lookup plus two comparisons per run to re-answer a
-    -- question with one answer per pass.
     local tintAdd = genderFrames.tintAdd or 0
     local tinting = (dim and dim < 0.99) or tintAdd > 0.5
     local dimM = dim or 1
     for i = 1, #runs do
         local r = runs[i]
         local color = r.color
-        -- The scene's own blend, applied to this run's colour: c*dim + add. Both terms come from
-        -- fitting the live OBJ palette against the cartridge's, once per frame, in drawRemotes --
-        -- the additive term is what lets a fade toward WHITE (a cave mouth) wash the painted copy
-        -- out the way the hardware washes out everything else.
+        -- The scene's blend, c * dim + add, fitted once a frame in drawRemotes; the additive term washes the copy
+        -- out in a fade to white, as at a cave mouth.
         if tinting then
-            -- Per RUN, not per pixel, and only while something is actually fading the screen:
-            -- in a steady scene this branch is not entered at all.
             local m, add = dimM, tintAdd
             local rr = math.floor(((color >> 16) & 0xFF) * m + add)
             local gg = math.floor(((color >> 8) & 0xFF) * m + add)
@@ -3236,57 +1798,15 @@ function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, 
             if bb > 255 then bb = 255 end
             color = (0xFF << 24) | (rr << 16) | (gg << 8) | bb
         end
-        -- vFlipHeight mirrors the row index for a REFLECTION, and the mirror is `h - y`, not
-        -- `h - 1 - y`. That is not an off-by-one, it is the hardware's own arithmetic: the engine
-        -- does not use the OAM flip bit for a reflection, it makes it an AFFINE sprite through
-        -- matrix 0 (the matrix measured by surfblob_probe.lua, 2026-08-19; SetUpReflection is
-        -- the pointer), and a GBA affine transform
-        -- is centred on h/2 -- 16 for a 32-row sprite, not 15.5. So the hardware samples
-        -- texture = 32 - screen, one row lower than a flip bit's 31 - screen.
-        --
-        -- MEASURED, not reasoned: with the poses finally matching, a framebuffer diff put the
-        -- engine's own reflection pixel at row 108 for a body whose reflection box starts at 86
-        -- (2026-08-21) -- box row 22, which only `h - y` produces. This tier was drawing at 107
-        -- and the water does not begin until 107, so the single row of hat that the player, the
-        -- spawned ghost and the OAM copy all show was the one row this tier threw away. The user,
-        -- four times: *"the drawn ghost still don't have the tiny tiny reflection when standing a
-        -- tile further away from the water"*.
+        -- The mirror is h - y, not h - 1 - y: the engine's reflection is an affine sprite, and a GBA affine
+        -- transform is centred on h/2.
         local y = screenY + (vFlipHeight and (vFlipHeight - r.y) or r.y)
         local x1, x2 = r.x1, r.x2
         if hFlip then x1, x2 = frameWidth - 1 - r.x2, frameWidth - 1 - r.x1 end
         if xScale then
-            -- About the CENTRE, which is what an affine sprite scales about -- and BOTH EDGES ARE
-            -- ROUNDED THE SAME WAY, which is the whole of it.
-            --
-            -- This used to floor the near edge and ceil the far one (transformed as x2+1 and
-            -- brought back), to keep neighbouring runs contiguous. Two different roundings on the
-            -- two ends of a run do not scale it, they INFLATE it: a one-pixel run came out two or
-            -- three pixels wide, and it breathed in and out as the ripple's scale swung. Nothing
-            -- on the hardware does that -- an affine sprite scales where each screen pixel SAMPLES
-            -- from, so a one-pixel feature shifts by a pixel and stays one pixel. The user, on the
-            -- single-pixel sliver of hat at a shoreline, which is the only place a whole-pixel
-            -- inflation is visible: *"it looks a bit bigger than the other ghosts reflection here,
-            -- about 2-3 times as big"*, and *"its wobbling back forth properly, but looks like the
-            -- shrink/expand is not supposed to be here"*.
-            --
-            -- THE HARDWARE'S OWN MAPPING, INVERTED. A GBA affine sprite does not scale a source
-            -- run onto the screen; it walks the DESTINATION and, for each screen pixel, samples
-            -- `texture = (x - cx) * a / 256 + cx`, TRUNCATED. So the destination range covering a
-            -- source run [x1, x2] is where that truncation lands inside it:
-            --     x_dest in [ cx + (x1 - cx)*s , cx + (x2 + 1 - cx)*s )      with s = 256/a
-            -- which is ceil on the near edge and ceil-minus-one on the far one -- the SAME rule at
-            -- both ends, so width is preserved and the run still slides as `a` swings.
-            --
-            -- Both of the wrong answers were tried on screen first. `floor` on the near edge and
-            -- `ceil` on the far one is what shipped: it inflates a one-pixel run to two or three,
-            -- breathing with the ripple (*"about 2-3 times as big"*). Nearest-neighbour on both
-            -- ends fixes the width but pins the run to one column, because rounding a sub-pixel
-            -- shift never crosses a boundary -- *"now its not moving left/right anymore"*. Only
-            -- the inverse mapping does both, and it is what the hardware does.
-            --
-            -- MEASURED against the engine's own reflection, six frames apart: its single pixel
-            -- alternates between columns 53 and 54 (and 117/118, 149/150 for the other two
-            -- characters) -- one pixel wide, moving by one. That is the target this reproduces.
+            -- The hardware's mapping, inverted: an affine sprite samples texture = (x - cx) * a / 256 + cx, truncated,
+            -- for each screen pixel, so source run [x1, x2] covers [cx + (x1 - cx) * s, cx + (x2 + 1 - cx) * s) with
+            -- s = 256 / a. One rounding rule at both ends keeps a one-pixel run one pixel wide while it slides.
             local mid = frameWidth / 2
             local nx1 = math.ceil(mid + (x1 - mid) * xScale)
             local nx2 = math.ceil(mid + (x2 + 1 - mid) * xScale) - 1
@@ -3295,8 +1815,7 @@ function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, 
         end
         local ax1, ax2 = screenX + x1, screenX + x2
 
-        -- A run can survive as several pieces once it is cut to the water, so the panel clip below
-        -- runs per piece. Without keepSpans there is exactly one piece and this costs one compare.
+        -- A run cut to the water can survive as several pieces; the panel clip runs per piece.
         local pieces = keepSpans and keepSpans[math.floor(y)]
         local nPieces = 1
         if keepSpans then nPieces = pieces and #pieces or 0 end
@@ -3307,26 +1826,18 @@ function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, 
                 if kx1 < pc[1] then kx1 = pc[1] end
                 if kx2 > pc[2] then kx2 = pc[2] end
             end
-            -- THE CAVE'S LIT CIRCLE, intersected -- not subtracted like the panel below. Outside
-            -- it the hardware displays nothing, so neither may we. Costs one halfword per row and
-            -- only where a flash effect is actually running; see genderFrames.flashSpan.
+            -- The cave's lit circle is intersected, not subtracted: outside it the hardware shows nothing.
             local fl, fr = genderFrames.flashSpan(y)
             if fl then
                 if kx1 < fl then kx1 = fl end
                 if kx2 > fr then kx2 = fr end
             end
             if kx1 <= kx2 then
-                -- math.floor, NOT a shift: y comes from the sub-tile smoothing and is a FLOAT, and
-                -- Lua 5.4's >> demands an integer -- "number has no integer representation" thrown
-                -- once per run, i.e. every frame, which the frame-error counter caught immediately
-                -- (2026-08-19).
+                -- math.floor, not >>: y is a float from the sub-tile smoothing, and >> raises on one.
                 local span = panelRows and y >= 0 and panelRows[math.floor(y / 8)]
                 if span and kx2 >= span[1] and kx1 <= span[2] then
-                    -- Counted, because "the clip ran" and "the clip did anything" are different
-                    -- claims and only the second is evidence. Published as clipped=.
+                    -- Counted (published as clipped=): that the clip ran is not that it did anything.
                     genderFrames.clippedRuns = (genderFrames.clippedRuns or 0) + 1
-                    -- Keep whatever falls outside the panel: a run straddling the menu's left edge
-                    -- is still drawn up to that edge.
                     if kx1 < span[1] then
                         drawRun(kx1, math.min(kx2, span[1] - 1), y, color)
                         MG_SPANS = (MG_SPANS or 0) + 1
@@ -3345,97 +1856,29 @@ function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, 
     if profT0 then MG_DRAWN_LOOP = (MG_DRAWN_LOOP or 0) + (os.clock() - profT0) end
 end
 
--- A loopback-echoed ghost (internal/relay's dev-only -loopback flag, id = "<id>-ghost") would
--- otherwise render directly on top of the real player -- both are the same position by
--- definition, since it's an echo of your own state. Found live 2026-08-14: this made it hard to
--- visually tell the real character and the ghost apart at all, especially for judging rendering
--- quality (smoothing, animation) side by side -- the whole point of using loopback for that kind
--- of test. Nudge it a couple tiles to the side purely for local rendering (screen position only
--- -- never changes what's actually sent/received over the network) so it visibly mimics the
--- player in parallel instead of sitting on top of them. Not specific to the "-ghost" suffix
--- semantically -- any player_id could in principle end this way -- but that's the relay's own
--- real naming convention for exactly this case, so it's a reliable signal here.
---
--- Two genuinely different, both-valid loopback use cases, per the user (2026-08-14): offset
--- (the default) for visually judging rendering/animation/smoothing quality side by side, since
--- an exact overlap makes the two impossible to tell apart; zero offset (exact trail) for
--- verifying the ghost actually tracks the real position precisely, which an offset would
--- obscure. Controlled via MESHGHOST_LOOPBACK_TRAIL, same env-var pattern as
--- MESHGHOST_BRIDGE_PORT above -- set (to anything) to force exact-trail mode, unset for the
--- default offset mode. A launch-time env var rather than a code constant so switching between
--- the two doesn't need a script reload/edit, just a different .local.bat -- see
--- dev-scripts/README.md.
--- The globals let a loader script place the copies for a particular question without a restart --
--- e.g. "OAM directly above me, spawned one tile to my right" for judging occlusion, where the
--- default spread puts them on different ground. MESHGHOST_LOOPBACK_TRAIL still wins: it is the
--- exact-trail mode, and an offset would defeat it.
+-- How far aside the loopback ghost ("<id>-ghost", the relay's -loopback echo) is drawn, so it can be judged beside the
+-- player; MESHGHOST_LOOPBACK_TRAIL puts it exactly on the player. Screen position only, never the wire.
 local LOOPBACK_GHOST_OFFSET_TILES_X = (os.getenv("MESHGHOST_LOOPBACK_TRAIL") and 0)
     or tonumber(MESHGHOST_LOOPBACK_OFFSET_X or "") or 2
 local LOOPBACK_GHOST_OFFSET_TILES_Y = (os.getenv("MESHGHOST_LOOPBACK_TRAIL") and 0)
     or tonumber(MESHGHOST_LOOPBACK_OFFSET_Y or "") or 0
 
--- SIDE-BY-SIDE TIER COMPARISON (dev only, off by default) -- MESHGHOST_COMPARE_TIERS.
---
--- The two renderers are hard to judge one at a time. A spawned ghost is drawn by the engine and
--- gets its occlusion, its palette and its cave/water treatment for free; a painted one is put on
--- top of the finished frame and gets none of that unless we build it. Which of those the drawn
--- tier is MISSING is a question about a specific place -- a dark cave, water with a reflection,
--- a doorway, tall grass -- and switching flags between two runs cannot answer it, because the
--- place has changed by the time the other renderer is on.
---
--- So: with this set, the ONE loopback ghost is rendered TWICE, both at once, from the same peer
--- state -- spawned two tiles to the right (where it has always been), painted two tiles to the
--- LEFT. Whatever the painted one is missing is then visible in the same frame, in the same
--- lighting, next to a correct copy of itself. The user's request, 2026-08-19, and the intended
--- default way to eyeball a BizHawk adapter's drawn tier in dev.
---
--- Deliberately NOT gated on MESHGHOST_EMERALD_DRAWN_OVERFLOW: the whole point is to look at the
--- drawn tier while it is shipped off. With the overflow tier off, the loopback ghost is the ONLY
--- peer painted; with it on, it is painted in addition to the real overflow. Deliberately also
--- ignores MESHGHOST_LOOPBACK_TRAIL's zero offset -- two ghosts stacked on the player is exactly
--- the comparison this mode exists to avoid.
--- ONE top-level local, not two: this chunk sits at 197 of Lua's hard 200, and the painted side's
--- offset is only ever needed inside drawRemotes, where it is declared instead.
+-- MESHGHOST_COMPARE_TIERS (dev): the loopback ghost drawn twice from one state, spawned two tiles right and painted
+-- two left, so whatever the painted tier lacks shows in the same frame and lighting.
 local COMPARE_TIERS = (MESHGHOST_COMPARE_TIERS or os.getenv("MESHGHOST_COMPARE_TIERS")) and true or false
 
 ----------------------------------------------------------------------------
--- Spawning real object events (2026-08-18) -- the engine draws, we do not.
---
--- A peer is rendered by writing a real ObjectEvent plus a Sprite into free slots and letting
--- Emerald's own engine draw, animate and walk it. This replaces the gui.drawPixel overlay
--- (drawSpriteFrame/drawRemotes below, still used on ROMs this cannot write to safely). What it
--- buys, confirmed on screen 2026-08-18: correct occlusion -- a ghost is hidden BEHIND the pause
--- menu, which the overlay never was -- correct palette and gender for free, and step animation
--- and sub-tile sliding played by the engine rather than reimplemented here.
---
--- The full derivation, and every trap that cost a live test, is in
--- adapters/emulator/pokemon/emerald/probes/spawn_test.lua and agent_docs/verified.md. The three that
--- matter most when reading this code:
---   * the ObjectEvent is synthesised from InitObjectEventStateFromTemplate's own field list;
---   * the Sprite is COPIED from the player's (four ROM pointers cannot be synthesised) but must
---     then be given its OWN VRAM tiles, or it displays the player's current animation frame;
---   * MovementType_None is the only movement type with no autonomous behaviour that still runs
---     the generic update which plays out held movements.
+-- Spawning real object events, a dev tier (tiering.budget's cap defaults to 0): a peer as an ObjectEvent plus Sprite
+-- that the engine draws, animates and walks. The Sprite is copied from the player's (four ROM pointers) but needs its
+-- own VRAM tiles; MovementType_None is the one movement type with no autonomous behaviour that still plays held
+-- movements.
 ----------------------------------------------------------------------------
 
--- gSprites and its stride are already declared once at the top of this file (GSPRITES_ADDR /
--- SPRITE_SIZE) with their provenance. The spawn path used to redeclare them here under different
--- names and identical values: two names for one address is how a future correction gets applied
--- to one of them and not the other -- and Lua's 200-local ceiling in the main chunk made the
--- duplicates cost something concrete as well.
 local MAX_SPRITES = 64
 local MAP_OFFSET = 7
 
--- **THE CAMERA BLOCK HAS ITS OWN SHIFT, SIXTEEN BYTES FROM THE SAVE BLOCK'S (2026-09-11).**
--- EX SPEEDCHOICE 0.4.0 puts gTotalCameraPixelOffsetY at 0x03004D18 -- -0x10D0 -- while its
--- gSaveBlock1Ptr is -0x10E0. Applying the save block's shift to these was tried first and made
--- things worse, which is the useful part of the lesson: IWRAM moved ALMOST as one piece, and
--- "almost" is the case a blanket shift gets wrong while looking like it should work.
---
--- Measured by `probes/camoffset_find_probe.lua`, which needs no known address: the local player is
--- drawn at the centre of its own screen, so sprite + offset = (120,112) on every build. It scans
--- IWRAM for that exact s16 pair in vanilla's layout (Y first, X four bytes later) and then WALKS
--- six steps, requiring the pair to keep centring the player. One slot survived.
+-- On a patched build the camera block shifts apart from the save block (genderFrames.camOffset): IWRAM moved almost,
+-- not exactly, as one piece.
 local GFIELDCAMERA_X_ADDR = 0x03005de0
 local GFIELDCAMERA_Y_ADDR = 0x03005de4
 local GTOTALCAMERAPIXELOFFSETY_ADDR = 0x03005de8
@@ -3450,71 +1893,31 @@ local TILE_SIZE_4BPP = 32
 local MOVEMENTTYPE_NONE_CB = 0x0808f3e0 + 1 -- +1 selects Thumb
 local MOVEMENT_TYPE_NONE = 0x00
 
--- Direction ids (the down/left/up/right values avatar_scan_probe matched, 2026-08-14) and the
--- movement action ids indexed by them. The action ids below are the decompilation's numbering
--- (event_object_movement.h, a pointer); only those a note says were measured are measured.
+-- Direction ids, and the movement action ids they index (the decompilation's numbering unless a note says measured).
 local DIR_ID = { south = 1, north = 2, west = 3, east = 4 }
--- TURNING uses walk-in-place-FAST, not a face action, because that is what the player does.
--- (`PlayerTurnInPlace` is the decompilation's pointer.) MOVEMENT_ACTION_FACE_* is a static pose
--- with no leg movement -- which is exactly how a ghost
--- using it looked: it snapped to the new direction without animating. Found by the user watching,
--- 2026-08-18; nothing in the log distinguishes the two.
+-- Turning is walk-in-place fast, as the player turns; a face action is a static pose and snaps round unanimated.
 local FACE_ACTION = { [1] = 0x21, [2] = 0x22, [3] = 0x23, [4] = 0x24 }
--- The static poses, kept for the one case that wants no animation: placing a ghost at spawn,
--- where there is no previous direction to have turned from.
+-- Static poses, for placing a ghost at spawn, where there is no previous direction to turn from.
 local FACE_STILL_ACTION = { [1] = 0x00, [2] = 0x01, [3] = 0x02, [4] = 0x03 }
--- BUMPING into a wall. The player does not simply stand there: holding a direction against a
--- wall plays a little shuffle, which the ghost reproduces with walk-in-place SLOW. That the game's
--- own shuffle is that action is the decompilation's reading (PlayerNotOnBikeCollide, a pointer),
--- not measured; the user judged the pace on screen (see the half-pace note). A peer doing that reports
--- "walking" with a position that never changes, so the ghost can reproduce it.
+-- Bumping a wall: the player's shuffle, played with walk-in-place slow. A bumping peer reports "walking" at a position
+-- that never changes.
 local BUMP_ACTION = { [1] = 0x19, [2] = 0x1a, [3] = 0x1b, [4] = 0x1c }
--- How long a peer must be "walking but not moving" before it counts as a bump. Without this, the
--- instant a normal step completes -- position already updated, anim still walking -- looks
--- identical to a bump, and every step would end with a spurious shuffle.
+-- Frames of walking-but-still before it counts as a bump: a just-finished step looks the same.
 local BUMP_AFTER_FRAMES = 20
 local WALK_ACTION = { [1] = 0x08, [2] = 0x09, [3] = 0x0a, [4] = 0x0b }
--- PLAYER_RUN, not WALK_FAST. Both cross a tile quickly, but WALK_FAST (0x15) reuses the WALKING
--- frames while PLAYER_RUN (0x35) plays ANIM_RUN_*, which is what running actually looks like.
--- Found live 2026-08-18: "it moves around properly, but its not running" -- the ghost was keeping
--- up and still visibly walking. The run frames exist on the ghost because it borrows the player's
--- graphics, which is the one graphic in the game that has them.
+-- PLAYER_RUN, not WALK_FAST (0x15): WALK_FAST reuses the walking frames. The ghost has run frames because it borrows
+-- the player's graphics.
 local RUN_ACTION = { [1] = 0x35, [2] = 0x36, [3] = 0x37, [4] = 0x38 }
 
--- LEDGES. A ledge hop is not two steps, it is one JUMP that covers two tiles with an arc, and the
--- adapter uses 0xC..0xF for it (MOVEMENT_ACTION_JUMP_2_*), indexed like every other action
--- table here. The ids and their direction order are the decompilation's numbering (a pointer),
--- not measured on a hopping player.
---
--- Without this a peer hopping a ledge moved two tiles in one update, which fell through to the
--- "more than a tile out" branch and TELEPORTED the ghost across -- no arc, no hop. The user, with
--- both renderers on screen: *"neither ghost knows how to jump down/off a ledge"* (2026-08-19).
--- Expressed as base + (dir - 1) rather than a table, because this chunk is AT Lua's hard ceiling
--- of 200 locals and the syntax check refused the table version outright. The arithmetic is exact:
--- the decomp lists JUMP_2_DOWN/UP/LEFT/RIGHT consecutively from 0xC, in the same order DIR_ID
--- numbers south/north/west/east -- which WALK_NORMAL_* at 0x8..0xB independently confirms.
--- (0x0c is used inline below: this chunk is at Lua's 200-local ceiling, and a constant used once
--- is the cheapest thing to inline.)
+-- A ledge hop is one JUMP_2 action over two tiles, 0x0C + (dir - 1) in DIR_ID order (the decompilation's numbering),
+-- written inline below: the main chunk is at Lua's 200-local ceiling.
 
 local function w8(a, v) memory.write_u8(a, v & 0xff) end
 local function w16(a, v) memory.write_u16_le(a, v & 0xffff) end
 local function w32(a, v) memory.write_u32_le(a, v & 0xffffffff) end
--- **A READ GUARD, off unless MESHGHOST_EMERALD_READ_GUARD is set (2026-09-11).**
---
--- BizHawk answers a read outside a memory domain with a console WARNING and a zero -- no error, no
--- stack, nothing in any log this side can grep. On a build whose addresses are wrong that is
--- thousands of lines a second and an emulator at 4fps, with no way to tell WHICH of the adapter's
--- reads is walking off the end. EX SPEEDCHOICE 0.4.0 spent an evening in exactly that state and
--- the site was guessed at three times.
---
--- So: when the flag is on, every read through these helpers checks the address against the GBA's
--- real regions first, and the FIRST offender is reported with a Lua traceback naming the line that
--- asked for it. Once, then it goes quiet -- the point is to name the site, not to re-print the
--- flood in a different colour.
---
--- Off, these are the same one-line functions they always were.
--- GLOBALS, not locals: this file is at Lua's 200-local ceiling and two more tipped it into a
--- PARSE failure. They are only called when the guard flag is on, so the cost is nil either way.
+-- Read guard, off unless MESHGHOST_EMERALD_READ_GUARD is set: BizHawk answers a read outside a memory domain with
+-- only a console warning and a zero, so the guard reports the first one once, with a traceback naming its line.
+-- Globals: the main chunk is at Lua's 200-local ceiling.
 function mgReadOK(a)
     return (a >= 0x02000000 and a < 0x02040000)   -- EWRAM
         or (a >= 0x03000000 and a < 0x03008000)   -- IWRAM
@@ -3556,13 +1959,7 @@ local function r32(a)
 end
 
 local function objAddr(i) return GOBJECTEVENTS_ADDR + avatarAddrOffset + i * OBJECTEVENT_SIZE end
--- gSprites moves on a patched build just as gObjectEvents does, and `spriteAddrOffset` carries
--- that shift. SPEEDCHOICE 1.2.2 measured at +0x4 by `probes/gsprites_scan_probe.lua`, which
--- narrowed EWRAM to a single candidate by cross-link and then WALKED the player 12 steps to
--- confirm the sprite tracked it -- 5 x-steps and 6 y-steps, constant offset. gSprites is a
--- runtime array, so unlike the ROM data it cannot be found by searching the cartridge; it
--- needs a live probe, and a candidate that survives the search is still only a candidate
--- until something moves.
+-- gSprites moves on a patched build as gObjectEvents does; spriteAddrOffset carries the shift.
 local function sprAddr(i) return GSPRITES_ADDR + (genderFrames.spriteAddrOffset or 0) + i * SPRITE_SIZE end
 
 local function tileIsAllocated(n)
@@ -3576,9 +1973,8 @@ local function setTileAllocated(n, on)
     w8(a, v)
 end
 
--- First-fit search of the tile bitmap for a free run, after the decompilation's AllocSpriteTiles
--- (a pointer; the bitmap's meaning is unmeasured). Returns nil when OBJ VRAM has no run this long,
--- which is a real outcome on a busy map rather than a theoretical one.
+-- First-fit search of the tile bitmap (after the decompilation's AllocSpriteTiles); nil when OBJ VRAM has no run that
+-- long, a real outcome on a busy map.
 local function allocSpriteTiles(tileCount)
     local i = r16(GRESERVEDSPRITETILECOUNT_ADDR)
     while true do
@@ -3599,43 +1995,27 @@ local function allocSpriteTiles(tileCount)
     end
 end
 
--- graphicsInfo(), below, reads a graphic's ROM entry at the offsets it names; that layout follows
--- the decompilation's ObjectEventGraphicsInfo (a pointer) and is not measured field by field.
--- ROM is 0x08000000-0x09FFFFFF on the GBA (the two 16 MB waitstate mirrors of the cartridge).
--- Used below to sanity-check a pointer before anything is read through it or written into a
--- live sprite: everything in this table, and everything it points at, is ROM data.
+-- ROM is 0x08000000-0x09FFFFFF; everything graphicsInfo reads, and everything it points at, is ROM data. Its offsets
+-- follow the decompilation's ObjectEventGraphicsInfo, not measured field by field.
 local function isRomPtr(p) return p >= 0x08000000 and p <= 0x09ffffff end
 
--- The graphicsId reaching here can come from a PEER over the wire (extras.gfx), so it is
--- untrusted input, not a local read -- `_template/PROTOCOL.md`'s peer-controlled-data note, and
--- status.md's open "adapters' parsing never audited". Unvalidated it indexes a ROM pointer table
--- with an arbitrary integer, and the four pointers pulled out of whatever that lands on are
--- written straight into a live sprite for the engine to dereference. Two bounds, neither invented:
---   * 0-255, because the field this ends up in is `objectEvent.graphicsId`, a u8 -- the same fact
---     the `w8(a + 0x05, graphicsId)` in spawnGhost already relies on. A value outside it could
---     never have described this ghost anyway.
---   * every pointer must actually point into ROM. That rejects a table entry past the real end of
---     the table without this file having to assert a count it cannot cite.
+-- graphicsId can come from a peer (extras.gfx), and the pointers it yields go into a live sprite, so it is bounded to
+-- a u8 (objectEvent.graphicsId) and every pointer must point into ROM, which rejects entries past the table's end.
 local function graphicsInfo(graphicsId)
     if type(graphicsId) ~= "number" or graphicsId ~= math.floor(graphicsId)
         or graphicsId < 0 or graphicsId > 255 then
         return nil
     end
-    -- The Archipelago-shifted ROM offset, or 0 on vanilla -- see loadGenderFrames(). Without it
-    -- this table read lands on the old, abandoned address and every lookup fails.
-    -- `tableOffset` where a build moves the graphics table independently of the sprite data (EX
-    -- SPEEDCHOICE does; every other known build does not, and there this falls back to the
-    -- same shift as before).
+    -- romOffset is the Archipelago shift (0 on vanilla); tableOffset is for a build that moves this table apart from
+    -- the sprite data (EX SPEEDCHOICE).
     local ptr = r32(GOBJECTEVENTGRAPHICSINFOPOINTERS_ADDR
         + (genderFrames.tableOffset or genderFrames.romOffset or 0)
         + graphicsId * 4)
     if not isRomPtr(ptr) then return nil end
     local size = r16(ptr + 0x06)
     if size == 0 then return nil end
-    -- The four pointers below are written verbatim into a live sprite for the ENGINE to
-    -- dereference, so a bad one is not a wrong picture, it is a crash in the game's own code.
-    -- anims/images must exist; oam, subspriteTables and affineAnims are legitimately allowed to
-    -- be null (a graphic without subsprites, an unanimated one) but never anything else.
+    -- These go into a live sprite for the engine to dereference, so a bad one crashes the game: anims and images must
+    -- exist; oam, subsprite tables and affine anims may be null.
     local anims, images = r32(ptr + 0x18), r32(ptr + 0x1c)
     local oam, subs, affine = r32(ptr + 0x10), r32(ptr + 0x14), r32(ptr + 0x20)
     if not isRomPtr(anims) or not isRomPtr(images) then return nil end
@@ -3650,8 +2030,7 @@ local function graphicsInfo(graphicsId)
         width = r16(ptr + 0x08),
         height = r16(ptr + 0x0a),
         paletteSlot = r8(ptr + 0x0c) & 0x0f,
-        -- The struct pointer itself, for fields nothing else needed until the shadow did:
-        -- shadowSize is bits 4-5 of +0x0C, sharing that byte with paletteSlot.
+        -- The struct itself, for shadowSize: bits 4-5 of +0x0C, beside paletteSlot.
         raw = ptr,
         oam = r32(ptr + 0x10),
         subspriteTables = r32(ptr + 0x14),
@@ -3661,24 +2040,9 @@ local function graphicsInfo(graphicsId)
     }
 end
 
--- PUBLISH A PAIR THAT IS TRUE TOGETHER: an animation number that the published GRAPHIC actually
--- has.
---
--- The sender reads the graphic through localGraphicsId() -- which may be holding a previous value
--- -- and the animation number straight off the live sprite. Those are two different moments, and
--- for a frame or two at every transition they disagree: measured 2026-08-21 at the start of
--- surfing, `gfx=3 sanim=20` went out on the wire, a surfing animation on the field-move graphic,
--- whose table is shorter and has no entry 20.
---
--- Every consumer then breaks in its own way and has to be defended separately -- the spawned ghost
--- drew a frame that does not exist (*"a weird grey/flashing glitched sprite"*), the painted tier
--- gave up and fell back to a walker (*"the drawn ghost still disappear for a bit"*), and each fix
--- covered one tier. **The pair is what is wrong, so the pair is what to fix**, once, before it
--- leaves this machine.
---
--- Falls back to the last pair that WAS coherent for this graphic rather than to zero: during a
--- transition the previous good frame is the one a character was just showing, so holding it for a
--- frame is invisible, where snapping to the first frame of animation 0 is a flick of its own.
+-- Publish an animation the published graphic actually has: the graphic may be held over from a previous frame while
+-- the animation is read live, and at a transition they disagree for a frame or two. Falls back to the last coherent
+-- pair for this graphic, which the character was just showing.
 genderFrames.lastCoherentAnim = {}
 genderFrames.coherentAnim = function(gfx, animNum, animIdx)
     local info = gfx and graphicsInfo(gfx)
@@ -3697,58 +2061,13 @@ genderFrames.coherentAnim = function(gfx, animNum, animIdx)
 end
 
 
--- DRAW A PEER AS WHATEVER IT ACTUALLY IS -- a bike, a surfer, someone fishing.
---
--- The painted tier decoded only the walk and run pic tables for the local player's gender, so it
--- could draw a character walking and nothing else: with the spawned ghost fishing correctly beside
--- it, the user's report was *"the drawn one is not doing the starting fishing or mid fishing
--- animations at all"* (2026-08-19). Everything needed was already parsed by graphicsInfo() and
--- simply never used.
---
--- Three ROM reads turn a peer's animation state into a picture, all of them from that struct:
---   * anims[animNum]                 -- the animation table for the state (fishing, biking, ...)
---   * [animCmdIndex]                 -- the command currently playing: this code reads 4 bytes,
---                                       the image index from the low 16 bits and hFlip from bit 22
---   * images[imageValue]             -- this code steps 8 bytes per entry and takes the pixels
---                                       from the first pointer
--- Those bit and entry layouts follow the decompilation's sprite.h (a pointer) and are not measured
--- field by field.
---
--- The peer sends animNum and animCmdIndex; both ends are on the same graphic, so both resolve to
--- the same frame. SIZE comes from the graphic too (a bike is wider than a walker), which is why
--- this cannot reuse the fixed-size path above.
---
--- COLOURS come from the LIVE OBJ palette at the graphic's own slot, not from ROM. That is exact
--- whenever the palette is loaded -- which it is whenever anything on the map wears that graphic,
--- including the peer's own spawned copy -- and it also means a drawn peer dims with every fade and
--- cave for free, the same way the scene-brightness scaling does. When it is NOT loaded the colours
--- would be another character's; that is the known limit of this route, and the reason the
--- cartridge palette table is the next thing to find if it bites.
+-- Drawing a peer as whatever it is (a bike, a surfer, a rod): anims[animNum][animCmdIndex] gives the image index (low
+-- 16 bits; hFlip is bit 22) and images[index] (8 bytes an entry) its pixels, per the decompilation's sprite.h.
+-- Colours come from the live OBJ palette at the graphic's slot, wrong only when nothing on the map wears that graphic.
 genderFrames.peerRunCache = {}
 
--- ONE FRAME'S PIXELS, from an explicit images pointer, size and palette slot.
---
--- Split out of runsForPeerGfx so the same decoder can serve things that are not object-event
--- graphics at all, because two of them turned out to be needed the moment a peer went in the
--- water: the SURF BLOB (a field-effect sprite template, with its own images and no graphicsId)
--- and a REFLECTION (the very same frame, decoded once more in the reflection palette). Nothing
--- about 4bpp tiles or run-building is specific to a character, so nothing here needed to be
--- written twice.
---
--- The palette slot is part of the cache key, not just the frame: the reflection is the same
--- pixels in different colours, and keying on the image alone would hand the first one decoded to
--- both.
--- A CHEAP FINGERPRINT OF ONE LIVE OBJ PALETTE, memoised for the frame.
---
--- The cache below bakes colours at decode time, so an entry made while the palette was not the
--- steady-state one -- mid-fade, or with a different map's palettes loaded -- stayed wrong for the
--- rest of the session. Found exactly that way 2026-08-20: the adapter was reloaded while the game
--- sat in a battle, the first decode after it took the battle's palette, and every drawn ghost was
--- washed out from then on while the spawned one looked normal.
---
--- So the cache is keyed on WHAT THE PALETTE HELD as well as on the frame. Recomputing the stamp is
--- 16 halfword reads, and memoising it per frame per slot keeps that at 16 reads per slot per frame
--- no matter how many peers ask -- the same footing as the scene-brightness read, which costs 32.
+-- A cheap fingerprint of one live OBJ palette, memoised per frame: the run cache bakes colours in, so it is keyed on
+-- what the palette held, or a decode made mid-fade or in a battle stays wrong.
 genderFrames.palStamp = {}
 genderFrames.palStampFrame = -1
 genderFrames.paletteStamp = function(slot)
@@ -3768,15 +2087,11 @@ genderFrames.paletteStamp = function(slot)
     return s
 end
 
--- Forward-declared here and filled in much further down, the same pattern the surf-blob helpers
--- use. It has to be ABOVE the first reference, not merely above the table: a local declared later
--- in this chunk is not in scope for an earlier function, so it compiles to a global read of nil
--- and throws on the first frame that reaches it. That is exactly what happened -- the palette-stamp
--- counter below referenced `tiering` from up here while the declaration sat 140 lines lower, and
--- the drawn tier threw every frame for 302 frames straight and rendered nothing at all. Moving the
--- declaration costs no extra local, which matters at this chunk's 200 ceiling.
+-- Declared above its first use: a local declared later is a nil global to an earlier function.
 local tiering
 
+-- One frame's pixels from an images pointer, size and palette slot; characters, the surf blob and reflections share
+-- it. The palette slot belongs in the cache key: a reflection is the same pixels in other colours.
 genderFrames.runsFromImages = function(cacheKey, imagesPtr, width, height, imageIndex, paletteSlot)
     local stamp = genderFrames.paletteStamp(paletteSlot)
     local cached = genderFrames.peerRunCache[cacheKey]
@@ -3785,8 +2100,7 @@ genderFrames.runsFromImages = function(cacheKey, imagesPtr, width, height, image
     local pixels = r32(imagesPtr + imageIndex * 8)
     if not isRomPtr(pixels) then return nil end
 
-    -- 4bpp tiles, 8x8, laid out row of tiles by row of tiles -- the same decode the gender path
-    -- uses, with the dimensions passed in rather than assumed.
+    -- 4bpp 8x8 tiles, row of tiles by row of tiles.
     local wTiles = width // 8
     local pal = {}
     for i = 0, 15 do
@@ -3806,7 +2120,6 @@ genderFrames.runsFromImages = function(cacheKey, imagesPtr, width, height, image
             if idx ~= 0 then
                 local color = pal[idx]
                 local x2 = x
-                -- Extend the run while the colour holds, exactly like the gender path.
                 while x2 + 1 < width do
                     local ti = tileRow * wTiles + ((x2 + 1) // 8)
                     local nb = r8(pixels + ti * 32 + localY * 4 + (((x2 + 1) % 8) // 2))
@@ -3821,69 +2134,26 @@ genderFrames.runsFromImages = function(cacheKey, imagesPtr, width, height, image
             end
         end
     end
-    -- STAMP THE ENTRY, or the invalidation above can never match and every peer re-decodes from
-    -- ROM every frame. The comparison was written without this and read `cached.palStamp` as nil
-    -- forever -- a cache that always misses, which is worse than no cache at all: it pays the
-    -- lookup AND the decode. Caught by reading the write site rather than the read site.
+    -- Stamp the entry, or the check above never matches and every peer re-decodes every frame.
     runs.palStamp = stamp
     genderFrames.peerRunCache[cacheKey] = runs
     return runs
 end
 
--- Declared here rather than beside the spawn code further down, because the DRAWN tier below is
--- the first use and a local declared later in this chunk is not in scope for an earlier function
--- -- it compiles to a global lookup and silently reads nil. Provenance for both, and the rest of
--- the field effect's numbers, is in the surf-blob section that spawns it.
---   gFieldEffectObjectTemplate_SurfBlob  0850CBC4  (images at +0x0C, anims at +0x08)
--- The blob's frames are 32x32 (documentation.md's surfing section), which is both its tile cost
--- and, halved and negated, its centerToCornerVec.
--- ONE TABLE, FIVE CONSTANTS. The main chunk is at Lua's 200-local ceiling and had CROSSED it --
--- the whole adapter stopped compiling, with `too many local variables` and nothing else. That
--- failure is silent in a real session (`pitfalls.md`), so the file simply would not have loaded.
--- These five all describe the surf blob and were five separate locals; as fields they cost one.
+-- Declared here because the drawn tier below is its first user. gFieldEffectObjectTemplate_SurfBlob; its frames are
+-- 32x32. One table, not a local per constant: the main chunk is at Lua's 200-local ceiling.
 local surfBlob = {}
 surfBlob.template = 0x0850cbc4
 surfBlob.framePx = 32
--- The water ripple's frame, measured off the game's own sprite: 16x16, centerToCornerVec -8,-8
--- (probes/ripple_probe.lua, 2026-08-21).
---
--- A FIELD, NOT A LOCAL, and that is not style: adding one more file-scope local here put this
--- chunk over Lua's hard ceiling of 200, which does not misbehave at runtime -- the script fails to
--- PARSE, "too many local variables (limit is 200) in main function". Caught the moment the ripple
--- work first loaded, exactly as the surf blob's own note two lines up warns.
+-- The water ripple's frame is 16x16. A field, not a local, for the same ceiling.
 genderFrames.rippleFramePx = 16
 
--- gOamMatrices 02021BC0 (pokeemerald.map), 32 entries of four s16 -- a, b, c, d. Entries 0 and 1
--- are the ones a MOVING reflection is drawn through; see reflectionXScale below. A FIELD, not a
--- local: adding one more local here is what pushed this chunk past Lua's hard ceiling of 200 and
--- turned the whole adapter into "too many local variables", which is a parse failure rather than
--- a misbehaviour -- the file loads not at all.
+-- gOamMatrices: entries 0 and 1 (four s16 each) are what a moving reflection is drawn through (reflectionXScale).
 genderFrames.oamMatricesAddr = 0x02021bc0
 
--- THE SURF BLOB, FOR THE TIER THAT HAS NO ENGINE TO HAND IT TO.
---
--- A spawned ghost gets its blob for free: build the sprite, point its data[2] at the ghost, and
--- UpdateSurfBlobFieldEffect animates and follows it every frame. A DRAWN peer has no sprite and
--- no object event, so the frame it would be showing has to be resolved here instead.
---
--- Which is one lookup: this code takes animNum as the facing minus one and draws east as west
--- mirrored. Measured for south only: probes/surfblob_probe.lua watched the game's own blob report
--- anim 0 / image 0 while the player faced south, 2026-08-19. The other three facings follow the
--- decompilation's sSurfBlobAnim_* (a pointer) and are unmeasured.
---
--- The images pointer is read from the template in ROM rather than written down, so it stays
--- correct on a build where the data moved; the palette slot is read off the game's own blob
--- (measured 0, the same probe).
--- Fields on genderFrames rather than new locals: this chunk sits one or two names below Lua's
--- hard ceiling of 200 locals per function, past which the script does not misbehave, it fails to
--- parse. Same reason the tiering table exists.
--- SLOT 0 IS THE FALLBACK, NOT THE ANSWER. The blob's palette must be resolved from its template's
--- TAG through the engine's own table, because the slot a tag lives in is not fixed: at a surf
--- start the show-mon effect loads a POKEMON's palette, and if it takes the slot we assumed, our
--- blob renders in that Pokemon's colours -- *"a weird glitched orange sprite"* on exactly the two
--- tiers that hardcoded 0. The hardware tier already resolved by tag and was the one tier the user
--- never reported it on, which is what identified this: three renderers, one differing in exactly
--- the suspected way.
+-- The surf blob for the drawn tier, which has no engine sprite to follow: one image per facing, east being west
+-- mirrored (south measured; the rest follow the decompilation). The palette comes from the template's tag through
+-- the engine's table, slot 0 only as a fallback: a show-mon effect at a surf start can take the slot we assumed.
 genderFrames.blobPaletteSlot = 0
 genderFrames.blobPalette = function()
     return hwPaletteSlotForTag(r16(surfBlob.template + 0x02))
@@ -3904,71 +2174,9 @@ genderFrames.runsForSurfBlob = function(facing)
     return runs, (facing == 4)
 end
 
--- A REFLECTION IN THE WATER, likewise.
---
--- This tier draws the same frame decoded a second time through the palette map
--- (gReflectionEffectPaletteMap), flipped, at +height-2. The flip and the row it lands on were
--- measured (framebuffer diff, 2026-08-21, in drawRunList). That the engine's reflection is a copy
--- of the sprite with that palette map, height-2 offset and negated y2 is the decompilation's
--- reading (SetUpReflection, a pointer) and otherwise unmeasured. It uses the game's own art, which
--- matters: an
--- invented reflection is exactly the kind of lookalike that never converges (pitfalls.md,
--- "Approximating the game's own art never converges").
--- THE RIPPLE, WHICH IS THE HALF OF A REFLECTION THAT IS NOT A FLIP.
---
--- A moving reflection is not drawn as a plain vertical flip: SetUpReflection sets
--- ST_OAM_AFFINE_NORMAL on it and points it at OAM matrix 0, or matrix 1 when the character itself
--- is horizontally flipped (the decompilation's reading, field_effect_helpers.c -- a pointer). What
--- the two matrices DO was measured rather than read --
--- probes/surfblob_probe.lua, 2026-08-19, watching them while the player surfed:
---
---   oamMatrix[0] = 256,0,0,-256 -> 260,... -> 252,... -> 256,...   one step per frame
---   oamMatrix[1] = the same with `a` negated -- that is the horizontal flip, nothing more
---
--- So `d` is a constant -256 (the vertical flip, which this tier does by mirroring the row index)
--- and `a` is a triangle wave between 252 and 260. On an affine sprite the texture is stepped by
--- `a`, so the DRAWN width is width * 256 / a: about a pixel of total width, breathing in and out
--- once a second or so. That is the *"left/right shrink thing"*.
---
--- Read live rather than reproduced from those numbers, because the game already computes it and a
--- reconstruction would have its own phase to keep in step -- the failure this adapter has hit more
--- than any other. The magnitude is taken from entry 0: entry 1 differs only in the sign that this
--- tier already expresses through hFlip.
---
--- ICE IS THE EXCEPTION, and it is the engine's exception rather than a special case of ours: an
--- ice reflection is set up with stillReflection TRUE, which never turns the affine mode on, so
--- there is no matrix in play and nothing to breathe. Asked for one, this returns a flat 1.0.
--- Without it a peer on Shoal Cave's ice shimmered like a peer on a pond.
--- THE FLASH CIRCLE, WHICH IS THE ONE PIECE OF OCCLUSION THIS TIER CAN ACTUALLY HAVE.
---
--- A dark cave is not a drawn overlay. It is WINDOW 0: a lit span per scanline in the
--- scanline-effect buffer, sent to REG_WIN0H (the buffer measured below; `sFlashEffectParams` in
--- field_screen_effect.c is the pointer), so outside the circle the layers are not displayed.
--- The spawned and OAM copies are real sprites and the window
--- clips them for free; this tier paints after the PPU has finished, where windows no longer exist,
--- so the user saw the painted ghost shining through the dark -- *"drawn ghost is not hidden in
--- darkness/caves"*.
---
--- Unlike the fog, this one is fixable, and cheaply: the lit region is READABLE DATA rather than a
--- priority we cannot win. One halfword per painted row gives that row's span, and the paint is
--- intersected with it.
---
--- Measured live in Granite Cave B1F, 2026-08-21: rows 56..104 lit, 114-126 at the top edge
--- widening to 96-144 at the middle -- centre (120, 80), radius 24, which is
--- `sFlashLevelToRadius[7]`. Every other row reads 0-0.
---
--- WHAT IT MUST NOT DO IS CLIP WHEN THERE IS NO CIRCLE. An all-zero buffer means "nothing lit
--- anywhere", so trusting it unconditionally would erase this tier on every ordinary map. The
--- effect is therefore confirmed at its source: gScanlineEffect's dmaDest must be REG_WIN0H and its
--- state non-zero. Another scanline effect on another register leaves this alone.
---   gScanlineEffect 02039B28 (pokeemerald.map), gScanlineEffectRegBuffers 02038C28. This code
---   reads dmaDest at +0x08, srcBuffer at +0x14 and state at +0x15; those offsets follow the
---   decompilation's scanline_effect.h (a pointer) and are not separately measured.
---
--- VANILLA ONLY, like the hardware tier and the fishing hook: those are our own build's addresses
--- and a patched ROM moves them. There the clip declines rather than reading someone else's memory,
--- so a painted ghost still shows through a dark cave on an Archipelago seed. Known, and much
--- better than clipping to garbage.
+-- A dark cave is window 0: a lit span per scanline in the scanline-effect buffer sent to WIN0H. Painting after the
+-- PPU sees no window, so each painted row is intersected with its span, but only while gScanlineEffect targets WIN0H
+-- and runs (an all-zero buffer otherwise means nothing lit). Vanilla addresses only: on a patched ROM it declines.
 genderFrames.flashCheckedAt, genderFrames.flashBuf = -100, nil
 genderFrames.flashSpan = function(y)
     if frameCounter ~= genderFrames.flashCheckedAt then
@@ -3985,15 +2193,12 @@ genderFrames.flashSpan = function(y)
     local row = math.floor(y)
     if row < 0 or row > 159 then return nil end
     local v = r16(genderFrames.flashBuf + row * 2)
-    -- WIN0H is (left << 8) | right, and the right edge is EXCLUSIVE on the hardware.
+    -- WIN0H is (left << 8) | right, and the right edge is exclusive.
     return v >> 8, (v & 0xff) - 1
 end
 
--- WHICH PICTURE THE PEER IS ACTUALLY SHOWING, resolved the engine's way: the graphic's anim table
--- indexed by animNum, then by animCmdIndex, and the low half of that AnimCmd_frame is the image
--- index. Returns nil rather than a guess when anything is unreadable -- a peer mid-graphic-swap
--- carries an animNum belonging to the graphic it is leaving, which indexes past the table's end.
--- The same two reads the compare log already did inline; named because a second caller needed it.
+-- The image the peer is showing: its graphic's anim table at animNum, then animCmdIndex, low half. nil when
+-- unreadable, as for a peer mid-swap whose animNum belongs to the graphic it is leaving.
 genderFrames.peerImageIndex = function(remote)
     local gi = graphicsInfo(remote.gfx or 0)
     if not gi or gi.anims == 0 then return nil end
@@ -4002,6 +2207,8 @@ genderFrames.peerImageIndex = function(remote)
     return r32(ap + (remote.sidx or 0) * 4) & 0xffff
 end
 
+-- A moving reflection is drawn through OAM matrix 0 (1 when flipped), whose a swings around 256, so its width is
+-- width * 256 / a, read live rather than reproduced. An ice reflection never turns affine on, so 1.0.
 genderFrames.reflectionXScale = function(kind)
     if kind == "ice" then return 1.0 end
     local a = rs16(genderFrames.oamMatricesAddr)
@@ -4010,83 +2217,17 @@ genderFrames.reflectionXScale = function(kind)
 end
 
 
--- WHERE A REFLECTION MAY BE PAINTED -- which is a question about DEPTH, not about water.
---
--- The first version of this clipped to reflective water tiles and was wrong in the way the user
--- named exactly: *"its supposed to go under the edge but still draw, but not get drawn on top of
--- the grass"*. This code treats a reflection as a sprite at OAM priority 3 that the map covers or
--- does not, decided per metatile by its LAYER TYPE. The priority value and the layer-type-to-BG
--- mapping below are the decompilation's reading (SetUpReflection, DrawMetatile -- pointers), not
--- measured on the game; the user's reports above are the symptoms it answers.
---
---   NORMAL  (0)  ground -> BG2, top -> BG1.  BG2 is ABOVE a priority-3 sprite, so grass, sand and
---                ordinary ground HIDE a reflection completely. This is the case that was painting
---                over the grass.
---   COVERED (1)  ground -> BG3, top -> BG2.  BG3 is BELOW the sprite, so the reflection shows,
---                and the top layer on BG2 covers whatever part of it the edge art occupies --
---                which is precisely "goes under the edge but still draws".
---   SPLIT   (2)  ground -> BG3, top -> BG1.  Same story for the part that matters here.
---
--- So the test is "is this tile's ground drawn on the bottom layer", i.e. layer type is not NORMAL.
--- Water tiles are COVERED/SPLIT (that is what lets a surfing character be drawn over them at all),
--- so this keeps every case the water test got right and fixes the shore.
---
---   attributes: this code reads behaviour from bits 0-7 and layer type from bits 12-15 (layout per
---   the decompilation's global.fieldmap.h, a pointer; the grass tile's NORMAL was read this way,
---   2026-08-20, see the tall-grass note).
--- WHICH PIXELS OF A METATILE COVER A SPRITE -- a 16-row bitmask, decoded once per metatile.
---
--- Tile-granular was not enough, and the shore is where it shows: clipping whole 16px cells kept
--- the reflection over the grass half of the pond's border tiles -- *"its still trying to draw
--- outside the water on the grass at the side"*. The engine has no such granularity problem
--- because it is not clipping at all; the BG simply covers the sprite pixel by pixel. So this
--- asks the same question per pixel.
---
--- Which layers cover a priority-3 reflection is decided by the metatile's LAYER TYPE, because
--- this code takes that to choose the BG each layer is drawn on (the decompilation's DrawMetatile,
--- a pointer; unmeasured), and the overworld's BG1/BG2/BG3 priorities 1/2/3 were read back live
--- from BG1CNT/BG2CNT/BG3CNT. A sprite at priority 3 loses to BG1 and BG2 and WINS against BG3,
--- since OBJ takes ties.
---
---   NORMAL  (0)  ground -> BG2, top -> BG1.  BOTH cover. Grass hides a reflection completely.
---   COVERED (1)  ground -> BG3, top -> BG2.  Only the top layer covers -- the pond's stone lip.
---   SPLIT   (2)  ground -> BG3, top -> BG1.  Only the top layer covers.
---
--- A metatile is 8 tilemap entries: four for the bottom layer then four for the top, each 2x2 in
--- reading order, and each carrying a tile index plus the two flip bits -- as this code reads it,
--- with the metatiles pointer at +0x0C and secondary ids from 512. Those numbers follow the
--- decompilation's global.fieldmap.h (a pointer) and are not separately measured.
--- The pixels come from VRAM rather than the tileset's own `tiles` pointer, because that data is
--- usually COMPRESSED in ROM while VRAM always holds it decompressed and ready -- confirmed
--- readable first, with probes/bgread_probe.lua, since this project has a recorded case of a VRAM
--- region reading back as all zeros and that answer looks like a finding.
---
--- Decoded once per metatile and cached; the cache is dropped when the map layout changes.
+-- Which pixels of a metatile cover a sprite: a 16-row bitmask per metatile, decoded once from VRAM (the tileset's own
+-- data is usually compressed in ROM) and dropped when the layout changes. A metatile is 8 tilemap entries, four
+-- bottom layer then four top, each 2x2 in reading order (the decompilation's layout).
 genderFrames.coverCache = {}
 genderFrames.coverLayout = nil
 
--- `who` is "sprite" for an ordinary character or "reflection" for one, and the answer genuinely
--- differs, because the two are drawn at different OAM priorities and a BG only covers a sprite it
--- outranks. This code takes a character on ordinary ground at priority 2 and a reflection at 3
--- (the decompilation's sElevationToPriority and SetUpReflection -- pointers; unmeasured). Against
--- BG1/BG2/BG3 at priorities 1/2/3 (read back live, above), with OBJ winning ties:
---
---                     BG1 (prio 1)   BG2 (prio 2)   BG3 (prio 3)
---   character (2)     covers         ties, OBJ wins  no
---   reflection (3)    covers         covers          ties, OBJ wins
---
--- Crossed with where this code takes each layer to be drawn (DrawMetatile, a pointer):
---
---   NORMAL   ground->BG2, top->BG1 : character hidden by the TOP layer only;
---                                    reflection hidden by BOTH (this is grass, and it hides one).
---   COVERED  ground->BG3, top->BG2 : character hidden by NOTHING; reflection by the top layer.
---   SPLIT    ground->BG3, top->BG1 : both hidden by the top layer only.
---
--- The character row is what makes a drawn ghost disappear behind a building: the roof edge and the
--- tree tops that overlap a walkable tile are that tile's TOP layer, which is exactly the layer the
--- engine puts above sprites.
--- The metatile's layer type on its own -- what coverMask branches on. Split out so a diagnostic
--- can report it without re-deriving it, and so the two can never disagree about what they read.
+-- BG1/BG2/BG3 read back at priorities 1/2/3, and OBJ wins ties. Taking a character at priority 2 and a reflection
+-- at 3 (the decompilation's reading), by layer type:
+--   NORMAL  (0) ground BG2, top BG1: a character is hidden by the top layer, a reflection by both.
+--   COVERED (1) ground BG3, top BG2: a character by nothing, a reflection by the top layer.
+--   SPLIT   (2) ground BG3, top BG1: both by the top layer.
 genderFrames.layerTypeOf = function(metatileId)
     if not metatileId then return nil end
     local layout = genderFrames.mapLayoutPtr()
@@ -4127,7 +2268,6 @@ genderFrames.coverMask = function(metatileId, who)
 
     local rows = {}
     for i = 0, 15 do rows[i] = 0 end
-    -- Which layers can cover THIS kind of sprite, per the table above.
     local layers
     if who == "sprite" then
         layers = (layerType == 1) and {} or { 4 }   -- COVERED hides a character not at all
@@ -4147,10 +2287,7 @@ genderFrames.coverMask = function(metatileId, who)
                 local row = rows[oy + py]
                 for px = 0, 7 do
                     local sx = hflip and (7 - px) or px
-                    -- A 4bpp tile row is FOUR bytes for EIGHT pixels, so the byte holding pixel
-                    -- sx is sx // 2 -- not sx. Indexing by the pixel read every second byte and
-                    -- called the odd pixels transparent, which would have punched holes through
-                    -- half of every covering tile.
+                    -- A 4bpp row is four bytes for eight pixels: pixel sx is in byte sx // 2.
                     local bi = sx // 2
                     local byte
                     if bi < 2 then byte = (w0 >> (bi * 8)) & 0xff
@@ -4167,40 +2304,14 @@ genderFrames.coverMask = function(metatileId, who)
     return rows
 end
 
--- The metatile id at a grid coordinate, and the cache guard that goes with it.
--- Can the map be read AT ALL on this build? gBackupMapLayout's own width/height/pointer triple is
--- the test: a real map has a non-null pointer and plausible dimensions. On a ROM that relocated
--- them this reads zeros or nonsense, and the caller then declines to clip rather than clipping
--- everything. Logged once, because "no occlusion on this build" is a real limitation a person
--- should know about rather than discover from a screenshot.
 ----------------------------------------------------------------------------
--- THE TWO ADDRESSES THE OCCLUSION CHAIN STANDS ON, FOUND RATHER THAN ASSUMED.
---
--- Occlusion has been vanilla-only since it was built, and the user put four windows side by side
--- to say so (2026-09-12): *"vanilla = everyone is hidden behind things properly"*, with
--- SPEEDCHOICE, EX SPEEDCHOICE and Archipelago each *"shown on top of the house instead of behind
--- it"*. One cause, not three -- the chain
---
---     map grid -> metatile id -> gMapHeader -> tileset -> attributes -> "does this cover?"
---
--- begins at two hardcoded addresses, and the patched builds move both. All three read `03FF03FF`
--- at gMapHeader: not zero, not a pointer, and the adapter correctly declined to clip rather than
--- clipping everything away -- but declining means a ghost paints over a roof.
---
--- **BOTH ARE PINNED BY ONE RELATION**, so neither needs a per-build constant: this code requires
--- the grid's width to be the layout's width plus 15 and its height the layout's plus 14. That
--- relation and those margins (MAP_OFFSET_W/H) are the decompilation's reading
--- (`InitBackupMapLayoutData`, a pointer), not measured here. The grid is found first, by the player standing inside it; the
--- header is then whatever word points at a ROM layout whose dimensions satisfy BOTH equations
--- against that grid. Twenty bits of agreement, not a shape that might coincide.
+-- The occlusion chain (map grid -> metatile id -> gMapHeader -> tileset -> attributes) starts at two addresses that
+-- patched builds move, so both are found: the grid by the player standing inside it, then the header as the word
+-- pointing at a ROM layout whose width and height are the grid's minus 15 and 14 (the decompilation's margins).
 genderFrames.MAP_OFFSET_W, genderFrames.MAP_OFFSET_H = 15, 14
 genderFrames.EWRAM_LO, genderFrames.EWRAM_HI = 0x02000000, 0x02040000
--- isRomPtr is already declared above and is the ONE name for this test -- this file's own warning
--- about two names for one address applies to predicates as much as to constants. It also keeps a
--- new top-level local off a chunk that is at Lua's 200-local ceiling.
 
--- gBackupMapLayout: { s32 width, s32 height, u16 *map }. Vanilla 03005DC0; EX SPEEDCHOICE moves it
--- to 03004CF0 and is the reason this is a function. IWRAM, so a small scan.
+-- gBackupMapLayout { s32 width, s32 height, u16 *map }, scanned for in IWRAM because builds move it.
 genderFrames.gridAddr = function()
     if genderFrames.gridAt ~= nil then return genderFrames.gridAt end
     if genderFrames.gridNext and frameCounter < genderFrames.gridNext then return nil end
@@ -4230,27 +2341,15 @@ genderFrames.gridAddr = function()
             found - 0x03005dc0, count))
         return found
     end
-    -- The player has to be standing on a map for this to resolve, so a failure is usually this
-    -- MOMENT (a load, the title screen) rather than this build. Spaced retries, never per frame.
+    -- Unresolved is usually this moment (a load, the title screen), not this build: retry spaced.
     genderFrames.gridNext = frameCounter + 120
     return nil
 end
 
--- gMapHeader's mapLayout pointer. **RE-VERIFIED ON EVERY CALL, which is the point of it.** What we
--- need from this address is one live ROM pointer, and several words in EWRAM may hold a copy of
--- it -- a saved map view, a previous header. A copy answers the occlusion question exactly as well
--- as the original does *while it is current*, and becomes wrong the moment the map changes. So the
--- dimension check is not a one-time audition: it runs every call, costs four reads, and a stale
--- pick simply stops satisfying it. A rescan is spaced rather than immediate, because this sits
--- under attrAt -- once per tile per peer per frame -- and that is the exact path that once took an
--- emulator to 4fps.
+-- gMapHeader's mapLayout pointer, re-verified every frame: a copy elsewhere in EWRAM answers as well while current
+-- and goes stale when the map changes.
 genderFrames.mapLayoutPtr = function()
-    -- **VERIFIED ONCE A FRAME, NOT ONCE A CALL.** The re-verification below is the right idea in
-    -- the wrong place if it runs on every lookup: this sits under attrAt, which is called once per
-    -- tile per peer per frame -- the exact path that took an emulator to 4fps, and the path the
-    -- painted tier's 3.2x speedup was won on. The map cannot change under us mid-frame, so one
-    -- check per frame is all the check that means anything, and every later caller in the same
-    -- frame reads a local.
+    -- Once a frame, not per call: this sits under attrAt, once per tile per peer per frame.
     if genderFrames.mhFrame == frameCounter then return genderFrames.mhLayout end
     genderFrames.mhFrame = frameCounter
     genderFrames.mhLayout = nil
@@ -4303,23 +2402,14 @@ genderFrames.mapLayoutPtr = function()
 end
 ----------------------------------------------------------------------------
 
+-- Whether the map can be read on this build at all; if not, painted ghosts go without occlusion, logged once.
 genderFrames.mapReadable = function()
     local grid = genderFrames.gridAddr()
     if not grid then return false end
     local width = memory.read_s32_le(grid)
     local height = memory.read_s32_le(grid + 0x04)
     local map = r32(grid + 0x08)
-    -- **`~= 0` IS NOT ENOUGH, and that cost a diagnosis (2026-09-11).** On the Archipelago build
-    -- 0x02037318 holds 0x03FF03FF -- not zero, not a pointer, and it sailed through the first
-    -- version of this check. The layout must point into ROM (0x08xxxxxx) and its PRIMARY tileset
-    -- must be a real pointer too; `probes/occlusion_probe.lua` diffed both builds and that is
-    -- exactly where they part company:
-    --     AP      layout=03FF03FF  tilesets 00000000 / 00000000
-    --     vanilla layout=083EA284  tilesets 083DF704 / 083DF71C
-    -- genderFrames.mapLayoutPtr() has already proved the layout is a ROM pointer whose dimensions
-    -- match this grid and whose primary tileset is real -- the checks this function used to make
-    -- inline against a hardcoded gMapHeader, now made against one that is FOUND. It returns nil
-    -- rather than a bad pointer, so there is nothing left to range-check here.
+    -- mapLayoutPtr has already proved the layout is a ROM pointer matching this grid, with a real primary tileset.
     local layout = genderFrames.mapLayoutPtr()
     local ok = layout ~= nil and map ~= 0 and width > 0 and height > 0
         and width < 1024 and height < 1024
@@ -4343,64 +2433,27 @@ genderFrames.metatileAt = function(x, y)
     return r16(map + (x + width * y) * 2) & 0x03ff
 end
 
--- Whether a peer HAS a reflection at all is the separate question. This code answers it from the
--- metatile behaviour below the character, against the set of behaviour ids in the table below.
--- Measured: 16 (pond water) and 21 (ocean water, NOT in the set -- a peer surfing at sea gets no
--- reflection). MEASURED 2026-09-16 (probes/borrowed_values_probe.lua, the player warped above a
--- tile of each): 20, 22 and 43 give the engine's reflection sprite (priority 3, the player's image
--- table, 30px below), and so does 32; no reflection sprite on plain ground. 26 is on no map tile in
--- the ROM (every layout's grid scanned), so no peer can stand by one. The extent of the downward
--- scan itself is still the decompilation's reading (ObjectEventGetNearbyReflectionType, a
--- pointer) and unmeasured.
---
--- TWO KINDS OF REFLECTION: this code marks 32 (ice) as "ice" and the rest as "water". An ice
--- reflection must hold still -- the user on screen in Shoal Cave (see the hardware tier's ice
--- note). MEASURED 2026-09-16: over 32 the engine's reflection sprite has affine off and the
--- vertical-flip bit set, over 16/20/22/43 affine on -- the still and the moving kind. Whether ice
--- is decided BEFORE water when both are in the scan is unmeasured.
---
--- The values are the kind rather than `true` so both self-drawn tiers can ask which one they are
--- drawing; every existing caller only tested truthiness and is unaffected.
+-- The metatile behaviours the engine draws a reflection over, and which kind: ice holds still, water ripples.
 genderFrames.reflectiveBehaviour = {
     [16] = "water", [20] = "water", [22] = "water", [26] = "water",
     [32] = "ice",
     [43] = "water",
 }
 
--- THE ENGINE'S SCAN, and it is wider than one tile in both senses.
---
--- This code scans a region about the graphic's size in tiles, starting one row BELOW the
--- character, around the PREVIOUS coordinates as well as the current ones. The region's exact
--- extent is the decompilation's reading (ObjectEventGetNearbyReflectionType, a pointer) and is
--- unmeasured; the previous-coordinates half answers what the user saw on screen, below.
---
--- Both parts matter, and the second is what a first reading loses. Because previousCoords is
--- included, a character stepping off the water keeps its reflection for the whole of that step --
--- so the reflection slides along under the bank and is eaten by the land pixels covering it,
--- rather than blinking out the instant the tile beneath changes. The user, watching a drawn ghost
--- with only the current tile tested: *"for the player it kinda glides and smoothly goes away, for
--- the drawn ghost the reflection just cuts and gets removed"*.
---
--- Coordinates are grid coordinates (map + MAP_OFFSET); prev may be nil, which just means the scan
--- is done once.
+-- The engine's reflection scan: a region about the graphic's size from one row below the character, at its previous
+-- coordinates as well as its current ones, so a reflection slides off under the bank instead of cutting out. Grid
+-- coordinates; prev may be nil.
 genderFrames.hasReflection = function(x, y, px, py, w, h)
     for i = 0, (h or 2) - 1 do
         for pass = 1, (px and 2 or 1) do
             local cx, cy = x, y
             if pass == 2 then cx, cy = px, py end
             for j = 0, (w or 2) - 1 do
-                -- j = 0 is the character's own column; past that the engine checks both sides.
-                -- **NO TABLE PER ITERATION (2026-09-11).** This built `{ 0 }` or `{ j, -j }`
-                -- fresh on every pass purely to hand it to `ipairs` -- an allocation in the
-                -- innermost loop of a function the profiler measured at 1.4ms a frame across
-                -- 64 peers. The counted form below is exactly equivalent: j == 0 runs once
-                -- with dx = 0 (which IS j), and j > 0 runs twice, +j then -j, in that order.
+                -- j = 0 is the character's own column; past it both sides, +j then -j.
                 for k = 1, (j == 0 and 1 or 2) do
                     local dx = (k == 1) and j or -j
                     local attr = genderFrames.attrAt(cx + dx, cy + 1 + i)
-                    -- The KIND, not just yes -- and the first tile that yields one wins, which is
-                    -- what the engine's RETURN_REFLECTION_TYPE_AT macro does at each step of this
-                    -- same scan. A string is truthy, so callers that only wanted yes/no still work.
+                    -- The first tile with a kind wins, as the engine's scan returns at each step.
                     local kind = attr and genderFrames.reflectiveBehaviour[attr & 0xff]
                     if kind then return kind end
                 end
@@ -4410,19 +2463,11 @@ genderFrames.hasReflection = function(x, y, px, py, w, h)
     return false
 end
 
--- The metatile ATTRIBUTES at a map coordinate: the map grid gives a metatile id, and which of the
--- two loaded tilesets owns it decides where its attributes live. Same reads as
--- probes/watertile.lua, which measured them.
---   gBackupMapLayout 03005DC0 { s32 width 0x00, s32 height 0x04, u16 *map 0x08 }
---   gMapHeader       02037318 -> mapLayout 0x00 -> primary 0x10, secondary 0x14, attributes 0x10
---   MAPGRID_METATILE_ID_MASK 0x03FF, primary metatile count 512
+-- The metatile attributes at a grid coordinate: the grid gives a metatile id, and the tileset owning it (primary
+-- below 512) holds its attributes.
 genderFrames.attrAt = function(x, y)
-    -- **THE SAME "IS THIS A POINTER" TEST THE SPAN BUILDER USES (2026-09-11).** The `layout == 0`
-    -- check below is not enough: EX SPEEDCHOICE 0.4.0 reads 0x03FF03FF at gMapHeader -- non-zero,
-    -- not a pointer -- and this function then read through it once per tile per peer per frame.
-    -- BizHawk answers each with a console warning and a zero, so there is no error and no log,
-    -- just thousands of lines a second and an emulator at 4fps. Named in one run by the read guard
-    -- (`dev-scripts/read-guard-emerald.lua`) after three wrong guesses at it.
+    -- mapReadable first: a non-zero header that is not a pointer would be read through once per tile per peer per
+    -- frame.
     if not genderFrames.mapReadable() then return nil end
     local grid = genderFrames.gridAddr()
     if not grid then return nil end
@@ -4446,19 +2491,8 @@ genderFrames.attrAt = function(x, y)
     return r16(attrs + index * 2)
 end
 
--- The x ranges, per screen row, a reflection may be painted in -- nil for "cannot tell right now",
--- an empty list for "all of this is covered".
---
--- Screen pixel to map tile is the exact INVERSE of the placement this tier already uses
--- (`originX + (mapX - anchorX) * TILE + camPix`), so it needs no new assumption about the camera.
--- The one correction is that the placement maps a map coordinate to the FRAME's top-left while the
--- character stands on the frame's bottom tile, hence the FRAME_HEIGHT_PX - TILE term.
---
--- Nine tile lookups at most, not one per pixel: the tiles under a 32x32 frame are a 3x3 grid at
--- worst, so the attributes are read once and the pixel ranges come out of arithmetic. A per-pixel
--- version would be ~1000 reads a frame, which is the read budget this file keeps warning about
--- (_template/probes.md).
--- The screen->grid origin, shared by everything that asks where a painted thing is standing.
+-- The screen-to-grid origin, the inverse of the drawn tier's placement; FRAME_HEIGHT_PX - TILE because a character
+-- stands on its frame's bottom tile.
 genderFrames.gridBase = function()
     local ax, ox = tiering.anchorX, tiering.originXStill
     local ay, oy = tiering.anchorY, tiering.originYStill
@@ -4468,59 +2502,13 @@ genderFrames.gridBase = function()
             - (ay + MAP_OFFSET) * TILE
 end
 
--- GRASS DRAWN OVER A PAINTED GHOST, because in this game grass is a SPRITE, not scenery.
---
--- A character standing in tall grass is hidden from the waist down, and the BG mask above cannot
--- do it: measured 2026-08-20, the grass metatile's TOP layer is completely EMPTY
--- (`BOTTOM 2012 2013 2022 2023  TOP 0000 0000 0000 0000`, layer type NORMAL), so no BG layer is
--- covering anything. The engine spawns a field-effect SPRITE per object standing in grass and
--- draws it above them (FldEff_TallGrass is where the decompilation places it; the subpriority
--- order was measured, below). A spawned ghost gets
--- one for free, being a real object event; a painted one gets nothing, and the user saw exactly
--- that -- *"its not hidden in tall grass ... player & spawned work as intended"*.
---
--- So the painted tier draws the grass itself, over the character, from the field effect's own art:
---   gFieldEffectObjectTemplate_TallGrass  0850CAA0   (MB_TALL_GRASS  2)
---   gFieldEffectObjectTemplate_LongGrass  0850CF94   (MB_LONG_GRASS  3)
--- both named in pokeemerald.map. Placement is the blob's helper again --
--- SetSpritePosToOffsetMapCoords(x, y, 8, 8) puts it at the tile's centre, and a 16x16 sprite
--- centred on a tile is a sprite at the tile's corner, so it lands on the character's own tile.
---
--- The PALETTE is read off a live one rather than resolved from the template's tag: the player is
--- standing in the same grass whenever this matters, so the engine already has the answer on screen.
--- Without one, nothing is drawn -- a wrong-coloured rectangle over a ghost is worse than no grass.
+-- Tall grass is a field-effect sprite drawn over the character, not a BG layer (the grass metatile's top layer is
+-- empty), so the painted tier draws it from the effect's own art. Templates by metatile behaviour: tall 2, long 3.
 genderFrames.grassTemplate = { [2] = 0x0850caa0, [3] = 0x0850cf94 }
 
--- WHICH FRAME OF THE RUSTLE, decoded from the template's own animation rather than assumed.
---
--- Grass does not sit still when something walks into it: it rustles and then settles. A painted
--- ghost drawing frame 0 forever stands in grass that never moves -- *"the grass is supposed to
--- shake/move when you walk trought it"*.
---
--- The commands are read at runtime from the template (sAnim_TallGrass is the pointer), so long
--- grass gets its own timing rather than tall grass's. This code takes the image index from a
--- command's low 16 bits and its duration from the next 6, and stops at a low half of 0xFFFF --
--- a layout that follows the decompilation's sprite.h (a pointer) and is not measured field by
--- field. Elapsed frames are walked through the durations; past the end it holds the last frame,
--- which is what "settled" is.
--- One pass of grass for a peer: the tiles its FEET overlap in the given row range, each with its
--- own rustle clock. Called twice per peer -- once for the row above, BEFORE the character is drawn,
--- and once for its own row and below, AFTER -- because that is the order the engine draws them in
--- (measured: the tile below a character has a lower subpriority than the character, the tile above
--- a higher one).
---
--- THE CLOCK RESTARTS ON ENTRY, not on first sight. Keyed on first-ever-drawn, a tile walked over
--- twice rustled only the first time -- and a looping test walks the same tiles for ever, so the
--- grass simply never moved again: *"its still not making the grass shake, like the player does"*.
--- A tile that was not covered last frame is being stepped onto now, which is exactly when the game
--- spawns its sprite.
--- topLimit: never paint above this screen row. Mid-step the character spans two tiles and both
--- their grass is in front of it, but how far up that reaches depends on the sub-tile phase of the
--- step -- at some phases the upper tile's top edge sits almost level with the character's head and
--- swallows it. The game leaves a sliver: *"you are supposed to still see a tiny bit of the hat at
--- the top, but not the head/body"*. Bounding the coverage keeps that true at every phase instead of
--- only some, which is what a tile-aligned overlay over a smoothly-interpolated ghost cannot do on
--- its own.
+-- One pass of grass for a peer, over the tiles its feet overlap in rows rowFrom..rowTo: called for the row above
+-- before the character is drawn and for its own row and below after, the engine's subpriority order. topLimit bounds
+-- how far up it paints, so a sliver of hat stays visible at every step phase.
 genderFrames.drawGrassRows = function(playerId, gbX, gbY, left, footY, rowFrom, rowTo, panelRows,
     dim, topLimit)
     local clip = nil
@@ -4538,10 +2526,7 @@ genderFrames.drawGrassRows = function(playerId, gbX, gbY, left, footY, rowFrom, 
         for gx = x0, x1 do
             local key = gx .. "," .. gy
             local e = st[key]
-            -- Drawn last frame? then this is the same visit and its clock keeps running. Otherwise
-            -- the ghost has just stepped on, which is when the game spawns the sprite -- so the
-            -- rustle starts over. Keyed on first-ever-drawn instead, a tile walked over twice
-            -- rustled only the first time, and a looping walk never saw it move again.
+            -- Not drawn last frame means just stepped on, when the game spawns its sprite, so the rustle restarts.
             if not e or (frameCounter - e[2]) > 1 then e = { frameCounter, frameCounter } end
             e[2] = frameCounter
             st[key] = e
@@ -4562,34 +2547,15 @@ genderFrames.drawGrassRows = function(playerId, gbX, gbY, left, footY, rowFrom, 
     tiering.grassTiles[playerId] = st
 end
 
--- LANDING DUST, painted, for both tiers.
---
--- The engine spawns a dust sprite when a jump lands (seen under a ghost by shadowdust_probe.lua,
--- 2026-08-21). This code draws it from gFieldEffectObjectTemplate_GroundImpactDust (0850CCA0,
--- pokeemerald.map) as a 16x8 frame, for as long as the template's own animation commands run
--- (read at runtime, dustFrameAt). Its placement on the character's own tile is the
--- decompilation's reading (GroundEffect_JumpLandingDust, a pointer), not measured.
---
--- Painted for BOTH tiers, for different reasons. The drawn tier has no engine to spawn it at all.
--- The spawned tier does get the engine's own dust -- but our painted SHADOW covers it, because an
--- overlay is drawn after the hardware has finished, and the real shadow sprite that would sit
--- underneath is disabled after it crashed the game. Painting the dust on top of our own shadow
--- puts it back in view: the user's suggestion, and the right one while the sprite is off.
---
--- The palette is read off a live dust sprite, which exists whenever the engine has spawned one --
--- and on the spawned tier it always has, at the same moment, which is exactly when this draws.
+-- Landing dust, painted: the drawn tier has no engine to spawn it. The spawned tier paints it only while its shadow is
+-- painted rather than a sprite (shadowSpriteEnabled), since a painted shadow covers the engine's own puff.
 genderFrames.dustTemplate = 0x0850cca0
 
 genderFrames.dustRuns = function(frame)
     local images = r32(genderFrames.dustTemplate + 0x0c)
     if not isRomPtr(images) then return nil end
-    -- THE PALETTE BY TAG, not by finding a neighbour. This used to scan all 64 sprites for a live
-    -- dust sprite and copy its palette slot, which fails outright when nobody else happens to be
-    -- landing -- and once the trail below started calling this once per live puff per frame, that
-    -- scan became the per-frame cost of the whole feature. `IndexOfSpritePaletteTag` is the
-    -- engine's own answer and it is a 16-entry table: sSpritePaletteTags 03000CF0 (pokeemerald.sym)
-    -- against the tag 0x1004, which this code takes as the dust's palette tag
-    -- (FLDEFF_PAL_TAG_GENERAL_0 in the decompilation -- a pointer; not read off the template).
+    -- The palette by tag, as the engine's IndexOfSpritePaletteTag does: scanning for a live dust sprite fails when
+    -- nobody else is landing. 0x1004 is the decompilation's FLDEFF_PAL_TAG_GENERAL_0, not read off the template.
     local pal = hwPaletteSlotForTag(0x1004)
     if not pal then return nil end
     -- 16x8, from the template's own OAM shape (gObjectEventBaseOam_16x8).
@@ -4597,8 +2563,7 @@ genderFrames.dustRuns = function(frame)
         images, TILE, TILE // 2, frame, pal)
 end
 
--- Frame index for a landing that happened `elapsed` frames ago, walked from the template's own
--- animation commands -- nil once it has finished, which is what stops it being drawn.
+-- The frame of a landing `elapsed` frames ago, walked from the template's animation commands; nil once it is over.
 genderFrames.dustFrameAt = function(elapsed)
     local anims = r32(genderFrames.dustTemplate + 0x08)
     if not isRomPtr(anims) then return nil end
@@ -4617,38 +2582,11 @@ genderFrames.dustFrameAt = function(elapsed)
     return nil
 end
 
--- THE WATER TRAIL, painted, for both self-drawn tiers.
---
--- A character moving on water leaves a ripple behind it, and it is a FIELD EFFECT -- so the
--- spawned tier has always had it from the engine and neither tier that draws for itself had it at
--- all. The user, watching all three surf at Sootopolis 2026-08-21: *"drawn & oam are not leaving
--- trails in the water when they move around."*
---
--- EVERY NUMBER HERE WAS MEASURED, with probes/ripple_probe.lua watching the game's own ripples
--- while the player surfed (2026-08-21), because what this needs is not "where is the template"
--- but "when does the engine decide to make one, and where does it put it":
---
---   * ONE PER TILE STEPPED, not on a timer. They appeared every 8 frames and 16 pixels apart --
---     and surfing crosses a tile in exactly 8 frames (the player's tile went 32,46 -> 32,47 over
---     those same frames), so the cadence is per step. A timer would have drifted against speed.
---   * 16x16, palette tag 0x1005, subpriority 151 -- between the reflection (152) and the blob
---     (150), which is where the hardware tier's pools put it.
---   * EIGHT animation frames over an 80-frame life, walked from the template's own animation
---     commands here rather than written down, so a different build stays correct.
---   * At the character's sprite position plus (0, height/2 - 2) -- the engine's own expression --
---     which in the top-left terms these tiers draw in is (width/2 - 8, height - 10), the ripple's
---     own frame being 16x16 with centerToCornerVec -8,-8.
---   * It does NOT follow the character. Position is fixed at birth and camera-anchored, exactly
---     like the landing-dust trail beside it.
---
--- THE TEMPLATE ADDRESS WAS DERIVED, NOT REMEMBERED. A live ripple sprite reported the anims and
--- images pointers it was built from (0850CB04 and 0850CAB8); the template is whatever structure
--- carries that pair at +0x08 and +0x0c, and one scan of the surrounding ROM found exactly one --
--- 0850CB08, whose callback matches the live sprite's and whose paletteTag is 0x1005.
+-- The water trail: a ripple field effect, painted for both self-drawn tiers. One per tile stepped while surfing,
+-- fixed where it was born, its frames walked from the template's own animation commands.
 genderFrames.rippleTemplate = 0x0850cb08
 
--- Frame index for a ripple born `elapsed` frames ago; nil once it has finished, which is what
--- stops it being drawn. Same walk of the animation commands as the landing dust's.
+-- The frame of a ripple born `elapsed` frames ago; nil once it is over.
 genderFrames.rippleFrameAt = function(elapsed)
     local anims = r32(genderFrames.rippleTemplate + 0x08)
     if not isRomPtr(anims) then return nil end
@@ -4670,55 +2608,24 @@ end
 genderFrames.rippleRuns = function(frame)
     local images = r32(genderFrames.rippleTemplate + 0x0c)
     if not isRomPtr(images) then return nil end
-    -- The palette by TAG, the engine's own IndexOfSpritePaletteTag, for the same reason the dust
-    -- uses it: finding a live neighbour fails exactly when nobody else happens to be rippling.
+    -- The palette by tag, as for the dust.
     local pal = hwPaletteSlotForTag(r16(genderFrames.rippleTemplate + 0x02))
     if not pal then return nil end
     return genderFrames.runsFromImages(string.format("ripple:%d:%d", pal, frame),
         images, genderFrames.rippleFramePx, genderFrames.rippleFramePx, frame, pal)
 end
 
--- Where a ripple belongs, given the character's frame top-left and the graphic's own size, and
--- WHETHER one is due this frame. Due means: this peer is surfing, and the tile it is drawn on has
--- just changed -- which the reflection's previous-tile store already knows, since it stamps the
--- frame the tile changed on. One store per tier, so each tier answers for where IT draws.
--- `surfing` is passed IN rather than tested here, and that is not a style choice: SURFING_GFX is a
--- local declared some two hundred lines BELOW this function, so naming it here compiles to a nil
--- global lookup -- "attempt to index a nil value (global 'SURFING_GFX')", once per frame, from
--- inside the draw path, which aborts the whole tick. That took the painted ghost off the screen
--- entirely and the hardware tier's reflection with it (2026-08-21). Both callers sit below the
--- declaration and can answer the question themselves.
+-- Due when this peer is surfing and its drawn tile changed this frame (the reflection's previous-tile store stamps
+-- it; one store per tier). `surfing` is passed in: SURFING_GFX is declared below.
 genderFrames.rippleDue = function(store, playerId, surfing)
     if not surfing then return false end
     local e = store[playerId]
     return e ~= nil and e[4] == frameCounter
 end
 
--- HOW LONG ONE BOUNCE LASTS, for the acro actions that REPEAT while B is held.
---
--- The reason this exists: a held-B wheelie hop is ONE movement action that bounces over and over,
--- so a peer sends the same `act` for as long as the button is down. Both painted tiers latch their
--- dust on the air->ground EDGE of that action, and during continuous hopping there is no edge --
--- measured 2026-08-21, one "took off" and no landing for a solid minute while the ghost bounced
--- the whole time. The spawned tier is unaffected because the ENGINE emits its dust per step
--- rather than per action, which is exactly why the defect showed on two tiers and not three.
---
--- So the bounce is counted instead: 16 frames for 0x70..0x77 (wheelie hops) and 32 for 0x78..0x7B
--- (wheelie jumps). Those periods are the decompilation's reading (`DoJumpSpriteMovement`, a
--- pointer), not measured on a bouncing player.
--- A ledge hop returns nil and keeps the edge rule: it is a ONE-SHOT action whose id leaves the
--- jump range when it finishes, so it has an edge and does not need counting -- and counting it
--- would puff halfway through a two-tile hop.
--- THE SIDE HOP (0x42..0x45) IS DELIBERATELY ABSENT, and that absence is the whole rule.
---
--- Counting bounces is for actions that REPEAT under a held button while reporting one id -- the
--- wheelie hops. A side hop is discrete: each one is its own action, so its landing shows up as an
--- ordinary air->ground edge and the edge already puffs exactly once. Counting it as well spawned a
--- fresh puff every 16 frames on top of that, and since a side hop also travels a tile, those puffs
--- were left strung out behind the ghost -- a line of dust no engine-driven character produces. The
--- user, watching all three tiers, 2026-08-21: *"the dust is not supposed to trail for the OAM &
--- drawn ghosts when side hopping"*. The shadow is unaffected: `isJumpAction` still covers 0x42..
--- 0x45, which is what says airborne.
+-- Frames per bounce for acro actions that repeat under a held B while reporting one id (wheelie hops 16, wheelie
+-- jumps 32, the decompilation's periods): there is no air-to-ground edge to latch dust on. A ledge hop or side hop
+-- has its own edge, so nil; counting a side hop strung puffs out behind the ghost.
 genderFrames.hopFrames = function(act)
     if act == nil then return nil end
     if act >= 0x70 and act <= 0x77 then return 16 end
@@ -4727,11 +2634,8 @@ genderFrames.hopFrames = function(act)
 end
 
 
--- Remember when a peer last landed, so every tier puffs on the same frame. Returns the dust frame
--- the newest puff is up to (nil once it has played out), and SECOND a landed-this-frame edge --
--- which is what the trail below is built from, and is idempotent within a frame on purpose:
--- three tiers ask about the same peer, and only the first caller advances the latch, so the
--- edge is answered from `at == frameCounter` rather than from who called first.
+-- Returns the newest landing's dust frame (nil once played out) and a landed-this-frame edge, so every tier
+-- puffs on the same frame; the edge reads `at == frameCounter` because three tiers ask and only one advances it.
 genderFrames.noteLanding = function(playerId, jumping, act)
     tiering.landed = tiering.landed or {}
     local e = tiering.landed[playerId]
@@ -4740,13 +2644,10 @@ genderFrames.noteLanding = function(playerId, jumping, act)
         if not (e and e.air) then
             tiering.landed[playerId] = { air = true, airAt = frameCounter, at = (e and e.at) or nil }
         elseif period and e.airAt and frameCounter - e.airAt >= period then
-            -- A BOUNCE FINISHED WITHOUT THE ACTION CHANGING. Still airborne -- the next bounce
-            -- starts on this same frame, which is what B held down means -- but it touched the
-            -- ground to do it, and that is what the dust marks.
+            -- A bounce ended with the action unchanged (B held): still airborne, but it touched ground.
             tiering.landed[playerId] = { air = true, airAt = frameCounter, at = frameCounter }
         end
     elseif e and e.air then
-        -- Left the air this frame: that is the landing, on the tile it came down on.
         tiering.landed[playerId] = { air = false, at = frameCounter }
     end
     local cur = tiering.landed[playerId]
@@ -4754,6 +2655,7 @@ genderFrames.noteLanding = function(playerId, jumping, act)
     return f, (cur ~= nil and cur.at == frameCounter) or false
 end
 
+-- The grass effect's image index `elapsed` frames into its animation: the last once played out, 0 if unknown.
 genderFrames.grassFrameAt = function(behaviour, elapsed)
     local tmpl = genderFrames.grassTemplate[behaviour]
     if not tmpl then return 0 end
@@ -4795,36 +2697,8 @@ genderFrames.grassRuns = function(behaviour, frame)
         images, TILE, TILE, frame, pal)
 end
 
--- A CALL SITE'S OWN REUSABLE BUFFERS for reflectiveSpans, and the reason the buffers are the
--- CALLER'S rather than hidden inside the function (review I36, 2026-09-11).
---
--- **THE COST.** reflectiveSpans allocated a table per PIXEL ROW plus one per span plus the result:
--- about 35 tables a call for an ordinary sprite, several calls per peer per frame, which at the
--- 19-peer Route 111 count is roughly 700 tables a frame -- ~42,000 a second of garbage on the
--- EMULATOR THREAD, which is the thread the game itself runs on.
---
--- **WHY NOT A BUFFER HIDDEN INSIDE THE FUNCTION**, which is the obvious fix: the result ESCAPES to
--- the caller, so one shared buffer means two call sites can hold what they think are two different
--- answers and actually hold one. That failure does not raise -- it paints the wrong reflection or
--- the wrong occlusion mask, on screen, which is not something this side can see. Giving each site
--- its own buffer makes the sites independent by construction, so the only remaining question is
--- per-site ("does THIS site still hold its last answer when it asks again?"), which is answerable
--- by reading one block instead of reasoning about all of them at once. All six were read.
---
--- The pool lives BESIDE the result, never inside it: `hwet`'s consumer walks the result with
--- `pairs()`, so anything extra stored in it would be iterated as if it were a row.
--- ONE SCRATCH PER CALL SITE, lazily built. Named for the site rather than shared, which is the
--- property that makes the reuse safe: two sites can never be handed the same buffers. Each site's
--- own result is dead before that site asks again, which was checked by reading all six:
---   scHwet -- compare-mode only; read into lo/hi immediately below and not referenced again
---   scWet -- passed straight into the drawRunList a few lines down, which only reads it
---   scBlob -- built as an argument to drawRunList and never named
---   scOccl -- read by the COMPARE_TIERS block and the draw below it, both within this block
---   scWwet -- used by the wading draw in this block only
---   scWalk -- an argument to the walker draw; never named
---
--- On `genderFrames` rather than as six top-level locals, because this file compiles at Lua's
--- 200-local ceiling and has been stopped from loading by one name four times.
+-- reflectiveSpans' buffers, one per call site since its result escapes; a site's result must be dead before it asks
+-- again. The pool sits beside the result, never in it: `hwet`'s consumer walks the result with pairs().
 genderFrames.scHwet = function()
     genderFrames.__scHwet = genderFrames.__scHwet or genderFrames.newSpanScratch()
     return genderFrames.__scHwet
@@ -4859,66 +2733,29 @@ genderFrames.newSpanScratch = function()
     return { map = {}, pool = {} }
 end
 
--- `sc` is optional: without it this allocates exactly as it always did, which keeps any future
--- call site correct by default and makes the reuse something a site opts into.
+-- Per pixel row of the box, the {x1, x2} spans the background does not cover; nil means no restriction.
+-- `sc` is optional: without it this allocates per call, so a new call site is correct by default.
 genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
-    -- PROFILING (2026-09-11): the per-peer SETUP half of the painted tier is 47 of its 61ms,
-    -- and this function is the only thing called once per peer that does real work -- it
-    -- resolves occlusion against the background tilemap. Timed at the definition so every
-    -- call site is caught, including the reflection and surf-blob ones. Two os.clock calls
-    -- per CALL, which is a handful per peer, not per run.
-    -- NO CLOSURE HERE, and that is deliberate: an earlier version of this timing built a
-    -- `__done` function on every call, which is an ALLOCATION in the hottest path in the tier --
-    -- the exact GC pressure the caller-owned scratch buffers exist to avoid, added by the
-    -- instrument meant to measure it. Each exit accumulates inline instead.
+    -- Timed here so every call site counts; no closure, which would allocate in the tier's hottest path.
     local __t0
     if MESHGHOST_EMERALD_PROFILE then
         MG_RSPANS_N = (MG_RSPANS_N or 0) + 1
-        -- Broken down by CALLER, because 128 calls for 64 peers with only 64 paint passes means
-        -- one of the two is for something other than the body -- and if it is computed and
-        -- discarded it is free time.
+        -- Per caller, so a call computed and discarded shows apart from the body's.
         MG_RSPANS_BY = MG_RSPANS_BY or {}
         local k = tostring(who)
         MG_RSPANS_BY[k] = (MG_RSPANS_BY[k] or 0) + 1
         __t0 = os.clock()
     end
-    -- THE GRID MUST NOT BOB.
-    --
-    -- The first version derived it from the tier's own anchors (originY, captured from
-    -- playerScreenY). That reads the player's sprite position -- which INCLUDES pos2, and while
-    -- anyone is surfing pos2 is the bob. So the entire tile grid bobbed up and down with the
-    -- player by a few pixels, and the reflection was cut two or three rows early: measured
-    -- 2026-08-19, ink 90..109 with the mask keeping only 90..101, where the engine's own ink ran
-    -- to 103 and was covered by the pond's stone lip from 104.
-    --
-    -- The self-check that was supposed to catch a bad grid could not: it ran the PLAYER's own
-    -- frame position through the same inverse, so both sides carried the same bias and agreed
-    -- perfectly. A consistency check between two things sharing an input proves they share it.
-    --
-    -- So it uses the still copy of the origin captured beside the anchor. Everything else is the
-    -- same inverse as before, with MAP_OFFSET folded in so ty and tx come out in the GRID
-    -- coordinates the attribute lookups take.
+    -- The grid comes from the still origin, never playerScreenY: the player's sprite position carries pos2,
+    -- which is the surf bob. MAP_OFFSET is folded in, so tx and ty are the grid coordinates lookups take.
     local baseX, baseY = genderFrames.gridBase()
     if not baseX then
         if __t0 then MG_RSPANS_T = (MG_RSPANS_T or 0) + (os.clock() - __t0) end
         return nil
     end
 
-    -- **AN UNREADABLE MAP IS NOT A COVERED ONE (2026-09-11).**
-    --
-    -- Everything below reads gBackupMapLayout (0x03005dc0) and gMapHeader (0x02037318) at their
-    -- VANILLA addresses, and an Archipelago-patched ROM relocates both. There every lookup returns
-    -- nil, nil is treated as "covers everywhere" -- a deliberate rule, so an undecodable METATILE
-    -- never becomes a reason to paint over something -- and the result is that every run is clipped
-    -- away. Measured on the AP instance the moment the shipped ladder became drawn-only:
-    -- `passes/frame 1.0 runs/frame 128 spans/frame 0`. 128 runs in, nothing out, no error anywhere.
-    --
-    -- The two cases are different and only one of them should hide anything. An unknown METATILE is
-    -- a gap in knowledge about a map we can read. An unreadable MAP means the instrument is absent,
-    -- and hiding every ghost on the strength of a reading we did not get is the worse failure --
-    -- especially as the tier this replaced (spawned) never consulted the map at all, so AP has
-    -- always drawn its ghosts unclipped. Returning nil here means "no restriction", which is what
-    -- every other caller without occlusion already passes.
+    -- An unknown metatile covers, but a map this build cannot read restricts nothing: covering there would clip
+    -- away every run and hide every ghost.
     if not genderFrames.mapReadable() then
         if __t0 then MG_RSPANS_T = (MG_RSPANS_T or 0) + (os.clock() - __t0) end
         return nil
@@ -4928,8 +2765,7 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
     local tyMin = math.floor((top - baseY) / TILE)
     local tyMax = math.floor((top + height - 1 - baseY) / TILE)
 
-    -- Drop the decoded masks when the map changes -- a new layout means new tilesets, and a
-    -- metatile id means something else entirely under them.
+    -- Drop the decoded masks when the layout changes: a metatile id means something else under new tilesets.
     local layout = genderFrames.mapLayoutPtr()
     if not layout then
         if __t0 then MG_RSPANS_T = (MG_RSPANS_T or 0) + (os.clock() - __t0) end
@@ -4941,9 +2777,8 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
 
     local gxMin = math.floor((left - baseX) / TILE)
     local gxMax = math.floor((left + width - 1 - baseX) / TILE)
-    -- Last call's rows go back to the pool and their keys are CLEARED -- the keys are absolute
-    -- pixel rows and move every call, so a row left behind would be read by a consumer as a real
-    -- answer for a row this call never looked at.
+    -- Last call's rows go back to the pool and their keys are cleared: keys are absolute pixel rows, so a row
+    -- left behind would read as a real answer for a row this call never looked at.
     local spans, pool
     if sc then
         spans, pool = sc.map, sc.pool
@@ -4954,11 +2789,7 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
     else
         spans = {}
     end
-    -- **THE METATILE ROW IS FETCHED ONCE PER TILE ROW, NOT ONCE PER PIXEL ROW (2026-09-11).**
-    -- `gy` only changes every 16 pixel rows, so `metatileAt`/`coverMask` were being asked the
-    -- same question sixteen times over: 96 lookups a call where nine distinct tiles exist.
-    -- Measured before this: this function was 37.6ms of a 62.9ms painter at 64 peers -- 60% of
-    -- the tier and 56% of the whole frame, at 0.29ms a call, twice per peer.
+    -- The metatile row is fetched once per tile row: `gy` only changes every 16 pixel rows.
     local maskGy, maskArr = nil, {}
     for py = math.floor(top), math.floor(top) + height - 1 do
         local gy = math.floor((py - baseY) / TILE)
@@ -4969,8 +2800,7 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
             for gx = gxMin, gxMax do
                 n = n + 1
                 local id = genderFrames.metatileAt(gx, gy)
-                -- `false` rather than nil, so the array stays dense and a gap cannot be read as
-                -- "not fetched yet" by the loop below.
+                -- `false` rather than nil keeps the array dense for the loop below.
                 maskArr[n] = (id and genderFrames.coverMask(id, who)) or false
             end
         end
@@ -4984,25 +2814,13 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
         end
         for gx = gxMin, gxMax do
             local mask = maskArr[gx - gxMin + 1]
-            -- Off the map, or a metatile we could not decode: treat it as covering, so an unknown
-            -- never becomes a reason to paint somewhere.
-            -- mask == true means "this metatile covers everywhere" (see coverMask); a table is
-            -- the per-pixel case; nil or false means we could not read it, and an unknown never
-            -- becomes a reason to paint.
+            -- true covers everywhere, a table is per pixel, and nil or false (off the map, undecoded) covers too:
+            -- an unknown never becomes a reason to paint.
             local rowBits = 0xffff
             if type(mask) == "table" then rowBits = mask[inTile] or 0xffff end
             local tileLeft = baseX + gx * TILE
-            -- **TWO FAST PATHS FOR THE TWO CASES THAT ARE ALMOST ALWAYS TRUE**, and they are
-            -- EXACTLY what the bit loop below does for those inputs, not an approximation of it:
-            --
-            --   all bits SET (0xffff, "covers everywhere"): the loop's first iteration closes any
-            --   open span at tileLeft-1 and every later one is a no-op.
-            --   all bits CLEAR (0, "open everywhere"): the loop's first iteration opens a span at
-            --   tileLeft and every later one is a no-op.
-            --
-            -- A metatile is overwhelmingly one or the other -- a partially covering tile is the
-            -- rare edge (a bank, a ledge, a rooftop lip), and that case still walks all 16 bits.
-            -- This turns ~1,500 bit tests a call into a handful.
+            -- Fast paths for an all-covering and an all-open row, exactly what the bit loop does for them; a
+            -- partly covering tile (a bank, a ledge, a roof lip) still walks all 16 bits.
             if rowBits == 0xffff then
                 if openFrom then
                     nSpans = nSpans + 1
@@ -5021,9 +2839,7 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
                     if (rowBits >> bx) & 1 == 0 then
                         if not openFrom then openFrom = tileLeft + bx end
                     elseif openFrom then
-                        -- Written INTO the existing pair where there is one: this is the
-                        -- allocation that dominates the count, because a row usually has the same
-                        -- number of spans frame after frame.
+                        -- Written into the existing pair: a row usually keeps its span count frame to frame.
                         nSpans = nSpans + 1
                         local pair = list[nSpans]
                         if pair then
@@ -5045,9 +2861,7 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
                 list[nSpans] = { openFrom, baseX + (gxMax + 1) * TILE - 1 }
             end
         end
-        -- **TRIM, because every consumer walks these with `ipairs`** -- a leftover pair from a
-        -- longer previous row would be read as a real span and painted. Trimmed from the end, so
-        -- the array never has a hole in it.
+        -- Trimmed from the end: consumers walk these with ipairs, so a leftover pair would be painted.
         for i = #list, nSpans + 1, -1 do
             list[i] = nil
         end
@@ -5057,40 +2871,14 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
     return spans
 end
 
--- DOES THIS GHOST REFLECT, AND IN WHICH PALETTE -- the engine's own ground test, in one place.
---
--- Extracted 2026-08-21 when it turned out to be needed in three: the painted tier's peer-graphic
--- path (where it was written), the painted tier's CACHED WALKER path (where it never existed at
--- all, which is the whole of *"the drawn ghost don't have its reflection when standing on grass,
--- close to water"* -- a peer on foot with no special graphic takes the walker path, and that path
--- simply had no reflection code), and the hardware tier.
---
--- ASKED WHERE THE TIER DRAWS, not where the peer is. In compare mode the copies are deliberately
--- several tiles apart, so a peer out on a pond has twins standing on the grass beside it, and a
--- gate asked about the PEER happily authorises a reflection on dry land.
---
--- `store` is the caller's OWN previous-tile table, and that is not tidiness: two tiers drawing the
--- same peer in two places cannot share an answer about the ground under it.
---
--- THE PREVIOUS TILE EXPIRES. The engine's lag lasts one movement -- previousCoords is what the
--- ground-effect update compares against while a step plays out, which is what slides a reflection
--- out from under a character leaving the water instead of blinking it off. Held indefinitely, a
--- ghost parked at the shore keeps claiming the water tile it arrived from and paints a reflection
--- across the bank: *"it draws on top of the edge as well, that sits between the grass/water"*.
--- One step is 16 frames of engine-driven movement, and standing still collapses previous back
--- onto current, exactly as it is for a character who has stopped.
+-- The engine's reflection test, asked where the tier draws, with the caller's own previous-tile table. The previous
+-- tile expires after one step (16 frames), or a ghost parked at the shore reflects across the bank.
 genderFrames.reflectPalFor = function(store, playerId, areaId, ggx, ggy, wTiles, hTiles, palSlot)
     local lt = store[playerId]
     if lt and (lt[3] ~= areaId or frameCounter - lt[4] > 16) then lt = nil end
     local yes = genderFrames.hasReflection(ggx, ggy, lt and lt[1], lt and lt[2], wTiles, hTiles)
     local cur = store[playerId]
-    -- Slots 1,2 are the tile stepped FROM; 5,6 the current one, so "did it change" is answered
-    -- without losing the previous.
-    --
-    -- **WRITTEN IN PLACE (2026-09-11).** This built a fresh six-element table every time a peer
-    -- changed tile — constantly, for a moving crowd — where the existing row holds exactly the
-    -- same six slots. The previous current is read out before it is overwritten, so the rotation
-    -- is identical to the rebuild it replaces.
+    -- Slots 1,2 are the tile stepped from and 5,6 the current one, rotated in place.
     if not cur then
         store[playerId] = { ggx, ggy, areaId, frameCounter, ggx, ggy }
     elseif cur[5] ~= ggx or cur[6] ~= ggy then
@@ -5098,15 +2886,12 @@ genderFrames.reflectPalFor = function(store, playerId, areaId, ggx, ggy, wTiles,
         cur[1], cur[2], cur[3], cur[4], cur[5], cur[6] =
             fromX, fromY, areaId, frameCounter, ggx, ggy
     end
-    -- The KIND comes back as a second value: "ice" reflections are still and "water" ones ripple,
-    -- and only the caller knows which of its two draw paths that has to reach.
+    -- The kind is the second value: an ice reflection is still and a water one ripples.
     return yes and genderFrames.reflectionPalette[(palSlot or 0) & 0x0f] or nil, yes or nil
 end
 
 genderFrames.reflectionPalette = {
-    -- Every entry from the game's own table, so a graphic that lives in an NPC slot reflects
-    -- correctly too rather than borrowing the player's colours. The reflection slots map to
-    -- themselves, which is what makes a reflection of a reflection harmless.
+    -- The whole table, so a graphic in an NPC slot reflects in its own colours; reflection slots map to themselves.
     [0] = 1, [1] = 1, [2] = 6, [3] = 7, [4] = 8, [5] = 9,
     [6] = 6, [7] = 7, [8] = 8, [9] = 9, [10] = 11, [11] = 11,
 }
@@ -5121,23 +2906,11 @@ genderFrames.runsForPeerGfx = function(gfx, animNum, animIdx)
     local cmd = r32(animPtr + (animIdx or 0) * 4)
     local imageIndex = cmd & 0xFFFF
     local hFlip = ((cmd >> 22) & 1) == 1
-    -- A loop/jump command rather than a frame: its "imageValue" is a marker, not an index. Frames
-    -- are bounded by the graphic's own image count, so an out-of-range value is the tell.
+    -- An end or jump command is a marker, not a frame: its value is out of range for the graphic's image count.
     local frameCount = info.size > 0 and (info.width * info.height // 2) or 0
     if frameCount == 0 then return nil end
-    -- NOT EVERY COMMAND INDEX IS A FRAME, and giving up on one costs the whole graphic.
-    --
-    -- An animation is a list of commands, and the last of them is a marker -- an end or a jump --
-    -- whose value is not an image index. A peer can legitimately report an index sitting on one:
-    -- the Acro Bike's wheelie hop arrived as animation 21, command 1, while the engine held the
-    -- last frame. Returning nil there sent the whole draw to the cached WALKER, so a peer hopping
-    -- along on a bike flickered onto its feet -- *"the drawn ghost is getting of their bike all
-    -- the time visually while im hopping and moving around on the bike"*, and the fallback was
-    -- silent until a log line was added at it.
-    --
-    -- Walking back to the last real frame is what the engine displays anyway: a marker command
-    -- does not change the picture, it decides what plays next. So the worst case becomes the frame
-    -- the peer is actually showing, instead of a different character.
+    -- A peer can report an index on a marker: walk back to the last real frame, which is what the engine shows,
+    -- rather than give up and fall back to the cached walker.
     if imageIndex * frameCount >= 0x10000000 then
         local found = nil
         for i = 0, (animIdx or 0) - 1 do
@@ -5145,11 +2918,8 @@ genderFrames.runsForPeerGfx = function(gfx, animNum, animIdx)
             if c * frameCount < 0x10000000 then found = c end
         end
         if not found then return nil end
-        -- Logged, not counted: which (animation, index) pair needed walking back, and to what.
-        -- A substitution that fires constantly, or lands on a frame from the wrong stride, looks
-        -- like a peer doing something it never did -- and this path is new enough not to be
-        -- trusted silently. COMPARE_TIERS only, and throttled by the pair so a steady state
-        -- prints once rather than sixty times a second.
+        -- Logged once per pair: a substitution firing constantly or on the wrong stride looks like a peer
+        -- doing something it never did.
         if COMPARE_TIERS then
             local k = string.format("%s:%s:%s", tostring(gfx), tostring(animNum), tostring(animIdx))
             if genderFrames.walkedBackKey ~= k then
@@ -5166,17 +2936,12 @@ genderFrames.runsForPeerGfx = function(gfx, animNum, animIdx)
         string.format("g%d:%d", gfx, imageIndex), info.images, info.width, info.height,
         imageIndex, info.paletteSlot)
     if not runs then return nil end
-    -- The image index comes back too: a reflection is this exact frame in another palette, and
-    -- resolving it twice invites the two halves disagreeing about which frame they describe --
-    -- the defect shape this adapter has hit more than any other.
+    -- The image index comes back too: a reflection is this frame in another palette, and resolving it twice
+    -- lets the two halves disagree about which frame they describe.
     return runs, info, hFlip, imageIndex
 end
 
--- Map tile to sprite screen position: camera-relative tile, plus 8 in x and 16 plus the
--- centre-to-corner vector in y. The formula follows the decompilation (GetMapCoordsFromSpritePos,
--- TrySetupObjectEventSprite -- pointers); not measured term by term. Computed, never copied:
--- copying a template's screen position is what drew Crystal's first ghost off the bottom of the
--- screen.
+-- Computed, never copied from a template: a copied screen position drew Crystal's first ghost off the screen.
 local function spriteScreenPos(mapX, mapY, centerToCornerVecY)
     local sb1 = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
     local camX, camY = 0, 0
@@ -5191,16 +2956,8 @@ local function spriteScreenPos(mapX, mapY, centerToCornerVecY)
     return x + 8, y + 16 + c2cY
 end
 
--- Downward, like the sprite scan, and for a second reason beyond staying out of the engine's way:
--- ghosts use LOCALID_PLAYER (see spawnGhost), and GetObjectEventIdByLocalId scans UPWARD from 0
--- returning the first match. Taking high slots keeps the real player -- normally slot 0 -- ahead
--- of every ghost, so anything asking "which object is the player" still gets the player.
--- A ghost's screen position is computed once, at spawn or teleport, and from then on the engine
--- only applies camera DELTAS to it. So the computation has to happen at a moment when the
--- formula is exact, and it is only exact when the camera is at rest: mid-scroll, the sub-tile
--- remainder gets baked into the sprite permanently and the ghost renders a few pixels off its
--- tile forever. Crystal hit the same thing. Waiting a frame costs nothing -- the camera settles
--- constantly -- and it is the difference between a ghost on the grid and a ghost beside it.
+-- A ghost's screen position is computed once, then the engine applies only camera deltas: computed mid-scroll,
+-- the sub-tile remainder stays baked in and the ghost renders off its tile for good.
 local function cameraIsSettled()
     return memory.read_s32_le(GFIELDCAMERA_X_ADDR + (genderFrames.camOffset or 0)) == 0
         and memory.read_s32_le(GFIELDCAMERA_Y_ADDR + (genderFrames.camOffset or 0)) == 0
@@ -5209,19 +2966,8 @@ end
 -- ghosts[playerId] = { objId, sprId, localId, tileStart, tileCount, mapX, mapY }
 local ghosts = {}
 
--- WHAT ANOTHER PEER ALREADY HOLDS. The engine's active bit answers "is this slot in use by the
--- GAME", which is not the same question as "is it in use by US", and the gap between the two is a
--- real bug: standing in a doorway, the engine culls ghost slots constantly (a door is a warp
--- tile), and a culled slot reads inactive for the frames between the cull and the respawn. A
--- second peer searching in that window is handed a slot the first peer's record still names, and
--- from then on BOTH peers write the same object every frame. On screen that is one ghost
--- teleporting between two places several times a second -- reported 2026-08-20 as *"both ghosts
--- in emerald are blinking in/out all the time ... when i stand right infront of a door"*, and
--- visible in the log as one object slot alternating between two peers' positions every 8 frames.
--- Written as two inline loops rather than one shared helper, and that is not a style choice:
--- Lua caps a chunk at 200 locals and this file sits against that ceiling, so a new top-level
--- `local function` here fails the whole script to load ("too many local variables", hit while
--- making this very fix). Locals inside a function are free.
+-- Skips slots our ghosts hold, which read inactive while culled in a doorway. Downward from 15, since
+-- GetObjectEventIdByLocalId scans up from 0 and the real player must stay ahead of every ghost wearing its id.
 local function findFreeObjectSlot()
     local claimed = {}
     for _, g in pairs(ghosts) do claimed[g.objId] = true end
@@ -5231,8 +2977,7 @@ local function findFreeObjectSlot()
     return nil
 end
 
--- Downward: the engine's own CreateSprite takes the lowest free index, so taking a high one keeps
--- the ghost out of the way of whatever the game allocates next.
+-- Downward: the engine's CreateSprite takes the lowest free index.
 local function findFreeSpriteSlot()
     local claimed = {}
     for _, g in pairs(ghosts) do claimed[g.sprId] = true end
@@ -5242,46 +2987,23 @@ local function findFreeSpriteSlot()
     return nil
 end
 
--- LOCALID_PLAYER (255), deliberately, and it is the fix for a real bug found live 2026-08-18:
--- talking to a ghost ran a garbage script and dumped the user into the slot-machine minigame.
--- A ghost wears the player's localId so that an A-press finds no script for it. Why the garbage
--- script ran (a template lookup that misses for a synthesised object) and why the player's id is
--- skipped are the decompilation's reading (GetObjectEventTemplateByLocalIdAndMap,
--- GetInteractedObjectEventScript -- pointers), not measured on the game.
+-- The player's local id, so an A-press on a ghost finds no script; a synthesised object's own id runs garbage.
 local GHOST_LOCAL_ID = 255
 
--- ghosts[playerId] = { objId, sprId, localId, tileStart, tileCount, mapX, mapY }
--- DECLARED ABOVE findFreeObjectSlot, not here: the slot searches have to see what is already
--- claimed, and a local declared after them would be a nil global at their call site -- the exact
--- late-binding trap this file has been bitten by before (see the xmapGhosts note below).
--- Registered for the cross-map rebase, which is defined a thousand lines EARLIER than this local
--- and cannot close over it -- referencing `ghosts` there silently read a nil global and killed
--- every frame on the far side of a seam until the guard's console-only error finally reached a
--- file (pitfalls.md, 2026-08-20).
+-- The cross-map rebase is defined earlier and cannot close over `ghosts`; it reaches it through this field.
 genderFrames.xmapGhosts = ghosts
 
--- Forward declaration: despawnGhost below must ask "is this still ours" before it destroys
--- anything, and the identity check itself reads the save block pointer defined further down.
+-- Forward declarations: the code below uses these before they are defined, and an undeclared name is a nil global.
 local ghostAlive
--- Forward declarations for the surf-blob code, which is defined further down (it needs the sprite
--- and tile helpers above it) but is used by spawnGhost/despawnGhost, which come first. Without
--- these the names resolve to nil GLOBALS at the call site -- the same forward-reference trap that
--- has now bitten three times in this file (despawnAllGhosts, frameCounter, and this).
 local despawnSurfBlob
 local spawnSurfBlob
--- Forward-declared next to the surf blob's own pair, and for the same reason: despawnGhost
--- below has to retire a flying peer's bird and a sailing peer's boat, and it is defined long
--- before flyRide is. A local declared BELOW a function is a nil global inside it.
 local flyRide = {}
 local SURFING_GFX
 
--- Tile ranges we could not free at the time, because we were in a battle and the bitmap was not
--- ours to write. Settled on the way back to the overworld. On genderFrames for the ceiling reason.
+-- Tile ranges a battle kept us from freeing (the bitmap was not ours to write), settled back in the overworld.
 genderFrames.pendingTileFrees = {}
 genderFrames.deferredTileFrees = {} -- swap-time frees, held a few frames; see swapGhostGraphicInPlace
--- Queue a deferred free ONCE per range: the same tiles can be reached by several despawn paths
--- (a ghost's body, its blob, its shadow, a hardware release), and queuing twice means freeing
--- twice, which is the double-free described at the service point.
+-- Queued once per range: several despawn paths reach the same tiles, and queuing twice frees twice.
 function queueTileFree(entry)
     for _, e in ipairs(genderFrames.deferredTileFrees) do
         if e.start == entry.start then return end
@@ -5289,14 +3011,8 @@ function queueTileFree(entry)
     genderFrames.deferredTileFrees[#genderFrames.deferredTileFrees + 1] = entry
 end
 
--- NOBODY ELSE MAY BE DRAWING FROM A RANGE WE ARE ABOUT TO FREE. "The bits are still set" is not
--- ownership: a range released by one tier and re-taken by another (or by the engine, for an NPC
--- arriving at a seam) reads exactly the same in the bitmap. Freeing it then hands the same tiles
--- out twice, and the two owners write their frames over each other -- a ghost with its hat row
--- missing in an NPC's colours, watched 2026-09-02 (tiles 212..227 ours, the NPC at 216). The
--- sprite table is the identity: a live sprite whose tile number falls inside the range says the
--- range is in use by someone, and a free that would leak is better than one that corrupts.
--- Scans 64 entries; only ever runs at a free, never per frame per peer.
+-- Set bits are not ownership: a range re-taken by another tier or the engine reads the same. A live sprite drawing
+-- from the range says it is in use, and a leak is better than handing the tiles out twice. Runs only at a free.
 genderFrames.rangeDrawnByLiveSprite = function(start, count, exceptSprId)
     for i = 0, MAX_SPRITES - 1 do
         if i ~= exceptSprId then
@@ -5311,68 +3027,21 @@ genderFrames.rangeDrawnByLiveSprite = function(start, count, exceptSprId)
 end
 
 local function freeGhostTiles(g)
-    -- NEVER FREE ACROSS A STATE LOAD. The load rewinds the engine's allocation bitmap to the
-    -- save-time session's state, so the ranges our records name no longer correspond to bits we
-    -- own -- clearing them un-allocates whatever THAT session had there, and the next allocation
-    -- lands on live tiles. This is precisely the forget-don't-free rule detectStateLoad preaches,
-    -- and its own despawn sweep violated it through this helper: found 2026-08-21 as *"we also
-    -- regressed the OAM ghost, as it glitch/goes away when using a save state now"*.
+    -- Never free across a state load: it rewinds the bitmap, so our ranges no longer name bits we own.
     if genderFrames.stateLoadPurge then return end
     if g.tileStart then
         for t = g.tileStart, g.tileStart + g.tileCount - 1 do setTileAllocated(t, false) end
     end
 end
 
--- Deliberately NOT an imitation of RemoveObjectEventInternal, which calls DestroySprite and frees
--- tiles via the sprite's own images->size. We free exactly the range we allocated: simpler, and it
--- cannot free somebody else's VRAM.
--- IDENTITY FIRST, always. This code assumes a map load clears the sprites, tiles and non-player
--- objects and hands the same slots and tiles to the NEW map's NPCs -- the decompilation's reading
--- (ResetSpriteData, RemoveAllObjectEventsExceptPlayer -- pointers), not measured slot by slot. So
--- destroying "our" ghost without checking it is still ours would deactivate a real NPC and free
--- the tiles of somebody else's sprite. Both are silent: the NPC just vanishes, and the VRAM
--- corruption shows up later somewhere unrelated.
---
--- This is why the re-spawn on map change is NOT a bandage. The engine genuinely destroys every
--- object it owns on a map load, a ghost is not one of its objects, and nothing exists to recreate
--- it -- so re-spawning is the correct response to a documented engine lifecycle, not a patch over
--- a bug of ours. What WOULD have been a bandage is what this replaces: cleaning up a slot we no
--- longer own and hoping the numbers still meant what they meant.
--- forgetPeerRenderState drops the per-peer rows this adapter's own rendering
--- built for a ghost, so they go out the same door the ghost does.
---
--- CALLED FROM THE despawn_remote HANDLER, which is tier-independent and always
--- runs -- not only from despawnGhost, which returns unless the peer holds an
--- engine object slot and therefore never fired on the shipped drawn-only
--- ladder. Both call it; the handler is the one that matters.
---
--- THE RULE IS ALREADY WRITTEN DOWN A FEW LINES BELOW -- "every door out of a
--- state has to remove what the state spawned" -- and these two rows were the
--- ones not following it. reflectPalFor and rippleDue keep a six-slot row per
--- player_id in tiering.lastTile (the drawn path) and tiering.hwLastTile (the
--- hardware one), and nothing ever removed either.
---
--- What that costs is small and worth being exact about, because the 2026-09-12
--- review filed it as a leak and the interesting part is that it mostly is not:
--- the rows are six numbers, and reflectPalFor already IGNORES a stale one (it
--- drops any row whose area differs or whose frame is more than 16 old), so a
--- returning peer never reads a wrong reflection out of it. What is left is the
--- table growing by one row per distinct player_id the session ever renders and
--- never shrinking -- bounded per relay connection by the roster, unbounded
--- across reconnects. Cheap to hold and cheaper to drop.
+-- Drops the per-peer rows the rendering built for a ghost, so they leave with it. Called from the despawn_remote
+-- handler, which always runs: despawnGhost returns early unless the peer holds an engine object slot.
 forgetPeerRenderState = function(playerId)
-    -- `tiering` is forward-declared above and assigned further down the file, so
-    -- it is nil until load finishes. Nothing can despawn a ghost that early, but
-    -- indexing nil in Lua is a hard error that would take the whole adapter down
-    -- rather than misbehave quietly, which is not a bet worth taking to save a
-    -- comparison on a path that runs once per despawn.
+    -- `tiering` is assigned further down, so it is nil until load finishes, and indexing nil is a hard error.
     if not tiering then return end
     if tiering.lastTile then tiering.lastTile[playerId] = nil end
     if tiering.hwLastTile then tiering.hwLastTile[playerId] = nil end
-    -- Their five siblings, all keyed by player id on the drawn tier that ships, and all
-    -- pruned only when that same peer is drawn again -- which a departed id never is, so each
-    -- reconnect by a peer left a row in every one for the rest of the session (pass 5 of the
-    -- adversarial review, 2026-09-16, P2c-2).
+    -- Pruned otherwise only when the same peer is drawn again, which a departed id never is.
     if tiering.grassTiles then tiering.grassTiles[playerId] = nil end
     if tiering.landed then tiering.landed[playerId] = nil end
     if tiering.ripples then tiering.ripples[playerId] = nil end
@@ -5380,34 +3049,16 @@ forgetPeerRenderState = function(playerId)
     if genderFrames.wRefl then genderFrames.wRefl[playerId] = nil end
 end
 
+-- Identity first: a map load hands our slots and tiles to the new map's NPCs. Frees exactly the range we
+-- allocated, never by the sprite's own size, so it cannot free another sprite's VRAM.
 local function despawnGhost(playerId)
     local g = ghosts[playerId]
     if not g then return end
-    -- NEVER WRITE INTO THE ARRAYS OUTSIDE THE OVERWORLD, not even to clean up after ourselves.
-    --
-    -- `ghostAlive` asks the OBJECT array, which a battle leaves alone -- but the SPRITE array it
-    -- reuses, so the slot this would blank is whatever the battle put there. Found live
-    -- 2026-08-19: the adapter was reloaded during a wild battle and the user's next words were
-    -- "reloading the script mid fight made it look weird, removed the hp bar of the wild pokemon".
-    -- That is our despawn write landing on a battle sprite.
-    --
-    -- **This is a SHIPPED bug, not a dev-loader one.** `resetBridge()` despawns every ghost when
-    -- the bridge drops, and a bridge drop during a battle -- a core restart, a network blip -- is
-    -- ordinary. Dropping the bookkeeping and touching nothing is correct anyway: the engine
-    -- reclaims both the slot and the tiles when it tears the map down, which is exactly what the
-    -- "not ours any more" case below has always relied on.
+    -- Never write the arrays outside the overworld: a battle reuses the sprite array, and a bridge drop
+    -- mid-battle is ordinary. The engine reclaims the slot and tiles when it tears the map down.
     if not inOverworld() then
-        -- The tile range is REMEMBERED, not forgotten. Dropping it silently leaks those bits in
-        -- the engine's own allocation bitmap: nothing frees them, the engine's later allocations
-        -- have less VRAM to work with, and when it finally runs short its own NPCs render from
-        -- whatever tiles it can get. That is what the user saw after a long session of reloads --
-        -- *"a garbled 3rd ghost... has collision, and i can talk to it"*, which is not a ghost at
-        -- all but a real NPC drawn with the wrong tiles.
-        --
-        -- It cannot be freed here: outside the overworld those tiles belong to the battle, and
-        -- writing the bitmap is exactly the corruption the guard exists to prevent. So it is
-        -- queued, and settled on the way back in, where the identity test can say whether the
-        -- range is still ours to free or whether the engine has already reset the bitmap itself.
+        -- Queued, not forgotten: a leaked range starves the engine's own NPCs of tiles. Settled back in the
+        -- overworld, where the identity test can say whether the range is still ours.
         local q = genderFrames.pendingTileFrees
         q[#q + 1] = { objId = g.objId, tileStart = g.tileStart, tileCount = g.tileCount }
         ghosts[playerId] = nil
@@ -5417,10 +3068,7 @@ local function despawnGhost(playerId)
     if ghostAlive(g) then
         despawnSurfBlob(g)
         despawnGhostShadow(g)
-        -- The other two sprites a ghost can own. Both outlive it if they are not retired here: a
-        -- bird keeps flying a passenger that no longer exists, and a boat keeps sailing on the
-        -- last screen position it was given. Same rule as the blob -- every door out of a state
-        -- has to remove what the state spawned.
+        -- A bird or a boat outlives its ghost unless retired here.
         flyRide.despawnBird(g)
         flyRide.despawnVehicle(g)
         w8(objAddr(g.objId) + 0x00, 0)
@@ -5428,8 +3076,7 @@ local function despawnGhost(playerId)
         w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04) -- inUse = 0, invisible = 1
         freeGhostTiles(g)
     end
-    -- Not ours any more: drop the bookkeeping and touch nothing. The engine already reclaimed
-    -- both the slot and the tiles when it tore the map down.
+    -- Not ours any more: touch nothing, the engine reclaimed the slot and tiles at map teardown.
     ghosts[playerId] = nil
     forgetPeerRenderState(playerId)
 end
@@ -5438,23 +3085,8 @@ despawnAllGhosts = function()
     for playerId in pairs(ghosts) do despawnGhost(playerId) end
 end
 
--- Liveness by IDENTITY, never by slot state: a map load clears the array and the next map's own
--- NPCs take the same slots, which answers "is this slot active?" perfectly plausibly. Confirmed
--- live 2026-08-18 -- slot 4 came back as a real NPC of the new map.
--- Identity WITHOUT the map, and that omission is the whole point.
---
--- Route-to-route in Emerald is a CONNECTION, not a warp: crossing the boundary changes mapNum
--- while the object array is left intact. An identity check that included "map matches" therefore
--- declared a perfectly live ghost dead at every route boundary -- so the adapter dropped its
--- record and spawned a NEW ghost, while the old object stayed active with nobody tracking it.
--- Walking back and forth left a line of them, and since ghosts are solid, enough orphans would
--- eventually wall off the route. Found live 2026-08-18, from a screenshot of five.
---
--- What identifies a ghost instead: it is active, it is NOT the player, and its localId is
--- LOCALID_PLAYER. Only our ghosts are in that state -- a real NPC always has localId < 255
--- (map templates number from 1), and the player has isPlayer set. That survives a connection
--- crossing (nothing changes) and correctly reports death after a warp, where the engine clears
--- the array and any NPC given the slot arrives with a template localId.
+-- Liveness by identity, never slot state or map: a warp gives our slots to NPCs, and a route connection changes
+-- mapNum with the array intact. Only a ghost is active, not the player, and wears LOCALID_PLAYER.
 ghostAlive = function(g)
     local a = objAddr(g.objId)
     if (r8(a + 0x00) & 0x01) ~= 1 then return false end          -- not active
@@ -5464,11 +3096,8 @@ ghostAlive = function(g)
     return (r8(sprAddr(g.sprId) + 0x3e) & 0x01) == 1             -- and that sprite still exists
 end
 
--- Orphan sweep. Anything wearing our marker that we are not tracking is a ghost from a previous
--- script load or a bug -- ours are the only objects that can be active, not the player, and
--- localId LOCALID_PLAYER. Clearing them is what stops solid leftovers accumulating into a wall.
--- Their VRAM tiles are not freed here because their ranges are unknown; the engine's own
--- FreeSpriteTileRanges on the next map load reclaims those.
+-- Anything wearing our marker that we are not tracking is left from an earlier load or a bug. Its tiles stay:
+-- their range is unknown, and the next map load reclaims them.
 local function sweepOrphanGhosts()
     local mine = {}
     for _, g in pairs(ghosts) do mine[g.objId] = true end
@@ -5489,151 +3118,52 @@ local function sweepOrphanGhosts()
     end
 end
 
--- DEV ONLY. Forces every ghost to be drawn as a given graphicsId regardless of what the peer
--- reports, so the ASYMMETRIC case can be tested at all: loopback echoes your own state, so a peer
--- who is on a bike while you walk cannot otherwise be produced without a second machine. Unset in
--- normal use. Same env-var pattern as MESHGHOST_LOOPBACK_TRAIL above.
+-- Dev only: forces every ghost's graphicsId, to test a peer on a bike over loopback; a global, so a reload sets it.
 --   Brendan: 0 normal, 1 Mach Bike, 63 Acro Bike, 2 surfing, 137 fishing
 --   May:    89 normal, 90 Mach Bike, 91 Acro Bike, 92 surfing, 138 fishing
--- Read as a GLOBAL first, then the environment. The global is what makes this usable during a
--- session: the dev loader loads its targets in order, so a one-line script that sets
--- MESHGHOST_FORCE_GHOST_GFX and is listed BEFORE the adapter changes the value on a reload --
--- whereas an environment variable would need the whole emulator restarted.
 local FORCE_GHOST_GFX = tonumber(MESHGHOST_FORCE_GHOST_GFX
     or os.getenv("MESHGHOST_FORCE_GHOST_GFX") or "")
 
--- What a ghost SHOULD be drawn as. Applied at the decision site rather than inside spawnGhost, so
--- that "has the peer changed graphic?" compares like with like -- forcing it inside the spawn
--- meant the forced value never matched what the peer reported, and the ghost was torn down and
--- rebuilt every single frame.
--- OFF BY DEFAULT, and this is a deliberate gate rather than an oversight.
---
--- Switching a ghost to a peer's own graphic renders CORRUPTED for every special state, confirmed
--- on screen 2026-08-18. The cause is structural: normal Brendan/May is 16x32 with one OAM and
--- subsprite table, while both bikes, surfing, underwater and fishing are all **32 wide** with a
--- DIFFERENT OAM and a different subsprite table. This code copies both pointers but also forces
--- `subspriteTableNum = 0`, while the engine manages that field itself -- so the layout it draws
--- with does not match the tiles, and the ghost comes out as scrambled pieces.
---
--- Until that is solved, a peer's graphic is used only when it is the SAME graphic the local
--- player is using -- which changes nothing visually but keeps the wire format and the plumbing
--- live and exercised. Set MESHGHOST_GHOST_PEER_GFX to opt in and continue the investigation.
+-- Opt-in for the engine tiers, off on purpose: a peer's own 32-wide graphic was seen corrupted there, so by default
+-- a spawned ghost wears the local player's graphic.
 local PEER_GFX_ENABLED = MESHGHOST_GHOST_PEER_GFX or os.getenv("MESHGHOST_GHOST_PEER_GFX")
 
--- ONE GATE WAS HOLDING TWO TIERS WITH DIFFERENT CONSTRAINTS (2026-09-13).
---
--- `MESHGHOST_GHOST_PEER_GFX` is off by default for a SPAWNED-tier reason, recorded in FLAGS.md
--- and confirmed on screen 2026-08-18: spawning clones a donor object event, and the 32-wide
--- graphics -- both bikes, surfing, underwater, fishing -- need OAM and subsprite tables this
--- code copies blind while forcing `subspriteTableNum = 0`, a field the engine manages itself.
--- Every special state rendered corrupted.
---
--- NONE OF THAT APPLIES TO THE PAINTED TIER. It clones nothing and asks the engine for nothing:
--- it decodes the graphic's own images and paints pixels, and it already centres a 32-wide frame
--- the way the engine does (which the fishing work paid for). When a decode fails it falls
--- through to the cached walker -- which is exactly what ships today -- so the worst case of
--- letting it through is the behaviour already in place.
---
--- The user, on a bike: *"when i get on a bike, the ghost don't show it"*. The gate was the whole
--- reason -- a peer's graphic was never looked at, so every painted ghost wore a walker whatever
--- the peer was riding. The SPAWNED tier keeps the old gate until its own problem is solved.
--- ON `genderFrames`, NOT A NEW FILE-SCOPE LOCAL. This chunk is at Lua's 200-local ceiling, and one
--- more crossed it: "too many local variables (limit is 200) in main function" is a LOAD failure,
--- so the adapter did not run at all and both screens lost every ghost (2026-09-13). The file says
--- this in four places; it still caught me, because `local X = true` does not look like a cost.
+-- The painted tier's own gate, on by default: it clones nothing, centres a 32-wide frame itself, and falls back to
+-- the cached walker when a decode fails. On genderFrames for the 200-local ceiling.
 genderFrames.peerGfxDrawn = (MESHGHOST_GHOST_PEER_GFX_DRAWN == nil) and true
     or MESHGHOST_GHOST_PEER_GFX_DRAWN
 
+-- What a ghost should be drawn as, decided here rather than inside spawnGhost so a graphic change compares like
+-- with like: forced inside the spawn, it never matched the peer's and the ghost was rebuilt every frame.
 local function wantedGfx(remote)
     if FORCE_GHOST_GFX then return FORCE_GHOST_GFX end
     if PEER_GFX_ENABLED then return remote and remote.gfx or nil end
-    -- A FLY IS THE ONE STATE THE GATE ABOVE CANNOT BE RIGHT ABOUT.
-    --
-    -- Everywhere else, falling back to the local player's graphic is merely incomplete: the ghost
-    -- is drawn as a walker instead of a cyclist, which is wrong but is still a character standing
-    -- where the peer is. A fly is not that. The engine puts the character into the FIELD-MOVE POSE
-    -- and then the SURFING graphic to sit on the bird (the decompilation's reading of
-    -- FlyOutFieldEffect_*, a pointer; not measured) -- so a ghost wearing the local player's walking graphic
-    -- does not merely look plain, it flies away in a pose that does not exist in the game.
-    --
-    -- Safe here for the reason the gate is unsafe in general: spawnGhost and
-    -- swapGhostGraphicInPlace both refuse a graphic whose palette tag differs from the player's,
-    -- and every Brendan/May state -- normal, the poses, both bikes, surfing, fishing -- shares one
-    -- tag. So this can only ever select from the peer's own character, which is exactly the family
-    -- the palette slot the ghost is borrowing already holds.
-    --
-    -- NARROW ON PURPOSE, and not a quiet lifting of the gate. The gate's recorded cause (a forced
-    -- subspriteTableNum, 2026-08-18) was fixed in both spawn paths on 2026-08-21 and the gate has
-    -- not been re-judged since -- which is a question for a live run, not something to decide by
-    -- reading. Until it is, this is one state that provably cannot be served without it.
+    -- A fly is the one state the gate cannot serve: a walker would fly off in a pose the game never shows. Safe,
+    -- since the spawn paths refuse a graphic whose palette tag differs from the player's.
     if remote and remote.fly then return remote.gfx end
     return nil
 end
 
--- TWO TIERS OF GHOST, and which peer gets which.
---
--- The user's rule, 2026-08-19: *"npc's always shown, ghosts try to fill, drawn otherwise"* and
--- *"i don't want things to pop in/out all the time. i want every player/ghost to be visible all
--- the time instead."* The engine holds 16 object events for the whole map while a screen shows
--- ~150 tiles, so "everyone visible" and "everyone spawned" cannot both be true. Hence two tiers:
--- spawn real object events while slots last, and DRAW the overflow with the pixel path this
--- adapter used before the spawn work existed. Design and its costs: agent_docs/ideas.md's
--- "Spawn to the game's cap, then DRAW above it"; the costs are also registered in BANDAGES.md.
---
--- Everything about the tiers lives on this one table rather than in half a dozen locals, because
--- this file's scope sits one or two names below Lua's hard ceiling of 200 locals per function --
--- past it the script does not misbehave, it fails to parse.
---
---   blockedFrame / lastLogFrame -- see spawnGhost's out-of-slots branch.
---   drawn        -- is the drawn overflow tier on (see FLAGS.md; off until occlusion is settled).
---   hysteresis   -- tiles of "stickiness" a spawned ghost keeps when ranked against a peer that
---                   is not spawned. Without it two peers at nearly equal distance swap tiers
---                   every few frames as either one drifts, and the swap is a despawn+respawn.
---   reserve      -- object slots never handed to a ghost, so the engine keeps somewhere to put a
---                   character of its OWN that scrolls into view. The map's cast comes first: that
---                   is the user's rule, and an NPC that fails to load is a bug in the game, not a
---                   missing ghost.
---   castMax      -- per area_id, the most game-owned objects ever seen active there. The count
---                   varies with the camera (measured 2026-08-19: Littleroot read 1, 2 and 3 at
---                   different spots), so budgeting against the CURRENT count would hand out slots
---                   that the engine wants back two steps later. The running maximum is the
---                   honest budget: it only ever gives away slots the map has never needed.
+-- Two tiers, so every peer stays visible: spawn object events while the map's 16 last, and draw the overflow.
+--   hysteresis -- tiles a spawned ghost keeps against an unspawned peer, so a near-equal pair does not swap tiers.
+--   reserve    -- object slots kept for a character of the engine's own scrolling into view.
+--   castMax    -- per area_id, the most game-owned objects ever seen active: the count varies with the camera.
 tiering = {
     slide = { step = 0, legs = 0, paused = 0 },
     blockedFrame = nil,
     lastLogFrame = nil,
-    -- ON BY DEFAULT since 2026-09-02 (user's call: the shipped ladder is spawned -> OAM -> drawn;
-    -- "0" turns it off). It is the LAST rung and the expensive one -- the user's own read is that
-    -- painting "ate fps like crazy" -- so it only ever takes a peer both engine tiers refused,
-    -- which a room at the shipped 8 seats never produces on a map with slots to spare.
     drawn = (MESHGHOST_EMERALD_DRAWN_OVERFLOW or os.getenv("MESHGHOST_EMERALD_DRAWN_OVERFLOW") or "1") ~= "0",
     hysteresis = 3,
     reserve = 1,
     castMax = {},
-    -- MESHGHOST_EMERALD_ANIM_TRACE -- a PROBE, off unless asked for. It writes a per-frame line
-    -- comparing the player's sprite animation state with each ghost's, and the real OAM entry
-    -- both are drawn from. That trace is what finally located the fishing misalignment after two
-    -- guessed fixes failed the same way, and bikes and surfing are the same class of state, so it
-    -- is kept rather than deleted (adapters/_template/probes.md).
-    --
-    -- Deliberately NOT folded into MESHGHOST_COMPARE_TIERS, though it was written there: compare
-    -- mode is the intended dev default for judging the drawn tier, and leaving per-frame file I/O
-    -- inside it would tax every future comparison with the cost of a diagnostic nobody asked for
-    -- -- the exact trap CLAUDE.md records. A field, not a top-level local: this chunk is at Lua's
-    -- 200-local ceiling.
+    -- A probe, off unless asked: per-frame lines comparing the player's sprite animation with each ghost's and
+    -- the OAM entries both draw from. Kept out of compare mode, which would otherwise pay its file I/O.
     animTrace = (MESHGHOST_EMERALD_ANIM_TRACE
         or os.getenv("MESHGHOST_EMERALD_ANIM_TRACE")) and true or false,
     animTraceBuf = nil,
 
-    -- THE SEAM TRACE (probe, off by default -- MESHGHOST_EMERALD_SEAM_TRACE). A WINDOW around
-    -- every seam event, never a single frame: 60 frames of ring buffer before it and 150 after,
-    -- because both symptoms it exists for are about what happens either side of the crossing.
-    --
-    -- Armed by the ENV at launch or by the GLOBAL at any time (dev-scripts/seam-trace-on.lua
-    -- through the dev loader) -- the global is read every frame rather than latched at load, so
-    -- arming it needs no relaunch. Setting the global false turns it off again, which has to be
-    -- possible explicitly: a global outlives the script that set it, exactly like
-    -- MESHGHOST_EMERALD_TEST_PEER's "off".
+    -- A probe, off by default: 60 frames of ring before each seam event and 150 after. The global is read every
+    -- frame, so it arms without a relaunch, and false disarms it (a global outlives the script that set it).
     seamTrace = (MESHGHOST_EMERALD_SEAM_TRACE
         or os.getenv("MESHGHOST_EMERALD_SEAM_TRACE")) and true or false,
     seamRing = nil,
@@ -5642,49 +3172,18 @@ tiering = {
     seamLastSrc = nil,
 }
 
--- WHERE THE GAME'S OWN UI IS, so the drawn tier can stay out of it.
---
--- A spawned ghost is hidden behind a text box by the engine, for free. A drawn one is painted
--- after the PPU has finished and would sit on top of the text the player is reading, which is why
--- the drawn tier shipped off until this existed.
---
--- THE SOURCE IS THE GAME'S OWN TILEMAP, not the LCD. The hardware route was tried first and is a
--- dead end: the GBA's window registers (WIN0H/WIN0V plus DISPCNT's enable bits) change every frame
--- during ordinary walking, so they describe the display rather than the panel
--- (probes/uiregion_probe.lua keeps that negative result; the same trap caught the Game Boy's
--- window layer on Crystal). Asking what the game DREW works, and was measured on 2026-08-19 with
--- probes/textbox_probe.lua:
---   * nothing open   -- BG0 is entirely EMPTY; the map lives on BG2/BG3.
---   * a text box     -- BG0 rows 14-19, every column: the bottom six rows, full width.
---                       (Talked to the NPC in the Littleroot house; corroborated on screen.)
---   * the START menu -- BG0 rows 0-13, right-hand columns only: the panel, and nothing else.
--- So BG0 is the UI layer and it is quiet until the game puts a panel on it. That is the whole
--- detector, and it is style- and revision-independent in the way tile IDs would not be: it asks
--- WHERE something was drawn, never WHICH tiles were drawn.
---
--- The tilemap's address comes from the background's own control register (BG0CNT, screen base
--- block in bits 8-12, 2KB units from VRAM), so no game symbol or decomp address is involved and
--- nothing here can go stale against a ROM revision.
--- Same reason as surfBlob above: two hardware addresses, one local.
+-- Where the game's UI is, so the drawn tier stays off the text: BG0's tilemap, empty until the game draws a panel
+-- (the window registers change every frame while walking), found through BG0CNT whatever the ROM.
 local gbaReg = {}
 gbaReg.bg0cnt = 0x04000008
 gbaReg.vram = 0x06000000
 
--- Rebuilt every SCAN_EVERY_FRAMES frames and reused in between: a panel opening one frame late is
--- invisible, and scanning 20x30 cells every frame would be the expensive shape this project keeps
--- warning about. Rows are stored as {x1, x2} in SCREEN PIXELS -- per row, because the menu covers
--- different columns than the text box and a single rectangle would clip the wrong screen area.
+-- Rescanned every SCAN_EVERY_FRAMES frames: a panel one frame late is invisible. Rows are {x1, x2} in screen
+-- pixels, per row, since the START menu and a text box cover different columns.
 tiering.panelRows = {}
 tiering.panelScannedAt = nil
--- THE BANNER'S WINDOW IS RE-READ EVERY FRAME, the tilemap scan is not.
---
--- The scan is throttled to every fourth frame and needs two agreeing samples before it changes,
--- which is right for a flickery tilemap heuristic and wrong for a hardware rectangle the game
--- animates per frame. Applying the window inside the scan meant the banner's SHRINK reached our
--- clip up to eight frames late: measured, the banner cleared the ghost's row at f=265 while the
--- painted body stayed hidden through f=268, with the jump onto the blob at f=273 -- which is the
--- user's *"gets cut off slightly before it jumps onto the blob"*. So the scan caches raw rows and
--- the window intersection is applied to a copy on EVERY call.
+-- The banner's window is applied to a copy of the cached rows on every call: the game animates it per frame, and
+-- the throttled, debounced scan would trail its edges by frames.
 tiering.applyShowMonWindow = function(rows)
     local showMon = nil
     for t = 0, 15 do
@@ -5694,27 +3193,10 @@ tiering.applyShowMonWindow = function(rows)
             if fn == 0x080b8555 or fn == 0x080b88b5 then showMon = ta break end
         end
     end
-    -- THE FRAME THE BANNER ENDS, THE CACHE IS A LIE. The tilemap scan is throttled to every
-    -- fourth frame, and the banner's rows stay written in the tilemap until the game restores the
-    -- background -- so for up to four frames after the effect's task is gone, the cached rows
-    -- still claim full-width coverage while the window that used to trim them no longer exists.
-    -- Everything painted in those rows is clipped to nothing: measured as a single isolated
-    -- invisible frame three frames after the banner, which is the user's *"vanishes just
-    -- slightly, barely noticable"* right before the ghost jumps onto the blob. Dropping the
-    -- cache's timestamp forces a fresh scan on the very next call.
     if not showMon then
         if tiering.showMonWasLive then
-            -- DROP the cached rows, do not merely schedule a rescan: invalidating the timestamp
-            -- still returns the stale rows for THIS frame, which is the one-to-two frame blank
-            -- the user sees. The banner's rows are stale by definition the moment its task is
-            -- gone -- it is the only thing that wrote them -- so the honest answer for this frame
-            -- is "no panel", and a real one (a text box) is picked up by the next scan.
-            -- AND KEEP IGNORING THE TILEMAP FOR A FEW FRAMES. The banner's rows stay WRITTEN
-            -- after its task is gone -- the game clears them in its own restore step -- so
-            -- trusting the tilemap again immediately re-clips everything, which is why the blank
-            -- survived as a single frame per cycle after the first attempt at this. Eight frames
-            -- covers the restore twice over. Nothing else can legitimately draw a panel in that
-            -- window: a text box needs a script, and the surf sequence runs none.
+            -- The banner's task is gone but its rows stay in the tilemap until the game's restore step: drop the
+            -- cached rows now (a rescan would still return them this frame) and ignore the tilemap for 8 frames.
             tiering.showMonWasLive = nil
             tiering.panelScannedAt = nil
             tiering.panelRows, tiering.panelPrev = {}, {}
@@ -5728,13 +3210,8 @@ tiering.applyShowMonWindow = function(rows)
         return rows
     end
     tiering.showMonWasLive = true
-    -- THE RESTORE STEPS ARE NOT COVERAGE. The effect's last steps put the banner away, and on
-    -- its final frame the task RESETS its stored window to the full screen (measured: state 6,
-    -- v=0..160) -- a reset, not a claim. Clipping to that blanked the painted ghost for exactly
-    -- one frame, three frames before it jumps onto the blob, which is the user's *"vanishes just
-    -- slightly, barely noticable"*. From RestoreBg onward there is no banner to hide behind, so
-    -- there is no panel: this code reads the task's state from data[0] and treats 5 and up as
-    -- restore/end (state 6 measured above; 5 as RestoreBg is the decompilation's naming, a pointer).
+    -- From the restore steps on (task state 5 and up) there is no banner: the last frame resets the stored
+    -- window to the full screen, which is not coverage.
     if r16(showMon + 0x08) >= 5 then
         tiering.showMonWasLive = nil
         tiering.panelScannedAt = nil
@@ -5767,8 +3244,7 @@ tiering.scanPanel = function()
     tiering.panelScannedAt = frameCounter
 
     local rows = {}
-    -- Dev override: pretend the game drew a full-width panel from this row down, so the clipping
-    -- path can be exercised without a real panel (FLAGS.md).
+    -- Dev override: a full-width panel from this row down, to exercise the clipping without a real one.
     local fake = tonumber(MESHGHOST_EMERALD_FAKE_PANEL_ROW
         or os.getenv("MESHGHOST_EMERALD_FAKE_PANEL_ROW") or "")
     if fake then
@@ -5786,30 +3262,17 @@ tiering.scanPanel = function()
                 last = col
             end
         end
-        -- A row is stored only if the game drew something in it, so the common case (no panel at
-        -- all) leaves an empty table and costs the draw path one nil lookup per run.
+        -- Only drawn rows are stored, so no panel costs the draw path one nil lookup per run.
         if first then rows[row] = { first * 8, last * 8 + 7 } end
     end
-    -- ONLY ROWS PRESENT IN TWO CONSECUTIVE SCANS CLIP. Riding at speed, this scan flickered
-    -- between "nothing" and "panel rows 0-4" every few samples -- the map-name banner's tilemap
-    -- redraws seen mid-flight -- and those five rows are exactly the band a trailing ghost's hat
-    -- occupies when the player rides DOWN (trailing UP-screen), which is why the drawn ghost's
-    -- hat vanished only in that direction while every pixel-level instrument measured the paint
-    -- complete: the clip ate it after emission, 248 runs counted. A REAL panel -- the text box,
-    -- the START menu, the banner while actually displayed -- is rock-stable across scans, so
-    -- requiring two in a row suppresses only the flicker, at the cost of one scan interval
-    -- (4 frames) of clip latency when a real panel opens.
+    -- Only rows present in two consecutive scans clip: the map-name banner's mid-ride redraws flicker, a real
+    -- panel is stable.
     local out = {}
     for row, span in pairs(rows) do
         if tiering.panelPrev and tiering.panelPrev[row] then out[row] = span end
     end
-    -- ROWS 0-4 ON THE LEFT NEED A STREAK, not a time window. The only thing the game puts there
-    -- is the map-name banner. A REAL banner is rock-stable in the tilemap for ~2 seconds; the
-    -- mid-ride redraw flicker that was eating a trailing ghost's hat alternates within a few
-    -- scans and never holds five in a row. A first attempt gated these rows to a window after a
-    -- map change instead -- wrong, because riding away from a fresh crossing is exactly when the
-    -- user tests, so the window re-admitted the flicker for their whole ride. The START menu also
-    -- reaches these rows but on the RIGHT half; spans starting past midscreen are untouched.
+    -- Rows 0-4 on the left half, the banner's home, need five scans in a row: its flicker never holds that long.
+    -- The START menu's spans there start past midscreen.
     tiering.bannerStreak = tiering.bannerStreak or {}
     for row = 0, 4 do
         local leftSpan = rows[row] and rows[row][1] < 120
@@ -5823,8 +3286,6 @@ tiering.scanPanel = function()
     return tiering.applyShowMonWindow(out)
 end
 
--- Say which renderer this session is running, once, at load. "Is the drawn tier on?" was
--- guessed at twice during its own bring-up because nothing on screen or in the log answered it.
 console.log("MeshGhost: drawn overflow tier = " .. (tiering.drawn and "ON" or "off"))
 if COMPARE_TIERS then
     console.log("MeshGhost: PROBE FLAG IN USE -- MESHGHOST_COMPARE_TIERS: the loopback ghost is "
@@ -5840,9 +3301,7 @@ if tiering.seamTrace then
         .. "around every seam crossing to probes/seamtrace.log. Dev only.")
 end
 
--- How many object slots ghosts may hold on this map right now. Counted from the array itself
--- rather than from any table of ours: "active, and not carrying our localId" is the same test the
--- orphan sweep trusts, and it cannot drift from reality the way a bookkeeping count can.
+-- Object slots ghosts may hold on this map now, counted from the array rather than our bookkeeping.
 tiering.budget = function(localAreaId)
     local cast = 0
     for i = 0, 15 do
@@ -5856,63 +3315,29 @@ tiering.budget = function(localAreaId)
     end
     local budget = 16 - seen - tiering.reserve
     if budget < 0 then budget = 0 end
-    -- Dev override (FLAGS.md): cap how many peers may hold an object slot, so the DRAWN tier can
-    -- be exercised without a crowd. Proving the panel clipping needs a drawn ghost and a text box
-    -- in the same frame, and reaching the real cap means ~14 synthetic peers, which means a
-    -- second relay and a load generator -- for a question one peer can answer. Set it to 0 and the
-    -- loopback ghost itself becomes the drawn tier's problem. Deliberately re-read every call so
-    -- it can be flipped mid-session by a one-line loader script.
+    -- Dev override: raises the cap on peers holding an object slot. Re-read every call, so a loader script flips it.
     local cap = tonumber(MESHGHOST_EMERALD_MAX_SPAWNED
         or os.getenv("MESHGHOST_EMERALD_MAX_SPAWNED") or "")
-    -- **DRAWN-ONLY IS THE SHIPPED LADDER SINCE 2026-09-11 (the user's call), so the default cap is
-    -- ZERO and no peer takes an engine object slot.** The flag above still raises it, which is what
-    -- makes the spawned tier a dev tool rather than dead code.
-    --
-    -- WHY, and it is not only cost. The painted tier draws a peer's OWN graphic, read from the
-    -- cartridge; the spawned one has to borrow the palette slot already loaded for the player, so a
-    -- peer of the other gender came out as a copy of you — confirmed on screen the same day,
-    -- *"both male on vanilla, both female on ap"*. Every engine tier shares that limit, and no
-    -- amount of tiering fixes it. The painted tier never had it.
-    --
-    -- The cost objection is answered: this tier went from 67ms to 21ms of Lua a frame at 64 painted
-    -- peers that day (32 painted hold a flat 60fps, 64 run at 39.9), which is what made the choice
-    -- available at all. The user's reasoning: *"drawn with good performance allows us to do more
-    -- custom things/bypass hardware limitations"* — the engine tiers are bounded by object slots,
-    -- OAM entries and OBJ tiles; painting is bounded only by the host.
+    -- Zero by default, since only the painted tier ships: it draws a peer's own graphic, where every engine tier
+    -- borrows the palette slot loaded for the player, so a peer of the other gender came out as a copy of you.
     if not cap then cap = 0 end
     if cap < budget then budget = cap end
     return budget
 end
 
--- NEAREST WINS, not first to arrive. Join order is the worst possible answer -- it makes the
--- quality of a peer's ghost permanent and arbitrary -- while distance puts the engine's real
--- objects where the player is actually looking closely, and leaves the approximations out at the
--- edge of the screen where the difference is hardest to see. Returns the set of player_ids that
--- should hold an object slot this frame; everyone else in the area is the drawn tier's problem.
+-- Nearest wins, not join order: the engine's objects go where the player looks closely. Returns the player_ids
+-- that hold an object slot this frame; the rest are the drawn tier's.
 tiering.chooseSpawned = function(localAreaId, playerX, playerY)
-    -- QUIET AFTER A STATE LOAD: the wire is stale by definition. The core keeps echoing the last
-    -- local_state it received -- the PRE-load world -- until our first post-load send round-trips
-    -- (2-4 frames), and acting on that echo re-created the pre-load ghost in full on the load
-    -- tick itself: measured 2026-08-21, "surf blob for gfx 2" logged on the very frame of a
-    -- water-to-grass load, then a swap back to a walker two frames later. That churn of
-    -- alloc/free/swap against a just-rewound world is where this adapter's transition bugs live,
-    -- and it is what the user kept catching as *"the OAM glitch if going from surfing and using a
-    -- savestate back to land"*. Twelve frames of empty tiers is a fifth of a second, behind the
-    -- load's own screen blink; the painted tier stays live, so nothing pops.
+    -- Quiet after a state load: the core echoes the pre-load world until our first send round-trips, and the
+    -- painted tier stays live.
     if genderFrames.loadQuietUntil and frameCounter < genderFrames.loadQuietUntil then
         return {}
     end
     local budget = tiering.budget(localAreaId)
     local ranked = {}
     for playerId, remote in pairs(remotes) do
-        -- A translated cross-map peer may stand up to 10 tiles past the edge (its existence
-        -- margin), but a real OBJECT cannot: past the engine's 7-tile border its grid coordinate
-        -- goes negative and a u16 write wraps it across the map. Outside the border it simply
-        -- takes no slot -- it exists, and promotes to spawned at the border, before the screen.
-        -- FAIL OPEN: until the self-location scan has produced real map dimensions, ourW/ourH are
-        -- 0 and this gate would refuse EVERY spawn -- measured live as ghosts=0 with a same-map
-        -- peer standing on the player. Cross-map peers cannot exist before the scan finishes
-        -- (translation needs the same table), so the ungated case is exactly the old behaviour.
+        -- A cross-map peer may stand 10 tiles past the edge, but an object past the engine's 7-tile border goes
+        -- negative and a u16 write wraps it. Fails open while the self-location scan has no dimensions (0).
         local xmW, xmH = genderFrames.xmap.ourW, genderFrames.xmap.ourH
         if remote.areaId == localAreaId
             and (xmW == 0 or (remote.x >= -7 and remote.y >= -7
@@ -5920,16 +3345,13 @@ tiering.chooseSpawned = function(localAreaId, playerX, playerY)
         then
             local dx, dy = remote.x - playerX, remote.y - playerY
             local d = math.sqrt(dx * dx + dy * dy)
-            -- The hysteresis band, applied as a discount to whoever already has a slot: a peer
-            -- must be MORE than this much closer to take one away, so a pair drifting past each
-            -- other cannot trade tiers frame after frame.
+            -- Hysteresis as a discount to whoever holds a slot, so a drifting pair cannot trade tiers each frame.
             if ghosts[playerId] then d = d - tiering.hysteresis end
             ranked[#ranked + 1] = { id = playerId, d = d }
         end
     end
     table.sort(ranked, function(a, b)
-        -- player_id as the tiebreak, so the order is stable rather than pairs()-random when two
-        -- peers stand on the same tile -- an unstable order is a despawn/respawn every frame.
+        -- player_id breaks ties: a pairs()-random order is a despawn and respawn every frame.
         if a.d == b.d then return a.id < b.id end
         return a.d < b.d
     end)
@@ -5943,9 +3365,8 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     local pObj = objAddr(playerObjId)
     local playerSprId = r8(pObj + 0x04)
 
-    -- Before writing a byte: the player's object event and the sprite it names must agree. This is
-    -- what proves gSprites is where we think it is -- the one thing an address shift could break
-    -- silently, and the one that would corrupt a live sprite if wrong.
+    -- The player's object and the sprite it names must agree before a byte is written: it proves gSprites'
+    -- address, which a shifted build would break silently.
     if rs16(sprAddr(playerSprId) + 0x2e) ~= playerObjId then
         console.log("MeshGhost: refusing to spawn -- the player's object/sprite cross-link does "
             .. "not check out, so gSprites is not where this build expects.")
@@ -5956,20 +3377,8 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     local sprId = findFreeSpriteSlot()
     local localId = GHOST_LOCAL_ID
     if not objId or not sprId then
-        -- OUT OF SLOTS, and this is a normal state, not an error: the engine's object array holds
-        -- 16 entries shared with every NPC, so a busy room simply offers more peers than the game
-        -- can hold. Two things are therefore deliberate here.
-        --
-        -- ONE: the message is throttled. It used to print once per unplaceable peer per frame, and
-        -- BizHawk's console.log is a GUI append -- measured 2026-08-19 with synthetic peers, 24
-        -- peers in a 3-NPC town (13 ghosts placed, 11 refused) dropped the emulator from 60fps to
-        -- 3, and 36 peers to 1. That is the adapter making the game unplayable to say "no" loudly,
-        -- which is worse than any missing ghost.
-        --
-        -- TWO: the refusal is recorded, so syncRemoteGhosts can stop asking for the rest of this
-        -- frame. Once one spawn has failed for want of a slot, every other spawn this frame will
-        -- fail the same way -- the array does not grow mid-frame -- and each attempt re-scans both
-        -- arrays before finding that out.
+        -- Out of slots is a normal state: the message is throttled (console.log is a GUI append), and the refusal
+        -- is recorded so syncRemoteGhosts stops asking this frame, since the arrays do not grow mid-frame.
         tiering.blockedFrame = frameCounter
         if not tiering.lastLogFrame or frameCounter - tiering.lastLogFrame >= 300 then
             tiering.lastLogFrame = frameCounter
@@ -5982,41 +3391,25 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     local sb1 = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
     local playerGfx = r8(pObj + 0x05)
     local elevation = r8(pObj + 0x0b) & 0x0f
-    -- DEV ONLY -- MESHGHOST_EMERALD_GHOST_ELEVATION: put the ghost on a different elevation from
-    -- the player, which is how this game already lets a character be walked past rather than
-    -- collided with. Requested for testing (user, 2026-08-19): a ghost two tiles away that blocks
-    -- is a wall in the middle of whatever is being compared. Shipped default is unset, so a ghost
-    -- keeps taking the player's own elevation and behaves exactly as before.
-    --
-    -- **A value, not a boolean, deliberately**: which elevation makes a character non-blocking is
-    -- a fact about the game that this repo has not measured, and guessing one is how a plausible
-    -- number gets written into an adapter. Setting it is the experiment -- try a value, walk into
-    -- the ghost, and the answer is on screen in a second.
+    -- Dev only: puts the ghost on another elevation. A value, not a boolean: which elevation lets a character be
+    -- walked past is not measured, so setting it is the experiment.
     local devElevation = tonumber(MESHGHOST_EMERALD_GHOST_ELEVATION
         or os.getenv("MESHGHOST_EMERALD_GHOST_ELEVATION") or "")
     if devElevation then elevation = devElevation & 0x0f end
     local gx, gy = mapX + MAP_OFFSET, mapY + MAP_OFFSET
     local dir = DIR_ID[orientation] or DIR_ID.south
 
-    -- Use the PEER's graphic when we know it. Every player state -- both bikes, surfing,
-    -- underwater, fishing -- is simply a different graphicsId, so this is what makes a ghost show
-    -- what the peer is actually doing rather than what this machine's player is doing.
+    -- The peer's graphic when we know it: every player state is a different graphicsId.
     local playerInfo = graphicsInfo(playerGfx)
     local graphicsId = wantGfx or playerGfx
     local info = graphicsInfo(graphicsId)
-    -- The palette is the constraint. A ghost borrows the palette slot already loaded for the
-    -- player, so a graphic is only safe to use if it wants the SAME palette tag. Every
-    -- Brendan/May state shares one tag (OBJ_EVENT_PAL_TAG_BRENDAN / _MAY), so all of them work;
-    -- anything else would draw in the player's colours, which is worse than not switching.
+    -- A ghost borrows the player's palette slot, so only a graphic with the same palette tag is safe.
     if not info or not playerInfo or info.paletteTag ~= playerInfo.paletteTag then
         graphicsId = playerGfx
         info = playerInfo
     end
     if not info then
-        -- Was a SILENT return, and it cost most of a session: peers received, area matched, slots
-        -- free, camera settled, and no ghost and no message. A refusal the log never mentions is
-        -- indistinguishable from a peer who is not there. Throttled with the same counter the
-        -- out-of-slots refusal uses, for the same reason -- console.log is a GUI append.
+        -- Logged, throttled: a refusal the log never mentions looks like a peer who is not there.
         if not tiering.lastLogFrame or frameCounter - tiering.lastLogFrame >= 300 then
             tiering.lastLogFrame = frameCounter
             console.log(string.format("MeshGhost: refusing to spawn -- no usable graphics info "
@@ -6030,10 +3423,7 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     local tileCount = info.tileCount
     local tileStart = allocSpriteTiles(tileCount)
     if not tileStart then
-        -- Throttled, and to the FILE: this fired thousands of times a second on 2026-09-02 when
-        -- OBJ VRAM ran dry (the hardware tier's weather stand-down was leaking tiles), and
-        -- console.log is a GUI append on the emulator thread -- the line itself took the game to
-        -- 6fps (adapters/emulator/CLAUDE.md prices ONE console line a second at ~7fps).
+        -- Throttled, and to the file: when OBJ VRAM runs dry this fires every frame, and console.log is a GUI append.
         if (emu.framecount() - (tiering.noTilesAt or -999)) >= 300 then
             tiering.noTilesAt = emu.framecount()
             logFile("MeshGhost: no run of free OBJ tiles for a ghost (repeats suppressed for 5s).")
@@ -6041,8 +3431,7 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
         return nil
     end
 
-    -- The object event: zeroed, then exactly the fields InitObjectEventStateFromTemplate sets,
-    -- with movementType forced to NONE so nothing drives the ghost but us.
+    -- The object event: zeroed, then the fields a template init sets, with movementType NONE so only we drive it.
     local a = objAddr(objId)
     for off = 0, OBJECTEVENT_SIZE - 1 do w8(a + off, 0) end
     w8(a + 0x00, 0x05) -- active | triggerGroundEffectsOnMove
@@ -6059,25 +3448,13 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     w8(a + 0x20, dir)
     w8(a + 0x04, sprId)
 
-    -- The sprite. Start from the player's -- it is a live, engine-shaped object-event sprite, and
-    -- copying gives correct values for fields we would otherwise have to invent (the template
-    -- pointer, flags the engine set). Then replace everything that describes WHAT IS DRAWN with
-    -- the chosen graphic's own entry, so a ghost on a bike is drawn as a bike rather than as
-    -- whatever this machine's player happens to be.
+    -- The sprite starts as a copy of the player's, for the engine-set fields we cannot invent, then takes what is
+    -- drawn from the chosen graphic.
     local src, dst = sprAddr(playerSprId), sprAddr(sprId)
     for off = 0, SPRITE_SIZE - 1 do w8(dst + off, r8(src + off)) end
 
-    -- OAM: take ONLY the shape and size bits from the target graphic, leaving every other field
-    -- as the live sprite already had it.
-    --
-    -- Copying the graphic's whole 8-byte template OAM was tried first and rendered as scrambled
-    -- pieces, confirmed on screen 2026-08-18. That template also carries affine mode, object mode,
-    -- mosaic, priority and a zeroed matrix/x/y, and overwriting the live values with them puts the
-    -- sprite out of step with the engine's own per-frame OAM building. Skipping the copy entirely
-    -- renders cleanly but at the wrong width, because the special-state graphics are 32 wide where
-    -- the normal one is 16. Shape and size are the only fields that describe the new graphic's
-    -- dimensions, so they are the only ones taken.
-    --   attr0 bits 14-15 = shape, attr1 bits 14-15 = size (the GBA's OAM attribute format).
+    -- OAM takes only shape and size (attr0 and attr1 bits 14-15) from the graphic: its whole template puts the
+    -- sprite out of step with the engine's per-frame OAM building.
     local attr2 = r16(dst + 0x04)
     w16(dst + 0x04, (attr2 & 0xfc00) | (tileStart & 0x03ff))
     if info.oam ~= 0 then
@@ -6085,35 +3462,20 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
         w16(dst + 0x02, (r16(dst + 0x02) & 0x3fff) | (r16(info.oam + 0x02) & 0xc000))
     end
 
-    -- The four ROM pointers that say which pixels and which animations. These cannot be
-    -- synthesised, only pointed at -- and pointing at the peer's graphic instead of copying the
-    -- player's is the whole of this feature.
+    -- The ROM pointers to the graphic's pixels and animations.
     w32(dst + 0x08, info.anims)
     w32(dst + 0x0c, info.images)
     w32(dst + 0x10, info.affineAnims)
-    -- Subsprite tables: a graphic with tables gets subsprites on; one without gets subsprites off,
-    -- or it would be drawn through the previous graphic's layout. Modelled on the decompilation's
-    -- SetSubspriteTables (a pointer); the flag's meaning is not separately measured.
+    -- Subsprites on only for a graphic with tables, or it draws through the previous graphic's layout.
     w32(dst + 0x18, info.subspriteTables)
-    -- PRESERVE THE SUBSPRITE TABLE NUMBER -- forcing 0 was one visible frame of scramble.
-    --
-    -- A 32-wide graphic is drawn through a subsprite table, and WHICH table is chosen by the
-    -- ENGINE, per frame, from the object's elevation (sElevationToSubspriteTableNum is the pointer;
-    -- that ordinary ground is table 1 and table 0 is empty is the decompilation's reading, not
-    -- measured). Writing 0 here left the PPU drawing the new 16-tile frame with no
-    -- layout map for exactly one frame, until UpdateObjectEventElevationAndPriority chose the
-    -- real table again -- one frame of scrambled pieces at every graphic change, which is both
-    -- the user's *"grey/flash ish glitched sprite"* at the start of surfing (screenshot
-    -- surf_005_f4183744, near-correct VRAM measured the same frame -- so layout, not pixels)
-    -- and the mechanism behind FLAGS.md's "renders corrupted" note on this path. The elevation
-    -- does not change with a graphic, so the number already on the sprite is the engine's own
-    -- current answer: keep it.
+    -- Keep the subsprite table number: the engine picks it per frame from the elevation, which a graphic change does
+    -- not alter, and forcing 0 drew one frame of scrambled pieces.
     local keepSubNum = r8(dst + 0x42) & 0x3f
     w8(dst + 0x42, 0)
     if info.subspriteTables ~= 0 then
         w8(dst + 0x42, keepSubNum | (1 << 6)) -- engine's table, mode ON
     end
-    -- centerToCornerVec, as TrySetupObjectEventSprite computes it from the graphic's dimensions.
+    -- centerToCornerVec, from the graphic's dimensions.
     w8(dst + 0x28, (-(info.width // 2)) & 0xff)
     w8(dst + 0x29, (-(info.height // 2)) & 0xff)
     local sx, sy = spriteScreenPos(gx, gy, r8(dst + 0x29))
@@ -6129,32 +3491,22 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     ghosts[playerId] = {
         objId = objId, sprId = sprId, localId = localId,
         tileStart = tileStart, tileCount = tileCount, mapX = mapX, mapY = mapY,
-        gfx = graphicsId, -- what this ghost is currently DRAWN as, so a change can be detected
+        gfx = graphicsId, -- what this ghost is drawn as, so a change can be detected
         swapAt = frameCounter, -- a spawn is a swap for the restart cooldown; see animRestart
     }
-    -- A state is its animation AND its extras: a surfing rider without the Pokemon underneath is
-    -- half the state, and the missing half is the one a player notices first.
-    -- NOT MID-MOUNT: this is the third and last blob-spawn site (the rebuild path lands here
-    -- when the in-place swap cannot run), and it spawns at the glide position -- the LAND tile
-    -- during a mount jump, like the other two sites before their gates. The jump block in
-    -- syncGhost owns the mount blob, at the engine-held destination.
+    -- A state is its animation and its extras. Not mid-mount: this site would spawn at the glide position, the land
+    -- tile, and the jump block in syncGhost owns the mount blob at the engine-held destination.
     local rAct = remotes[playerId] and remotes[playerId].act
     local midJump = rAct and rAct >= 0x3a and rAct <= 0x3d
-    -- ...AND NOT WHILE FLYING. The mount pose borrows this graphic; see flyRide.apply's note at
-    -- `g.noBlob` for why a blob there is both wrong and long-lived. Read off the PEER here, not
-    -- off a ghost: this function is building the ghost, so there is no record to carry the flag
-    -- yet -- `g` does not exist in this scope at all, and reaching for it is a nil index that
-    -- would have thrown on the first surfing spawn. The peer's own state is the same answer and
-    -- is already in hand one line above.
+    -- Nor while flying: the mount pose borrows this graphic (see flyRide.apply's `g.noBlob`). Read off the peer,
+    -- since the ghost's record does not exist yet.
     local rFly = remotes[playerId] and remotes[playerId].fly
     if SURFING_GFX[graphicsId] and not midJump and not rFly then
         local blob = spawnSurfBlob(ghosts[playerId], mapX, mapY)
         console.log(string.format("MeshGhost: surf blob for gfx %d -> sprite %s",
             graphicsId, tostring(blob)))
     elseif UNDERWATER_GFX[graphicsId] then
-        -- Underwater has no companion sprite at all -- the bobbing IS the state (see
-        -- spawnUnderwaterBobber). A diver spawned without it hangs perfectly still in the water,
-        -- which is the half a player notices first, exactly as a rider on nothing was for surfing.
+        -- Underwater has no companion sprite: the bobbing is the state (see spawnUnderwaterBobber).
         local bob = spawnUnderwaterBobber(ghosts[playerId])
         console.log(string.format("MeshGhost: underwater bobber for gfx %d -> sprite %s",
             graphicsId, tostring(bob)))
@@ -6162,55 +3514,23 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     return ghosts[playerId]
 end
 
--- ---------------------------------------------------------------------------------------------
--- The surf blob: a state is its animation AND whatever else the game spawns with it
---
--- Giving a ghost the surfing graphic renders a rider sitting on nothing, because the blue Pokemon
--- underneath is a SEPARATE sprite. HOW THE GAME DOES THIS -- the fieldEffectSpriteId link, why
--- UpdateSurfBlobFieldEffect drives a ghost's blob as happily as the player's, the data-slot map
--- and the subpriority -- is written up as game behaviour in documentation.md's surfing section.
--- Read that first; what follows here is only the provenance of the numbers this file needs.
---
--- Built from the field effect's own sprite template rather than copied from a live blob, because
--- no blob exists unless somebody is already surfing.
---   gFieldEffectObjectTemplate_SurfBlob  0850CBC4  (SpriteTemplate: tileTag 0x00, paletteTag
---     0x02, oam 0x04, anims 0x08, images 0x0C, affineAnims 0x10, callback 0x14)
---   UpdateSurfBlobFieldEffect            08155658  (+1 for Thumb)
--- What this code writes into the blob: bob state in data[0] (its low nibble measured changing on
--- the player's own blob at a dismount, see the dismount note), the ghost's object id in data[2],
--- velocity and previous x/y seeded to -1, coordOffsetEnabled, palette 0 and subpriority 150. The
--- slot meanings other than data[0], and the seed values, follow the decompilation's FldEff_SurfBlob
--- (a pointer) and are not measured.
+-- The surf blob: the Pokemon under a surfing rider is a separate sprite, built from the field effect's template
+-- because no blob exists to copy unless somebody is already surfing. The update callback is Thumb, hence +1.
 surfBlob.updateCb = 0x08155658 + 1
 surfBlob.bobMode = 1
 surfBlob.subPriority = 150
 
--- Which graphics ids ride a blob. Surfing only: underwater uses a different mechanism
--- (StartUnderwaterSurfBlobBobbing on the player's own sprite), and is not handled here.
+-- Surfing only: underwater bobs the player's own sprite instead.
 SURFING_GFX = { [2] = true, [92] = true } -- Brendan, May
 
--- IS THIS PEER ACTUALLY SURFING? The graphic alone cannot answer it.
---
--- A fly borrows the surfing graphic as the pose for sitting on the bird
--- (FlyOutFieldEffect_JumpOnBird), so for the length of a flight `SURFING_GFX[remote.gfx]` is true
--- about a character who is nowhere near water. Every consumer of that test means "surfing", and
--- there are five of them across three tiers: the spawned tier's blob, the hardware tier's painted
--- blob, the painted tier's blob, and both tiers' water-ripple trails.
---
--- Gating only the spawned tier's -- which is what the first pass did -- left the other four
--- running: the user, watching a cross-town fly, *"OAM ... when flying to another town it arrives
--- with the surf blob instead of the bird"*. A blob and a ripple trail under a character riding a
--- Pokemon through the sky is the same fault wearing three different renderers.
+-- A fly borrows the surfing graphic to sit on the bird, so the graphic alone cannot say surfing; every blob and
+-- ripple consumer, on every tier, asks this instead.
 function peerIsSurfing(remote)
     return remote and remote.gfx ~= nil and SURFING_GFX[remote.gfx] and not remote.fly
 end
 
--- MESHGHOST_EMERALD_NO_BLOB (probe): spawn ghosts, but give them no blob and no underwater
--- bobber. Exists to bisect a hard failure found 2026-08-21 -- diving with the adapter loaded
--- black-screened the GAME (its show-mon effect waited forever on a Pokemon sprite that had been
--- clobbered), and turning the spawned tier off entirely cleared it. These two are the only engine
--- SPRITES that tier creates, so this switch separates "a spawned ghost" from "the field effects
--- attached to it". Never ship it set: a surfing ghost without its blob is half a state.
+-- MESHGHOST_EMERALD_NO_BLOB, a probe: spawned ghosts get no blob, separating a ghost from its field effects.
+-- Never ship it set.
 spawnSurfBlob = function(g, mapX, mapY)
     if MESHGHOST_EMERALD_NO_BLOB then return nil end   -- surf blob only; see NO_BOBBER
     if COMPARE_TIERS then
@@ -6232,9 +3552,7 @@ spawnSurfBlob = function(g, mapX, mapY)
     local d = sprAddr(sprId)
     for off = 0, SPRITE_SIZE - 1 do w8(d + off, 0) end
     for off = 0, 7 do w8(d + off, r8(oamPtr + off)) end
-    -- tileNum, and the palette resolved from the template's tag rather than the engine's
-    -- hardcoded 0 (FldEff_SurfBlob can hardcode it; it runs when its own slot is loaded, we do
-    -- not). See genderFrames.blobPalette.
+    -- The palette comes from the template's tag: the engine hardcodes 0 because it runs with its slot loaded.
     w16(d + 0x04, (r16(d + 0x04) & 0x0c00) | (tileStart & 0x03ff)
         | ((genderFrames.blobPalette() & 0x0f) << 12))
     w32(d + 0x08, animsPtr)
@@ -6242,33 +3560,21 @@ spawnSurfBlob = function(g, mapX, mapY)
     w32(d + 0x10, affinePtr)
     w32(d + 0x1c, surfBlob.updateCb)
 
-    -- Position. NOT the rider's formula: this subtracts BOTH gTotalCameraPixelOffset and
-    -- gFieldCamera and adds (8,8), after the decompilation's SetSpritePosToOffsetMapCoords (a
-    -- pointer; the formula is not measured term by term), where the rider's
-    -- GetMapCoordsFromSpritePos subtracts only the former -- using the wrong one put the blob a
-    -- tile below the ghost. The camera terms cancel while the camera is at rest, which is the
-    -- only moment a ghost is placed anyway, but they are written out so the two stay
-    -- distinguishable.
+    -- Not the rider's formula: this also subtracts gFieldCamera and adds (8,8). The camera terms cancel at rest.
     local sb1 = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
     local dx = -rs16(GTOTALCAMERAPIXELOFFSETX_ADDR + (genderFrames.camOffset or 0)) - memory.read_s32_le(GFIELDCAMERA_X_ADDR + (genderFrames.camOffset or 0))
     local dy = -rs16(GTOTALCAMERAPIXELOFFSETY_ADDR + (genderFrames.camOffset or 0)) - memory.read_s32_le(GFIELDCAMERA_Y_ADDR + (genderFrames.camOffset or 0))
     local sx = (((mapX + MAP_OFFSET) - rs16(sb1 + 0x00)) << 4) + dx + 8
     local sy = (((mapY + MAP_OFFSET) - rs16(sb1 + 0x02)) << 4) + dy + 8
     w16(d + 0x20, sx) w16(d + 0x22, sy)
-    -- centerToCornerVec, which a sprite gets from CreateSprite and this one was never given.
-    -- The hardware draws an OBJ from its top-left; every sprite the engine makes carries
-    -- -(width/2), -(height/2) so that its POSITION means its centre. Zeroing the struct and never
-    -- filling this in put the blob a full tile down and to the right of the rider it is supposed
-    -- to be under -- the "renders roughly half a tile down-right" that had been recorded as
-    -- unexplained since 2026-08-18. Measured 2026-08-19 with probes/surfblob_probe.lua against
-    -- the PLAYER's own blob, which reads 240,240 -- i.e. -16,-16 for a 32x32 frame, the same
-    -- -(w/2) the rider's own spawn path computes.
+    -- centerToCornerVec, which CreateSprite would set: the hardware draws from the top-left, so without it the blob
+    -- lands down-right of its rider.
     w8(d + 0x28, (-(surfBlob.framePx // 2)) & 0xff)
     w8(d + 0x29, (-(surfBlob.framePx // 2)) & 0xff)
     w8(d + 0x43, surfBlob.subPriority)
     w16(d + 0x2e, 0)                       -- data[0]: bob state, set below
     w8(d + 0x2e, surfBlob.bobMode)
-    w16(d + 0x32, g.objId)                 -- data[2]: the object this blob follows -- the GHOST
+    w16(d + 0x32, g.objId)                 -- data[2]: the object this blob follows, the ghost
     w16(d + 0x34, 0xffff)                  -- data[3]: velocity, seeded -1
     w16(d + 0x3a, 0xffff)                  -- data[6]: previous x, seeded -1
     w16(d + 0x3c, 0xffff)                  -- data[7]: previous y, seeded -1
@@ -6282,63 +3588,17 @@ spawnSurfBlob = function(g, mapX, mapY)
     return sprId
 end
 
--- A REAL SHADOW SPRITE FOR A SPAWNED GHOST, replacing a painted one.
---
--- Two things a gui overlay can never do, both reported on screen 2026-08-20: sit UNDER the
--- character, and sit under the engine's own landing DUST -- *"dust is still hidden behind the
--- shadow for the spawned ghost"*. An overlay is painted after the frame is finished, so it is in
--- front of everything the hardware drew, always.
---
--- The engine's shadow is an ordinary sprite at subpriority 148, and the only reason the adapter
--- could not use it is `UpdateShadowFieldEffect`, which re-finds its object by localId -- and a
--- ghost wears LOCALID_PLAYER, so it would follow the player. That rules out the engine's UPDATE
--- routine, not its sprite: built here and driven from Lua, it is a real hardware sprite with real
--- depth. The same reasoning that made the surf blob work.
---
--- What this code does (modelled on the decompilation's FldEff_Shadow / UpdateShadowFieldEffect --
--- pointers). MEASURED 2026-09-16 (probes/borrowed_values_probe.lua) on the engine's own shadow
--- under a walking ledge hop and an Acro Bike hop: template 0850CA14, subpriority 148, the player's
--- x, 12px below the player's pos1 y with pos2 zero, priority the player's. Every graphic id the
--- decompilation names as the player's (0-3, 63, 89-93, 111-112, 137-138, 191-194 -- of which 0, 2,
--- 63 and 137 were seen on the player that day) carries shadow size 1 in the ROM's graphics table,
--- so the other templates are never chosen for a peer:
---   * template chosen by the graphic's shadow size (bits 4-5 of graphicsInfo +0x0C):
---     ShadowSmall 0850C9FC, Medium 0850CA14, Large 0850CA2C, ExtraLarge 0850CA44 (pokeemerald.map)
---   * subpriority 148, coordOffsetEnabled
---   * a per-size vertical drop (genderFrames.shadowDrop)
---   * each frame: priority follows the character's, x = character's x, y = character's y + drop
---     -- pos1 only, so the shadow stays on the ground while the character arcs on pos2.
--- Fields and globals rather than locals: this chunk is at Lua's hard 200-local ceiling, where one
--- more name is a parse failure and the adapter does not load at all.
+-- A real shadow sprite, which an overlay cannot be (under the character and its dust), driven from Lua since the
+-- engine's update finds its object by localId. Indexed by shadow size, bits 4-5 of graphicsInfo +0x0C.
 genderFrames.shadowTemplates =
     { [0] = 0x0850c9fc, [1] = 0x0850ca14, [2] = 0x0850ca2c, [3] = 0x0850ca44 }
 
--- WHY THE FIRST ATTEMPT RESET THE GAME, and it was not the tile allocation this file suspected.
---
--- A sprite's callback was left at 0, on the reasoning that the engine's own would re-find the
--- object by localId and follow the player. Observed: the game restarted, as the user described it
--- (*"everytime i jump with the bike, the game restarts now"*), on the first frame after a hop.
--- The explanation -- every in-use sprite's callback is called with no
--- null check, so 0 jumps to the BIOS reset vector -- is the decompilation's reading
--- (`AnimateSprites`, a pointer), not traced on the game.
---
--- The fix is the engine's own do-nothing callback rather than a guard of ours.
---   SpriteCallbackDummy  08007428  (pokeemerald.map:6220 and .sym; the two bytes there are
---                                   70 47 = `bx lr`, a function that returns and does nothing)
--- Checked at spawn time rather than trusted: on a relocated ROM (Archipelago) that address is
--- something else, and the whole point of this entry is that a wrong callback is a reset. If the
--- `bx lr` is not there the shadow sprite is simply not built and the painted fallback stays.
+-- The engine's do-nothing callback (`bx lr`): a callback of 0 reset the game, as every in-use sprite's is called
+-- unchecked. Verified at spawn, since a relocated ROM keeps something else there.
 genderFrames.spriteCallbackDummy = 0x08007428 + 1 -- +1 selects Thumb
 
--- centerToCornerVec by OAM shape/size, indexed shape*4 + size: minus half the OBJ's width and
--- height for each GBA shape/size. The hardware draws an OBJ from its top-left and every sprite the
--- engine makes carries this, so that its POSITION means its centre; a sprite built by hand and
--- never given it lands half a frame down-right, which is the bug the surf blob already had.
--- MEASURED 2026-09-16 (probes/borrowed_values_probe.lua, every in-use engine sprite across walking,
--- hops, surfing and fishing): entries 0, 1, 2, 4 and 10 read exactly these; the rest unmeasured.
--- The shadow this is used for is always entry 4 for a player graphic (see the shadow header).
--- The first version of the shadow guessed -16 or -8 from the frame's byte count, which is wrong
--- for three of the four shadow sizes -- the 16x8 medium one every bike uses included.
+-- centerToCornerVec by OAM shape*4 + size: minus half the OBJ's width and height, so a sprite's position is its
+-- centre. A player graphic's shadow is always entry 4.
 genderFrames.ctcVec = {
     [0] = { -4, -4 }, [1] = { -8, -8 }, [2] = { -16, -16 }, [3] = { -32, -32 },   -- square
     [4] = { -8, -4 }, [5] = { -16, -4 }, [6] = { -16, -8 }, [7] = { -32, -16 },   -- horizontal
@@ -6355,9 +3615,7 @@ function spawnGhostShadow(g)
     local imagesPtr = r32(tmpl + 0x0c)
     if oamPtr == 0 or imagesPtr == 0 then return nil end
 
-    -- THE CALLBACK IS CHECKED BEFORE ANYTHING IS BUILT, for the reason above: a wrong one is a
-    -- reset, not a glitch, and a relocated ROM makes the address wrong without changing anything
-    -- here. `bx lr` or no shadow sprite.
+    -- `bx lr` or no shadow sprite: a wrong callback is a reset, not a glitch.
     if r16(genderFrames.spriteCallbackDummy - 1) ~= 0x4770 then
         if not genderFrames.shadowCbWarned then
             genderFrames.shadowCbWarned = true
@@ -6369,14 +3627,10 @@ function spawnGhostShadow(g)
 
     local sprId = findFreeSpriteSlot()
     if not sprId or sprId == g.sprId then return nil end
-    -- The frame's own byte count, from struct SpriteFrameImage {const u8 *data; u16 size;}.
+    -- The frame's byte count: a frame image is a data pointer, then a u16 size.
     local bytes = r16(imagesPtr + 4)
     local nTiles = math.max(1, bytes // 32)
-    -- PROVE THE RANGE BEFORE WRITING INTO IT, once per session. The tile allocation was this
-    -- file's own prime suspect for the reset, and while it turned out to be innocent, "log the
-    -- byte count and the tile range and show they are sane" was the right instinct and costs one
-    -- line. A shadow is 32 (8x8), 64 (16x8), 128 (32x8) or 1024 (64x32) bytes -- anything else
-    -- means the SpriteFrameImage read is wrong and the copy below would run off its range.
+    -- A shadow frame is 32, 64, 128 or 1024 bytes; anything else means the image read is wrong.
     if bytes == 0 or bytes > 1024 or bytes % 32 ~= 0 then
         logFile(string.format("shadow sprite: refusing a %d-byte frame (images=%08x)",
             bytes, imagesPtr))
@@ -6397,11 +3651,10 @@ function spawnGhostShadow(g)
     w32(d + 0x08, animsPtr)
     w32(d + 0x0c, imagesPtr)
     w32(d + 0x10, r32(tmpl + 0x10))
-    -- A DO-NOTHING CALLBACK, not none: the engine's own would bind by localId and find the player,
-    -- and a zero is a jump to the reset vector. See the note above spawnGhostShadow.
+    -- A do-nothing callback: the engine's own would bind by localId and find the player.
     w32(d + 0x1c, genderFrames.spriteCallbackDummy)
     w8(d + 0x43, 148)         -- subpriority: under the character, above the ground
-    -- centerToCornerVec from the OAM's own shape and size, the way CalcCenterToCornerVec does it.
+    -- centerToCornerVec from the OAM's own shape and size.
     local ctc = genderFrames.ctcVec[(((r16(d + 0x00) >> 14) & 0x03) * 4)
         + ((r16(d + 0x02) >> 14) & 0x03)] or { -8, -4 }
     w8(d + 0x28, ctc[1] & 0xff)
@@ -6423,13 +3676,12 @@ function despawnGhostShadow(g)
     if not g.shadowSprId then return end
     local d = sprAddr(g.shadowSprId)
     w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04)
-    -- Same forget-don't-free rule as freeGhostTiles, same reason, same date.
+    -- Never free across a state load, as in freeGhostTiles.
     if genderFrames.stateLoadPurge then
         g.shadowSprId, g.shadowTileStart, g.shadowTiles = nil, nil, nil
         return
     end
-    -- Deferred like the blob's, one comment up: an engine sprite's queued VBlank copy outlives
-    -- its despawn by a frame.
+    -- Deferred: an engine sprite's queued VBlank copy outlives its despawn by a frame.
     if g.shadowTileStart then
         queueTileFree({ g = g, start = g.shadowTileStart, count = g.shadowTiles or 1,
             at = frameCounter })
@@ -6437,20 +3689,6 @@ function despawnGhostShadow(g)
     g.shadowSprId, g.shadowTileStart, g.shadowTiles = nil, nil, nil
 end
 
--- Driven from Lua every frame, exactly as UpdateShadowFieldEffect would have.
---
--- ON as of 2026-08-21, with the reset understood: it was the NULL callback, not the tile range.
--- The suspected cause was written down as the tile allocation -- a wrong byte count from the
--- template's SpriteFrameImage overrunning OBJ VRAM -- and that was a good guess about a bad
--- symptom and simply not what happened. The byte count is correct (64 for the 16x8 medium shadow
--- every bike asks for) and is now logged and range-checked at spawn anyway, because the check is
--- one line and the next hand-built sprite deserves it.
---
--- Two guessed fixes were NOT tried in a row here: the reset was traced to a specific line of the
--- engine (`AnimateSprites` calling a sprite's callback with no null check) before anything was
--- changed. `pitfalls.md`, 2026-08-21.
---
--- A field, not a local: this chunk is at Lua's 200-local ceiling.
 genderFrames.shadowSpriteEnabled = true
 
 function updateGhostShadow(g, jumping)
@@ -6465,58 +3703,19 @@ function updateGhostShadow(g, jumping)
     if not g.shadowSprId then return end
     local sd, cd = sprAddr(g.shadowSprId), sprAddr(g.sprId)
     w8(sd + 0x3e, r8(sd + 0x3e) & ~0x04)                       -- visible
-    -- PRIORITY FOLLOWS THE CHARACTER'S, as UpdateShadowFieldEffect does -- and priority lives in
-    -- OAM attribute 2 (bits 10-11 of +0x04), not attribute 0. The first version copied bits 8-9 of
-    -- +0x00, which is affineMode: it wrote a harmless zero and the shadow's background priority
-    -- never moved, so a shadow would have stayed in front of a bridge the ghost walked under.
+    -- Priority follows the character's, and lives in OAM attribute 2 (bits 10-11 of +0x04); y is pos1 plus the
+    -- drop, so the shadow stays grounded while the character arcs on pos2.
     w16(sd + 0x04, (r16(sd + 0x04) & 0xf3ff) | (r16(cd + 0x04) & 0x0c00))
     w16(sd + 0x20, rs16(cd + 0x20))
     w16(sd + 0x22, rs16(cd + 0x22) + (g.shadowDrop or 12))
 end
 
--- UNDERWATER: THE SAME IDEA AS THE BLOB, AND A COMPLETELY DIFFERENT MECHANISM.
---
--- Surfing puts a second sprite UNDER the rider. For diving, this code instead creates an invisible
--- sprite on the engine's underwater bobbing callback, pointed at the character's own sprite, so the
--- character bobs in place. That the player's own dive works this way is the decompilation's
--- reading (`StartUnderwaterSurfBlobBobbing`, a pointer); the bob's step and period are not measured.
---
--- So a ghost gets one of those dummies pointed at ITSELF, and the engine bobs it for us -- the same
--- let-the-game-do-the-work move as handing the surf blob to UpdateSurfBlobFieldEffect, and for the
--- same reason: the phase, the amplitude and the timing are then the game's rather than a number
--- copied out of a comment.
---
--- It is recorded on `g.blobSprId` deliberately, even though it is not a blob. Every teardown path
--- this file has -- despawn, map change, a graphic change away from the water -- already goes
--- through despawnSurfBlob, and the one place that must NOT write a ghost's own pos2 (the peer's
--- offset mirror, further down) already declines when that field is set. A separate field would
--- need each of them taught about it, and the one that got missed would be a ghost left bobbing on
--- dry land.
---
---   SpriteCB_UnderwaterSurfBlob  08155850  (+1 for Thumb; a static, so pokeemerald.sym not .map)
---   gDummySpriteTemplate         082EC6AC  (pokeemerald.map)
---   struct SpriteTemplate: tileTag 0x00, paletteTag 0x02, oam 0x04, anims 0x08, images 0x0C,
---     affineAnims 0x10, callback 0x14 -- the same layout spawnSurfBlob reads.
---   Its data slots: data[0] the sprite id it bobs, data[1] the step (+1/-1), data[2] the timer.
-UNDERWATER_GFX = { [111] = true, [112] = true } -- Brendan, May (verified.md's graphicsId table)
+UNDERWATER_GFX = { [111] = true, [112] = true } -- Brendan, May
 SPRITECB_UNDERWATERSURFBLOB_CB = 0x08155850 + 1
 GDUMMYSPRITETEMPLATE = 0x082ec6ac
 
--- THE UNDERWATER BOB NEEDS NO MECHANISM OF OURS AT ALL, and two attempts at one were wrong in
--- different ways before this was seen.
---
--- Attempt one reproduced the engine's dummy sprite faithfully: a sprite holding ANOTHER sprite's
--- index, nudging its y2 every fourth frame. Faithful and unsafe -- when the named slot was reused
--- our bobber wrote into whatever landed there, and during a dive that is the show-mon's Pokemon
--- picture: a wrong sprite (*"an egg instead of sharpedo"*) and an effect stuck waiting for it, so
--- the screen stayed faded to black and the GAME was stuck. Bisected against the user's own dive.
---
--- Attempt two drove the same bob from Lua. Safe, but redundant and visibly wrong: the peer's own
--- sprite offset is ALREADY on the wire (`soy`) and already applied to a ghost that has no blob --
--- so the ghost got two writers on one field and jittered (*"moving really fast/weird"*).
---
--- The right answer is the one the surf blob taught: the PEER's own offset is the authority. A
--- diver's bob rides the wire for free, at the peer's phase, with nothing to leak or fight.
+-- No bobber: a diver's bob is the peer's own sprite offset (`soy`), already on the wire and the authority. A sprite
+-- holding another's index wrote into whatever reused that slot, and a Lua bob made two writers on one field.
 function spawnUnderwaterBobber(g)
     return nil
 end
@@ -6527,91 +3726,44 @@ despawnSurfBlob = function(g)
     w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04) -- inUse = 0, invisible = 1
     w32(d + 0x1c, 0)
     if genderFrames.stateLoadPurge then g.blobSprId, g.blobTileStart = nil, nil return end
-    -- DEFERRED, and this one has the sharpest reason of all the deferrals: the blob is an ENGINE
-    -- sprite whose animation re-copies its frame EVERY frame, through the sprite-copy queue that
-    -- executes at VBlank. A copy queued during the previous frame's emulation still lands after
-    -- this despawn -- so tiles freed here and re-claimed in the same tick get the blob's frame
-    -- stamped over whatever the new owner just loaded. Found live 2026-08-21: at a dismount the
-    -- hardware tier claimed the just-freed blob tiles for its walker body, and the body rendered
-    -- as a corner of the blob until the next reload -- the user's *"oam & its reflection is
-    -- glitching when going back to land"*.
+    -- Deferred: the blob's animation re-copies its frame every frame through the VBlank queue, so a copy queued
+    -- last frame lands after this despawn, over whatever re-claimed the tiles.
     if g.blobTileStart then
         queueTileFree({ g = g, start = g.blobTileStart, count = 16, at = frameCounter })
     end
     g.blobSprId, g.blobTileStart = nil, nil
 end
 ----------------------------------------------------------------------------
--- FLY, AND RIDING A BOAT: the two states where the engine stops drawing the
--- player as a character at all.
---
--- Everything else this adapter sends describes a character: which graphic it wears, which
--- animation it is playing, which movement the engine is running on it. These two are the states
--- where that description is not merely incomplete but WRONG -- the engine hides the player's own
--- object and puts something else on screen in its place -- so a ghost that keeps drawing a
--- character is drawing a person the game has taken off the board.
---
---   * BRINEY'S BOAT: this code expects the player hidden with the boat object moving on the same
---     tile, and names the vehicle separately because the player's graphicsId does not change.
---     That reading of the ride comes from the decompilation's map script
---     (Route104_EventScript_SailToDewford, a pointer) and is not measured on the game.
---   * FLY: this code expects the bird's callback to carry the player's sprite in SCREEN
---     coordinates while the map position stays put, so position, action and animation cannot
---     describe the departure. Also the decompilation's reading (SpriteCB_FlyBirdSwoopDown, a
---     pointer), not measured.
---
--- Both are read from the engine's own statements rather than inferred: the object's `invisible`
--- bit, the boat object's presence on the player's tile, and the fly task's own bird sprite.
+-- Fly and Briney's boat: the engine hides the player's object and draws something else. Read from the engine: the
+-- invisible bit, the boat object on the player's tile, and the fly task's bird sprite.
 ----------------------------------------------------------------------------
--- 88 as the boat's graphicsId (OBJ_EVENT_GFX_MR_BRINEYS_BOAT in the decompilation -- a pointer,
--- not measured). Its graphic is taken to use an ordinary NPC palette slot rather than the
--- player's, which is why the receive side cannot simply hand it to a ghost. See flyRide.boatPalette.
+-- The boat's graphic uses an NPC palette slot, not the player's, so a ghost cannot simply wear it.
 flyRide.BOAT_GFX = 88
 
--- gTasks: the same table and stride tiering.applyShowMonWindow already scans for the field-move
--- banner -- 16 entries of 0x28 at 0x03005E00, func at +0x00 (a Thumb pointer, so odd), isActive
--- at +0x04, data[] at +0x08.
+-- gTasks at vanilla's address (EX moves it; see door.tasksAddr): 16 entries of 0x28, func at +0x00 (Thumb, odd),
+-- isActive at +0x04, data[] at +0x08.
 flyRide.TASKS_ADDR, flyRide.TASK_SIZE = 0x03005e00, 0x28
--- Task_FlyOut / Task_FlyIn, +1 for Thumb (pokeemerald.map). Which data[] slot holds what (state,
--- bird sprite id, timer) follows the decompilation's field_effect.c (a pointer); not measured.
+-- Task_FlyOut / Task_FlyIn, +1 for Thumb.
 flyRide.TASK_FLY_OUT, flyRide.TASK_FLY_IN = 0x080b91d5, 0x080b97d5
--- EVERY ROM ADDRESS IN THIS SECTION IS SHIFTED ON A PATCHED ROM, and none of them would fail
--- loudly if it were not. `genderFrames.romOffset` is the offset loadGenderFrames detected -- 0 on
--- vanilla -- and the reason it matters here is the reason it mattered for the graphics pointer
--- table: unshifted, the comparisons below simply never match, so an Archipelago seed would get a
--- peer who never appears to fly and a boat that never appears, with nothing in any log to say so.
--- (The show-mon banner scan above does NOT do this, and is a known gap rather than a precedent.)
+-- Every ROM address here shifts on a patched ROM, and an unshifted one simply never matches, silently. The show-mon
+-- banner scan above does not shift its addresses: a known gap.
 flyRide.rom = function(a) return a + (genderFrames.romOffset or 0) end
--- SpriteCB_FlyBirdSwoopDown, +1 for Thumb (pokeemerald.map). Recognising the bird by its CALLBACK
--- rather than by the task's state number is deliberate: the same task id runs several callbacks
--- across a fly, and the swoop is the only one that carries a character.
+-- The bird is recognised by its callback, not the task's state: only the swoop carries a character.
 flyRide.BIRD_SWOOP_CB = 0x080b963d
--- 64 in the bird's data[6] is read as "carrying nobody", and any other value as the carried
--- sprite's id -- so that one slot answers "is this bird carrying somebody" without state arithmetic
--- of ours. The sentinel and the slot are the decompilation's reading (MAX_SPRITES,
--- StartFlyBirdSwoopDown -- pointers), not measured.
+-- 64 in the bird's data[6] means carrying nobody; any other value is the carried sprite's id.
 flyRide.NO_RIDER = 64
 
--- WHAT THE SENDER PUBLISHES. Results land on the table rather than in locals or a returned tuple:
--- this chunk is at Lua's 200-local ceiling, where one more top-level name is a parse failure and
--- the adapter does not load at all.
---
---   flyRide.invis -- the object's own `invisible` bit (+0x01 bit 0x20; the bit's position follows
---                    the decompilation's global.fieldmap.h, unmeasured). "The engine is not drawing
---                    this character."
+-- What the sender publishes, on the table for the 200-local ceiling:
+--   flyRide.invis -- the object's invisible bit (+0x01 bit 0x20): the engine is not drawing this character.
 --   flyRide.boat  -- the graphicsId of the vehicle the player is riding, or nil.
 --   flyRide.fly   -- nil, 1 (in the fly cutscene, still on the ground) or 2 (carried by the bird).
---   flyRide.flyk  -- the bird's arc parameter, so a receiver's bird can start in phase rather
---                    than a network delay behind.
+--   flyRide.flyk  -- the bird's arc parameter, so a receiver's bird starts in phase.
 flyRide.sample = function(objId, sprId)
     local a = objAddr(objId)
     flyRide.invis = ((r8(a + 0x01) & 0x20) ~= 0) and 1 or 0
     flyRide.boat, flyRide.fly, flyRide.flyk = nil, nil, nil
 
-    -- THE VEHICLE IS FOUND ON THE PLAYER'S TILE, not assumed from the map. The ride is scripted
-    -- to keep the two objects on the same coordinates for its whole length, so "an active boat
-    -- standing exactly where the hidden player is" is a statement about this frame rather than a
-    -- guess about which map or which script is running. Only checked while the player is hidden,
-    -- which is what makes it cheap: walking past a moored boat never enters this loop.
+    -- The boat is found on the hidden player's tile, a fact about this frame rather than a guess from the map.
     if flyRide.invis == 1 then
         local px, py = rs16(a + 0x10), rs16(a + 0x12)
         for i = 0, 15 do
@@ -6630,15 +3782,12 @@ flyRide.sample = function(objId, sprId)
             local fn = r32(ta + 0x00)
             if fn == flyRide.rom(flyRide.TASK_FLY_OUT)
                 or fn == flyRide.rom(flyRide.TASK_FLY_IN) then
-                -- On the ground until the bird proves otherwise. Every state of both tasks that
-                -- is not the swoop is a character standing on its tile doing the field-move pose,
-                -- which the ordinary graphic/animation fields already describe correctly.
+                -- On the ground until the bird proves otherwise: the other states are the field-move pose.
                 flyRide.fly = 1
                 local birdId = r16(ta + 0x08 + 1 * 2) -- data[1], tBirdSpriteId
                 if birdId < flyRide.NO_RIDER then
                     local bs = sprAddr(birdId)
-                    -- inUse, and running the swoop callback: data[1] holds tMonId before the bird
-                    -- exists, so it must be validated as a sprite and not merely bounds-checked.
+                    -- Validated as a live swoop sprite: data[1] holds the Pokemon's id before the bird exists.
                     if (r8(bs + 0x3e) & 0x01) ~= 0
                         and r32(bs + 0x1c) == flyRide.rom(flyRide.BIRD_SWOOP_CB) then
                         flyRide.flyk = r16(bs + 0x32) -- data[2], the arc parameter
@@ -6652,57 +3801,11 @@ flyRide.sample = function(objId, sprId)
 end
 
 ----------------------------------------------------------------------------
--- THE DOOR A GHOST OPENS.
---
--- This code opens a door for a ghost by creating the engine's own door TASK (`Task_AnimateDoor`)
--- for the door tile, one task slot, which the engine retires itself. That the task only redraws
--- the door's tiles and tilemap -- **never the map grid, the save, or any object** -- is the
--- decompilation's reading (field_door.c, a pointer) and is NOT measured on the game; it is the
--- premise that makes this an adapter-permitted write, so it is a question for UNVERIFIED.md.
---
--- The sequence reproduced, as the decompilation describes the player's own (Task_DoDoorWarp,
--- Task_ExitDoor -- pointers; unmeasured):
---
---   ENTERING -- the door is the tile ABOVE the player: open, walk up, close.
---   LEAVING  -- the player stands ON the door: it is shown open with no animation, then the
---     player walks down, then it closes.
---
--- That asymmetry is why there are three kinds on the wire rather than two. A close played against
--- a door nobody opened animates a closed door shutting, which is a defect a ghost would show
--- every time it came out of a house.
---
---   "o" -- animate open   (Task_AnimateDoor on sDoorOpenAnimFrames / sBigDoorOpenAnimFrames)
---   "c" -- animate close  (Task_AnimateDoor on sDoorCloseAnimFrames)
---   "h" -- HOLD open, the no-animation one: the last open frame drawn once and left there, which
---          is what FieldSetDoorOpened does. Reproduced by creating the same task with tFrameId
---          already on the final frame, so the engine draws that frame and then retires the task
---          -- the engine's own drawing rather than a second copy of it in Lua.
---
--- THE SENDER READS THE ENGINE, IT DOES NOT INFER. Inferring "that peer must have gone through a
--- door" from a map change cannot tell a door from a cave mouth or a staircase, and the tile it
--- would have to guess is the one the peer is no longer standing on. The engine's own task carries
--- both answers -- which door tile, and which of the three things is happening to it -- so that is
--- what goes on the wire.
---
--- AND IT SENDS THE TILE, NEVER A POINTER. The four builds this adapter serves put these tables at
--- four different addresses; a resolved `gfx` pointer from one peer is somebody else's data on
--- another. The receiver looks the metatile up in ITS OWN table, which is also what makes a door
--- that only exists on one build simply not animate rather than animate wrongly.
---
--- NO SOUND, the user's call 2026-09-12: the door SFX is a separate `PlaySE` at the warp, not
--- something this task does, and a door opening across town with nobody visible to open it is a
--- noise with no cause.
---
--- ADDRESSES -- vanilla, from pokeemerald.sym, shifted per build by flyRide.rom like every other
--- ROM address in this file. gTasks and its stride are flyRide's, already cited there.
---   Task_AnimateDoor        0808A654 (+1, Thumb) -- vanilla's seed only; every other build LEARNS
---                                                   its own, because a code address does not shift
---                                                   with romOffset. See isDoorTask.
---   sDoorOpenAnimFrames     08496F8C  sDoorCloseAnimFrames  08496FA0
---   sBigDoorOpenAnimFrames  08496FB4  sDoorAnimGraphicsTable 08497174, 0x288 bytes
--- The graphics table is walked in 12-byte entries, and the task's data[] slots are written by the
--- code below. Both layouts follow the decompilation's field_door.c (a pointer) and are
--- not measured field by field.
+-- The door a ghost opens: the engine's own door task for the tile, which retires itself. That it redraws only the
+-- door's tiles and tilemap, never the map grid, a save or an object, is the decompilation's reading, unmeasured.
+-- Kinds: "o" open, "c" close, "h" hold open (the task started on its last open frame), since leaving a house shows
+-- the door already open. The wire carries the tile, never a pointer; no sound, as the SFX belongs to the warp.
+-- Vanilla addresses, shifted per build by flyRide.rom; TASK_ANIMATE is code, which does not shift with romOffset.
 ----------------------------------------------------------------------------
 genderFrames.door = {
     TASK_ANIMATE = 0x0808a655,
@@ -6711,72 +3814,29 @@ genderFrames.door = {
     FRAMES_BIG_OPEN = 0x08496fb4,
     GFX_TABLE = 0x08497174,
     GFX_ENTRY = 12,
-    -- 0x288 / 12. A bound, not a length: the table's own NULL `tiles` terminator is what stops
-    -- the walk, and this only stops a walk that never finds one from running off into ROM.
+    -- A bound, not a length: the table's null `tiles` terminator stops the walk; this stops one that never finds it.
     GFX_MAX = 54,
-    -- **OUR OWN MARK, AND THE REASON THE FEATURE IS NOT A FEEDBACK LOOP** (2026-09-12). The
-    -- sender finds a door by scanning gTasks -- and the receiver's ghost doors are tasks in that
-    -- same table. Without a mark, a client that paints a peer's door immediately reports it as a
-    -- door of its own, the peer paints it back, and it echoes around the mesh forever: *"the door
-    -- is constantly opening/closing itself on vanilla, speedchoice & ap"*. (Nothing on EX, which
-    -- can neither create nor recognise one, so it could not join the loop.)
-    --
-    -- data[15] is free -- Task_AnimateDoor uses data[0..7] and nothing else, and CreateTask zeroes
-    -- the whole array -- so a task carrying this value is one WE made, and a real one from the
-    -- engine carries zero. Checked in sample() only: `start` still yields to a door of ours the
-    -- same as to the player's, because the engine still allows exactly one.
+    -- Our mark in data[15], which the door task never uses: without it a ghost door is reported as our own, painted
+    -- back, and echoes around the mesh. Checked in sample() only; `start` still yields to a door of ours.
     MINE = 0x6d67,
-    -- StartDoorAnimationTask's own priority, and the last open frame's index in a four-frame
-    -- table (entry 4 is the {0,0} terminator that ends the task).
+    -- The engine's door task priority, and the last open frame of a four-frame table.
     PRIORITY = 0x50,
     LAST_OPEN_FRAME = 3,
-    -- How long a ghost's door may stay open with no close behind it. A real close follows an open
-    -- within ~50 frames (the open animation is 4 frames of 4 ticks, then one walk). This is the
-    -- backstop for the close that never arrived because the peer dropped mid-warp -- without it a
-    -- door left open stays open until something else redraws that metatile.
+    -- Backstop for a close that never arrives (the peer dropped mid-warp); a real one follows within ~50 frames.
     HOLD_MAX_FRAMES = 120,
 }
 
--- **IS THIS BUILD'S DOOR MACHINERY WHERE WE THINK IT IS?** Everything below is gated on this, and
--- the first version of this feature had no such gate -- which broke it in all three ways the user
--- saw within a minute of it going live (2026-09-12):
---
---   * A FUNCTION POINTER IS NOT AN IDENTITY unless you already know the build. On the three
---     patched ROMs, `Task_ExitDoor` shifted by genderFrames.romOffset landed on whatever happens
---     to live there -- an ordinary long-lived task -- so those clients published a door event
---     every frame, with that task's own data[2]/data[3] as the "tile". Coordinates that change
---     every frame are a NEW event every frame to any receiver, and vanilla dutifully opened a
---     door for each one: *"it is spam opening on the vanilla game itself"*.
---   * A REFUSED DOOR WAS RETRIED EVERY FRAME on the receive side (the fix for that is in
---     doorTick), so each of those bogus events cost a 54-entry ROM walk per peer per frame on a
---     build where the table is not there -- BizHawk answers every out-of-range read with a console
---     line: *"EX is spamming its lua console again"*. The same shape as the gMapHeader read that
---     cost an emulator 4fps, and the same lesson: guard the POINTER, not the symptom.
---
--- So: prove the tables are tables before touching any of them, once per ROM, and say so in the log
--- when they are not -- a build with no ghost doors is a real limitation someone should be able to
--- read rather than deduce from a door that never opens.
---
--- The proof is the tables' own shape, not a checksum: every door frame table is four frames of
--- `time` 4 followed by a zero terminator (struct DoorAnimFrame is u8 time at +0, u16 offset at
--- +2, so 4 bytes a frame), and every DoorGraphics entry carries two ROM pointers. A build whose
--- tables sit elsewhere fails both.
+-- Is this build's door machinery where we think it is? Proven once per ROM by the tables' shape and logged either
+-- way: four 4-byte frames (u8 time 4, u16 offset at +2) then a zero, and graphics entries holding two ROM pointers.
 genderFrames.door.ready = function()
-    -- Not before the ROM variant is known. Answering with vanilla's offset while detection is
-    -- still pending would test the wrong addresses and log the wrong verdict -- and on a patched
-    -- build it would log it twice, once wrongly. Uncached on purpose: this is the pre-answer.
+    -- Not before the ROM variant is known, or vanilla's addresses would be tested; uncached until then.
     local off = genderFrames.romOffset
     if off == nil then return false end
     if genderFrames.door.readyFor == off then return genderFrames.door.readyAns end
     genderFrames.door.readyFor = off
     genderFrames.door.readyAns = false
 
-    -- **THE OFFSETS, NOT JUST THE TIMES** (tightened 2026-09-12). Checking only the five `time`
-    -- bytes was five bytes of evidence, and EX SPEEDCHOICE sailed through it while carrying door
-    -- tasks this adapter never recognised -- a build reporting "tables found" and then silently
-    -- matching nothing, which is worse than a build that says it cannot do doors. Each table's
-    -- four offsets are its identity (struct DoorAnimFrame: u8 time at +0, u16 offset at +2), and
-    -- they differ between the three, so this is twelve more bytes that a coincidence has to pass.
+    -- The offsets as well as the times: the time bytes alone let a build pass that then matched no door task.
     local function isFrameTable(a, o0, o1, o2, o3)
         for f = 0, 3 do
             if r8(a + f * 4) ~= 4 then return false end
@@ -6803,33 +3863,8 @@ genderFrames.door.ready = function()
     end
 
     genderFrames.door.readyAns = ok
-    -- Vanilla's code address is known and needs no learning; every other build waits until the
-    -- player opens a door and sample() reads it off the engine's own task. Written as an `if`
-    -- rather than an `and/or` ternary on purpose -- this file has a recorded scar from that
-    -- idiom, and a cached address is not a place to reopen it.
-    -- **THE CODE ADDRESS PER BUILD, MEASURED -- so nobody has to open a door to see one.**
-    --
-    -- Learning it from the engine was the first design, and the user found its flaw immediately:
-    -- *"vanilla/speedchoice/ap only show if they have entered a door before i think?"* -- yes.
-    -- A client that has not yet watched its own engine create a door task does not know the
-    -- address, cannot create one, and so shows no ghost doors at all until the player happens to
-    -- walk through a door themselves. Every session, on every build but vanilla.
-    --
-    -- Each of these was read off the engine by that learning path, live, on 2026-09-12, and is
-    -- keyed on `romOffset` because that is this adapter's existing per-build discriminator (the
-    -- same one behind "sprite data found at the known <build>-shifted ROM address"). **None is
-    -- derivable from any other number here** -- the code shift is not the data shift, and the
-    -- four disagree completely:
-    --
-    --   build              data shift (romOffset)   code shift      Task_AnimateDoor
-    --   vanilla                              0               0            0808A655
-    --   SPEEDCHOICE 1.2.2                25608          +0x670            0808ACC5
-    --   Archipelago                      30000          +0x9A0            0808AFF5
-    --   EX SPEEDCHOICE 0.4.0            641912        +0x18A88            080A30DD
-    --
-    -- An UNKNOWN build matches nothing here and falls back to learning, exactly as before -- which
-    -- is the conservative half: a wrong code address is one the engine would CALL, so a guess is
-    -- not an option and a build we have not measured gets no seed at all.
+    -- Task_AnimateDoor per build, read off each engine: the code shift is not the data shift. An unknown build gets
+    -- no seed and learns its own, since a wrong code address is one the engine would call.
     genderFrames.door.fn = nil
     if ok then
         genderFrames.door.fn = ({
@@ -6839,11 +3874,7 @@ genderFrames.door.ready = function()
             [641912] = 0x080a30dd,
         })[off]
     end
-    -- **THE PASS IS LOGGED TOO, AND THAT IS NOT NOISE** (2026-09-12). Logging only the failure
-    -- made silence mean two opposite things -- "this build's tables are fine" and "nothing ever
-    -- asked" -- and EX SPEEDCHOICE sat in exactly that ambiguity for three reload cycles while
-    -- being the one build the question was about. One line per ROM, naming the addresses it
-    -- resolved, so the next reading is unambiguous without another round trip.
+    -- The pass is logged too: otherwise silence means both "fine" and "never asked".
     logFile(string.format("f=%d DOOR tables %s: open=%08X close=%08X big=%08X gfx=%08X off=%d",
         frameCounter, ok and "OK" or "NOT FOUND",
         flyRide.rom(genderFrames.door.FRAMES_OPEN), flyRide.rom(genderFrames.door.FRAMES_CLOSE),
@@ -6857,30 +3888,8 @@ genderFrames.door.ready = function()
     return ok
 end
 
--- WHAT THE ENGINE IS DOING TO A DOOR RIGHT NOW: kind, and the door's tile in the coordinates this
--- adapter sends (the save block's, so MAP_OFFSET comes off the padded grid the task holds).
--- nil for the overwhelmingly common case of no door anywhere, which is one 16-entry scan of a
--- table this file already walks for fly.
--- **A DOOR TASK IS RECOGNISED BY ITS DATA, NOT BY ITS FUNCTION POINTER** (2026-09-12, and this is
--- the whole fault the user saw).
---
--- `genderFrames.romOffset` is measured from the SPRITE DATA block, which lives late in the ROM --
--- and so do the door tables, which is why they validate on all four builds and why `ready()`
--- passed everywhere. `Task_AnimateDoor` and `Task_ExitDoor` are CODE, early in the ROM, and a
--- patch that inserts or removes code moves those by a DIFFERENT amount. One offset does not shift
--- both. So on the three patched builds the comparison was against an address that is not the door
--- task at all, it matched an unrelated long-lived task, and this client published a door event
--- every frame carrying that task's own data as a tile. Vanilla played every one of them.
---
--- Same shape as the camera-offset lesson already in this file -- *"IWRAM moved ALMOST as one
--- piece, and 'almost' is the case a blanket shift gets wrong while looking like it should work"*
--- -- and a reminder that a pointer comparison that cannot fail loudly will fail quietly instead.
---
--- The fix needs no code address on any build. A door task is the only task in the table whose
--- first four data slots decode to **a pointer to one of the three door frame tables** and **a
--- pointer that lands on an entry of the door graphics table** -- both of which this build has
--- already proven it can find. That is a far stronger identification than a function pointer, and
--- it is build-independent by construction.
+-- A door task is recognised by its data, not its function pointer, which shifts unlike romOffset: a door frame
+-- table pointer, then a pointer on an entry boundary of the door graphics table.
 genderFrames.door.isDoorTask = function(t)
     local frames = (r16(t + 0x08) << 16) | r16(t + 0x0a)
     local kind = nil
@@ -6897,17 +3906,8 @@ genderFrames.door.isDoorTask = function(t)
         and (gfx - tbl) % entry == 0
     if kind and gfxOk then return kind end
 
-    -- **A HALF MATCH IS THE WHOLE DIAGNOSTIC, AND IT HAS TO WORK IN BOTH DIRECTIONS**
-    -- (2026-09-12). The first version of this log fired only when the FRAMES half matched, which
-    -- made it useless for the one build it was written for: EX SPEEDCHOICE finds its tables and
-    -- still matches no door task, so if its doors use a frame table this adapter does not know,
-    -- the log that would say so could never fire. Either half alone is already far past
-    -- coincidence, so either half alone is worth one line -- and the line carries both values, so
-    -- the next reading says which of "its graphics table is longer than 54 entries", "its
-    -- graphics table is elsewhere" and "its doors use a frame table of their own" is true.
-    --
-    -- Logged ONCE per load. A diagnostic that fires per frame is one that changes what it
-    -- measures, and this file has the scar to prove it.
+    -- Either half matching alone is past coincidence: logged once per load with both values, to say which table
+    -- this build's doors do not match.
     if (kind or gfxOk) and not genderFrames.door.missLogged then
         genderFrames.door.missLogged = true
         logFile(string.format(
@@ -6919,25 +3919,7 @@ genderFrames.door.isDoorTask = function(t)
     return nil
 end
 
--- **WHERE gTasks ACTUALLY IS ON THIS BUILD** -- because on one of them it is not where the rest of
--- this file assumes (2026-09-12).
---
--- EX SPEEDCHOICE matched NEITHER half of the door signature: not the frame tables, not the
--- graphics pointer, on a door the user had just opened. Neither half failing is a different
--- statement from one half failing -- it says the sixteen entries being read are not tasks at all.
--- And this file already records why: EX moves its IWRAM. `gTotalCameraPixelOffsetY` sits at
--- -0x10D0 there while `gSaveBlock1Ptr` is at -0x10E0, *"IWRAM moved ALMOST as one piece"* -- and
--- gTasks is IWRAM. So the scan was reading the wrong region of memory entirely.
---
--- Found by its own shape rather than by any build's offset, which is what makes it need no new
--- constant per ROM: a task table is sixteen 0x28 entries where every `isActive` is 0 or 1, every
--- `prev`/`next` is a slot index or one of the two sentinels, every active entry's `func` is an ODD
--- pointer into ROM (Thumb), and exactly one active entry calls itself the head. Sixteen entries of
--- that is far past coincidence.
---
--- The known address is tried FIRST and the scan only runs if it fails, so three of the four builds
--- pay nothing and never scan at all. One-shot either way, and it logs what it concluded -- a found
--- address that is not the expected one is exactly the kind of thing that should never be silent.
+-- Where gTasks is on this build (EX moves its IWRAM): the known address first, else found by shape and logged.
 genderFrames.door.tasksAddr = function()
     if genderFrames.door.tasksAt ~= nil then return genderFrames.door.tasksAt end
     -- A retry is spaced, per the tail of this function; nil means "ask again later", not "no".
@@ -6975,12 +3957,8 @@ genderFrames.door.tasksAddr = function()
             return a
         end
     end
-    -- Nothing convincing -- which may be this MOMENT rather than this BUILD. The signature needs
-    -- at least one live task with a head, and a scan that lands on a title screen or a load has
-    -- nothing to find. So the failure is not cached permanently (that would disable doors for the
-    -- session on the strength of one badly timed look) and it is not retried every frame either
-    -- (a whole-IWRAM scan per frame is the exact shape of fault this file keeps warning about):
-    -- a few attempts, ten seconds apart, then it stands.
+    -- Nothing convincing may be this moment (a title screen, a load) rather than this build: a few attempts, ten
+    -- seconds apart, never a whole-IWRAM scan every frame.
     genderFrames.door.tries = (genderFrames.door.tries or 0) + 1
     genderFrames.door.nextTry = frameCounter + 600
     if genderFrames.door.tries >= 5 then
@@ -6997,10 +3975,7 @@ genderFrames.door.sample = function()
     if not genderFrames.door.ready() then return nil end
     local base, stride = genderFrames.door.tasksAddr(), flyRide.TASK_SIZE
     if not base then return nil end
-    -- RESOLVED EAGERLY AND REPORTED ONCE, rather than on the first door. Both of these are cheap
-    -- and cached, and leaving them lazy meant the one question being asked about this build --
-    -- where is its map grid -- could only be answered by asking the user to walk through a door
-    -- and then reading a log. A reading that costs nothing should not cost a round trip.
+    -- Resolved eagerly and logged once, so the map grid's address does not wait for a door.
     if not genderFrames.door.mapLogged then
         genderFrames.door.mapLogged = true
         local m = genderFrames.door.mapAddr()
@@ -7009,31 +3984,12 @@ genderFrames.door.sample = function()
     end
     for i = 0, 15 do
         local t = base + i * stride
-        -- OURS IS NOT NEWS. A door this client painted for a peer is not a door this client's
-        -- player opened, and reporting it is what turns one door into an endless one.
+        -- A door we painted for a peer is not news: reporting it turns one door into an endless one.
         if r8(t + 0x04) == 1 and r16(t + 0x08 + 15 * 2) ~= genderFrames.door.MINE then
             local kind = genderFrames.door.isDoorTask(t)
             if kind then
-                -- **AND THIS IS WHERE THE CODE ADDRESS COMES FROM ON A PATCHED BUILD.** Creating
-                -- a door task needs the function pointer that `romOffset` cannot give us -- so
-                -- rather than guess it, take it from the engine the first time the LOCAL player
-                -- opens a door: this task was identified by its data, so its `func` is this
-                -- build's Task_AnimateDoor, measured rather than derived. Until that happens a
-                -- patched build simply does not paint ghost doors, which is the right way round.
-                --
-                -- **ONLY FROM A DOOR THAT WAS NOT THERE LAST FRAME**, and that clause is the
-                -- whole value of this (2026-09-12). Learning from whatever is already in the
-                -- table at load reads back a task THIS ADAPTER may have put there itself -- the
-                -- broken first version stranded some -- and a measurement that can read back your
-                -- own write is not a measurement. Both patched builds "learned" an address at
-                -- frame 2 that was exactly the one the broken version would have written; an edge
-                -- cannot do that, because the engine has to create the task while we watch.
-                -- **THE ENGINE OUTRANKS THE TABLE.** The seeded address exists so a player does
-                -- not have to open a door before seeing one; it is not a claim that beats a live
-                -- reading. So the first real door still checks it, and a disagreement is both
-                -- corrected and said out loud -- a seed that is wrong on some build nobody has
-                -- tried is an address the engine would CALL, which is the one class of mistake
-                -- here that is not merely cosmetic.
+                -- Identified by its data, so its func is this build's Task_AnimateDoor; only from a door watched
+                -- arriving, never one we may have stranded. The engine outranks the seed, and says so.
                 if genderFrames.door.sawNone and not genderFrames.door.checked then
                     local live = r32(t + 0x00)
                     if genderFrames.door.fn == nil then
@@ -7055,62 +4011,26 @@ genderFrames.door.sample = function()
             end
         end
     end
-    -- NO DOOR TASK ANYWHERE IN THE TABLE THIS FRAME -- which is what earns the right to learn a
-    -- code address from the next one that appears. Anything sitting in the table at load is
-    -- something we did not watch arrive, and on these builds may be our own stranded write.
+    -- No door task this frame: the next one to appear is watched arriving, so it may teach the code address.
     genderFrames.door.sawNone = true
-    -- **THE HOLD-OPEN IS NOT PUBLISHED AT ALL, BY ANY BUILD.** Leaving a house draws the door open
-    -- with no animation and so leaves no task to recognise by its data; the only handle on the
-    -- sender's side is `Task_ExitDoor`, a CODE address, and a code address is precisely what the
-    -- comment above this function says cannot be derived from this offset. A vanilla-only version
-    -- was written first and then taken back out: the RECEIVER can see the same moment without
-    -- help -- a peer arriving on its map standing on a door tile -- so the wire does not need to
-    -- carry it, every build behaves the same, and one more guessed code address is gone. See
-    -- doorTick.
+    -- The hold-open is never published: leaving a house leaves no task to recognise, and the receiver sees the
+    -- same moment itself, a peer arriving on a door tile (see doorTick).
     return nil
 end
 
--- THE LAST GATE BEFORE A DOOR GOES ON THE WIRE: is that padded tile actually a door?
---
--- The engine asks this too, and asks it FIRST -- `FieldAnimateDoorOpen` runs
--- `MetatileBehavior_IsDoor` before it will start anything. Skipping it is what let a task match by
--- pointer alone turn into a stream of events pointing at arbitrary tiles. Matching the metatile
--- against this build's own door table is the stricter form of the same question, and it costs one
--- short ROM walk on the handful of frames a door is actually open.
+-- The last gate before a door goes on the wire: is that padded tile a door in this build's own table? The engine
+-- asks first too, before it starts a door.
 genderFrames.door.publish = function(kind, px, py)
     if px < MAP_OFFSET or py < MAP_OFFSET then return nil end
     if not genderFrames.door.gfxFor(px, py) then return nil end
     return kind, px - MAP_OFFSET, py - MAP_OFFSET
 end
 
--- The DoorGraphics entry for the metatile at a PADDED grid coordinate, and its `size`.
--- GetDoorGraphics' walk, and its answer for a tile that is not a door in this build's table is the
--- same as the engine's: nothing happens.
--- **WHERE gBackupMapLayout IS -- the last IWRAM address this feature assumed.**
---
--- The user, once the other three worked: *"EX still don't send properly when entering, only when
--- exiting a house"*. Exiting is inferred by the RECEIVER from a peer's position and needs nothing
--- from the sender, so that half working while entering did not is a statement about EX's send
--- path alone. It has the tables, it has gTasks, it learned its code address -- so the only step
--- left is the one that asks "is that tile a door", and that reads the map grid through
--- `gBackupMapLayout` at 0x03005DC0. IWRAM. The thing EX moves.
---
--- **AND THE SHIFT CANNOT BE BORROWED.** This build now has three measured IWRAM offsets and no
--- two agree: the save block at -0x10E0, the camera at -0x10D0, gTasks at -0x1120. `iwramOffset`
--- exists for the first and would be wrong here. Found by shape instead, like gTasks, and reported
--- with how many candidates matched -- a lone match is evidence, several is a coin toss and should
--- say so rather than quietly pick.
---
--- The failure mode is deliberately mild compared to the code address: a wrong answer here reads
--- the wrong metatile, so a door does not animate or does not match. Nothing is executed.
--- The map grid, shared with the occlusion chain: genderFrames.gridAddr() is the same search
--- this used to do privately, promoted the moment occlusion needed it on the same builds.
+-- The map grid, found by shape (EX moves IWRAM, by a shift no other address predicts) and shared with occlusion.
+-- A wrong answer only reads the wrong metatile: nothing is executed.
 genderFrames.door.mapAddr = function() return genderFrames.gridAddr() end
 
--- The metatile id at a PADDED grid coordinate, read through whichever address this build keeps its
--- map grid at. genderFrames.metatileAt is the same read hardcoded to the vanilla address, and is
--- left alone on purpose: it backs the occlusion chain, which is a separate open question on this
--- build (its gMapHeader is unlocated too) and not one to fold into a door fix.
+-- The metatile id at a padded grid coordinate.
 genderFrames.door.metatileAt = function(px, py)
     local base = genderFrames.door.mapAddr()
     if not base then return nil end
@@ -7120,6 +4040,7 @@ genderFrames.door.metatileAt = function(px, py)
     return r16(map + (px + w * py) * 2) & 0x03ff
 end
 
+-- The door graphics entry for the metatile at a padded grid coordinate, and its size; nil if not a door here.
 genderFrames.door.gfxFor = function(px, py)
     local id = genderFrames.door.metatileAt(px, py)
     if not id then return nil end
@@ -7127,45 +4048,22 @@ genderFrames.door.gfxFor = function(px, py)
     for i = 0, genderFrames.door.GFX_MAX - 1 do
         local e = base + i * genderFrames.door.GFX_ENTRY
         local tiles = r32(e + 0x04)
-        -- The terminator, and the guard that says this is the table we think it is. A build that
-        -- relocated it reads something that is not a ROM pointer, and declining is the only safe
-        -- answer -- the alternative is handing the engine a garbage pointer to DMA from.
+        -- The terminator, and the guard against handing the engine a garbage pointer to copy from.
         if tiles < 0x08000000 or tiles >= 0x0a000000 then return nil end
         if r16(e + 0x00) == id then return e, r8(e + 0x03) end
     end
     return nil
 end
 
--- LINK A FILLED-IN SLOT INTO THE TASK LIST, because a task the list does not contain is a task
--- the engine never runs.
---
--- WRITTEN FROM THE STRUCTURE'S INVARIANT, NOT FROM THE ENGINE'S ROUTINE. The list is a doubly
--- linked chain threaded through the same 16 entries -- `prev` +0x05, `next` +0x06, 0xFE meaning
--- "I am the head" and 0xFF "I am the tail" -- held in non-decreasing `priority` (+0x07) order.
--- Given that, there is exactly one correct place for a new entry and only one way to leave the
--- chain consistent, so this walks the live list and puts it there: collect the order first, pick
--- the slot, then write both directions. It is deliberately not a transcription of the engine's
--- own insert.
---
--- **THE INVARIANT ABOVE IS NOT YET CONFIRMED ON A RUNNING GAME** (2026-09-12). It is read from
--- the decompilation's declared layout, which is a fact about the struct, and the ordering claim
--- follows from what the list is FOR -- but neither has been read back out of a live gTasks while
--- other tasks were in it. The failure it would produce is loud and local (a door that does not
--- animate, or one task slot of sixteen behaving oddly) rather than silent, and the caller refuses
--- to mark a slot active unless this returns true. Confirming it is one probe's work: dump the
--- chain head-to-tail with each entry's priority during ordinary play and check it is sorted.
---
--- BOUNDED, and defensively so: `pcall` catches errors, not loops (2026-08-25), and a `next` chain
--- that does not terminate would hang the emulator rather than raise. A chain that fails to make
--- sense leaves the slot unlinked and the caller refuses.
+-- Links a slot into the task list: a doubly linked chain (prev +0x05, next +0x06, 0xFE head, 0xFF tail) in priority
+-- (+0x07) order, not yet read back from a live gTasks. Bounded, since pcall catches errors, not loops.
 genderFrames.door.insert = function(newId)
     local base, stride = genderFrames.door.tasksAddr(), flyRide.TASK_SIZE
     if not base then return false end
     local HEAD, TAIL = 0xfe, 0xff
     local function at(i) return base + i * stride end
 
-    -- The chain as it stands, head to tail. Our own slot is still inactive at this point and so is
-    -- not in it. Sixteen entries is the whole table, so a chain longer than that is a corrupt one.
+    -- Our own slot is still inactive, so it is not in the chain; longer than the 16-entry table means corrupt.
     local order, id = {}, nil
     for i = 0, 15 do
         if r8(at(i) + 0x04) == 1 and r8(at(i) + 0x05) == HEAD then id = i break end
@@ -7177,17 +4075,13 @@ genderFrames.door.insert = function(newId)
         id = (nxt == TAIL) and nil or nxt
     end
 
-    -- Where it goes: ahead of the first entry that outranks it (a HIGHER priority value sorts
-    -- later), otherwise on the end.
+    -- Insert ahead of the first entry with a higher priority value (higher sorts later), else at the end.
     local mine, prio = at(newId), r8(at(newId) + 0x07)
     local before = nil
     for _, other in ipairs(order) do
         if prio < r8(at(other) + 0x07) then before = other break end
     end
 
-    -- Then both directions, from the neighbours the position implies. Splitting "decide" from
-    -- "write" is what keeps the three cases -- only task, new head, mid-chain or tail -- from
-    -- needing three separate pointer dances.
     local prev, next_
     if before ~= nil then
         prev, next_ = r8(at(before) + 0x05), before
@@ -7203,11 +4097,9 @@ genderFrames.door.insert = function(newId)
     return true
 end
 
--- CreateTask + StartDoorAnimationTask, for one of the three kinds, at a tile in SAVE BLOCK
--- coordinates. Returns whether the engine now owns a door animation of ours.
+-- CreateTask + StartDoorAnimationTask for one of the three kinds at a save-block tile; true if the engine now runs it.
 genderFrames.door.start = function(kind, x, y)
-    -- This build's Task_AnimateDoor, learned from the engine in sample() -- nil until the local
-    -- player has opened a door once. On vanilla ready() seeds it, so it is never nil there.
+    -- Task_AnimateDoor, learned in sample(): nil until the local player opens a door (ready() seeds it on vanilla).
     local animate = genderFrames.door.fn
     if animate == nil then return false end
     local base, stride = genderFrames.door.tasksAddr(), flyRide.TASK_SIZE
@@ -7216,10 +4108,7 @@ genderFrames.door.start = function(kind, x, y)
     for i = 0, 15 do
         local t = base + i * stride
         if r8(t + 0x04) == 1 then
-            -- StartDoorAnimationTask's own refusal (`FuncIsActiveTask(Task_AnimateDoor)`). The
-            -- engine allows exactly one door animation at a time, and the one already running may
-            -- be the PLAYER'S OWN -- so a ghost yields to it rather than replacing it. Asked of
-            -- the task's DATA, for the reason isDoorTask exists.
+            -- The engine runs one door animation at a time, and it may be the player's own: a ghost yields to it.
             if genderFrames.door.isDoorTask(t) then return false end
         elseif free == nil then
             free = i
@@ -7228,10 +4117,7 @@ genderFrames.door.start = function(kind, x, y)
     if free == nil then return false end
     local gfx, size = genderFrames.door.gfxFor(x + MAP_OFFSET, y + MAP_OFFSET)
     if not gfx then
-        -- ONE LINE, ONCE. A build that has the tables, has gTasks, has the code address and still
-        -- paints no door is failing at the only step left -- reading the metatile -- and the
-        -- triple below says whether the map grid is even being read from the right place.
-        -- `gBackupMapLayout` is IWRAM, and IWRAM is exactly what EX SPEEDCHOICE moves.
+        -- Logged once: only the metatile read is left to fail, and the map grid's IWRAM address moves on EX.
         if not genderFrames.door.gfxMissLogged then
             genderFrames.door.gfxMissLogged = true
             logFile(string.format(
@@ -7259,48 +4145,24 @@ genderFrames.door.start = function(kind, x, y)
     for k = 0, 15 do w16(t + 0x08 + k * 2, 0) end
     w16(t + 0x08, (frames >> 16) & 0xffff) w16(t + 0x0a, frames & 0xffff)
     w16(t + 0x0c, (gfx >> 16) & 0xffff)    w16(t + 0x0e, gfx & 0xffff)
-    -- "h" starts on the LAST open frame: the engine draws it, counts it out, finds the {0,0}
-    -- terminator and retires the task, leaving the open door on the tilemap. That is
-    -- FieldSetDoorOpened's effect, produced by the engine's own drawing path.
+    -- "h" starts on the last open frame: the engine draws it and retires the task, leaving the door drawn open.
     if kind == "h" then w16(t + 0x10, genderFrames.door.LAST_OPEN_FRAME) end
     w16(t + 0x14, x + MAP_OFFSET) w16(t + 0x16, y + MAP_OFFSET)
     -- data[15] -- ours, so sample() does not report this door back to the peer it came from.
     w16(t + 0x08 + 15 * 2, genderFrames.door.MINE)
-    -- isActive LAST, and only if the slot is linked. A task marked active but absent from the
-    -- chain is a slot the engine will never run and never free -- it would leak one of sixteen,
-    -- permanently, which is a far worse outcome than a door that did not animate.
+    -- isActive last, and only once linked: an active task missing from the chain is never run or freed, leaking a slot.
     if not genderFrames.door.insert(free) then return false end
     w8(t + 0x04, 1)
     return true
 end
 
--- Once per frame: play whatever door each peer's own engine is playing, for peers standing on the
--- map we are standing on.
---
--- SAME AREA ONLY, deliberately. A peer across a seam has coordinates this client rebases every
--- frame (xmapTranslate), and a door is a fixed tile rather than a moving character -- mirroring
--- one across a seam is a separate question from mirroring one in the room, and doing it wrong
--- animates a door on the wrong house.
---
--- Fires ONCE per event, not once per frame the peer reports it: a door task lives ~20 frames and
--- the peer publishes it for all of them, so the key is what the peer is doing and where, and it
--- has to change before anything is started again.
+-- Once per frame, play each same-area peer's door; across a seam the tile needs rebasing, and wrong is the wrong house.
+-- Once per event, not per frame: a door task lives ~20 frames and the peer reports it on every one of them.
 genderFrames.doorTick = function(localAreaId)
     if not genderFrames.door.ready() then return end
     for _, r in pairs(remotes) do
-        -- A PEER WHO ARRIVES ON OUR MAP STANDING ON A DOOR TILE HAS JUST COME OUT OF A HOUSE, and
-        -- that is a statement this client can make on its own, about tiles it can read, on any
-        -- build. It is the same moment `Task_ExitDoor` draws the door open in its state 0 -- the
-        -- player becomes visible on the door tile -- so it needs no code address and no wire
-        -- field, which is what makes the hold-open work on the three patched builds where
-        -- `Task_ExitDoor` cannot be found. The user, on the half that was missing: *"vanilla can
-        -- see ap entering, but not exiting a house"*.
-        --
-        -- Narrow on purpose. It fires only on a CHANGE of area, only for a peer we were already
-        -- watching somewhere else (never on first sight, where "they were indoors a moment ago"
-        -- is not something we know), and only when the tile they are standing on is a door in
-        -- this build's own table -- which is not a tile a character is ever parked on for any
-        -- other reason.
+        -- A peer we were watching elsewhere who arrives on our map standing on a door tile has just left a house: the
+        -- moment Task_ExitDoor's state 0 draws the door open, read from tiles alone, so it works on every build.
         local arrived = r.areaId == localAreaId and r.dPrevArea ~= nil
             and r.dPrevArea ~= localAreaId
         r.dPrevArea = r.areaId
@@ -7311,20 +4173,8 @@ genderFrames.doorTick = function(localAreaId)
                 r.dHold = true
             end
         end
-        -- **A HELD-OPEN DOOR SHUTS WHEN THE GHOST STEPS OFF IT**, which is what the engine does
-        -- and is the only version of this that is not a guess at a duration.
-        --
-        -- The hold above is this client's own inference, so no close is coming for it from the
-        -- wire -- and on EX none is coming for anything, because that build cannot recognise its
-        -- own door task to report it. Waiting for the backstop instead put a full two seconds
-        -- between a ghost walking out and the door shutting: *"feels a bit slow/long"*. The
-        -- engine's own exit closes the door the instant the walk-down completes
-        -- (`Task_ExitDoor` state 2, `IsPlayerStandingStill`), and "the peer is no longer standing
-        -- on the door tile" is that same instant, observable from a position we already have.
-        --
-        -- Only for a hold WE inferred: a door the peer opened by entering has a real close coming
-        -- from their engine, and during that one the ghost walks ONTO the door tile rather than
-        -- off it, so this test would have closed it at exactly the wrong moment.
+        -- A hold we inferred shuts when the ghost steps off the door tile, when Task_ExitDoor's state 2 closes it.
+        -- Never for a door the peer opened by entering: the ghost walks onto that tile, so this would close it early.
         if r.dHold and r.dOpenAt then
             local offTile = r.areaId ~= localAreaId
             if not offTile and r.x and r.y then
@@ -7338,30 +4188,19 @@ genderFrames.doorTick = function(localAreaId)
         if r.dk and r.dx and r.dy and r.areaId == localAreaId then
             local key = r.dk .. ":" .. r.dx .. "," .. r.dy
             if key ~= r.dKey then
-                -- **THE KEY IS SET WHETHER OR NOT THE DOOR STARTED**, and that is the whole point
-                -- of it. The first version only recorded the event on success, so an event this
-                -- client could not play -- a tile with no door in its table, a door already
-                -- animating -- came back for another 54-entry ROM walk on the very next frame,
-                -- and the one after that, for as long as the peer kept reporting it. One refusal
-                -- per event is the contract: this key means "seen", not "played".
+                -- The key means seen, not played: an event this client cannot play is refused once, not every frame.
                 local started = genderFrames.door.start(r.dk, r.dx, r.dy)
                 r.dKey = key
                 if started and r.dk ~= "c" then
                     r.dOpenAt, r.dOpenX, r.dOpenY = frameCounter, r.dx, r.dy
-                    -- A door the PEER reported has its own close coming; it is not ours to time.
+                    -- A door the peer reported has its own close coming; it is not ours to time.
                     r.dHold = nil
                 elseif r.dk == "c" then
                     r.dOpenAt, r.dHold = nil, nil
                 end
             end
         end
-        -- The close that never came. Not an error path worth a log line every time -- a peer
-        -- dropping mid-warp is ordinary -- but a door left open is visible, so it gets shut.
-        --
-        -- **IT DOES NOT CLEAR dKey.** Clearing it was the second half of the spam: a peer still
-        -- reporting the same open would re-arm on the next frame, open again, time out again, and
-        -- so on every two seconds forever. The event has been seen; the timeout is the end of it,
-        -- not permission to replay it.
+        -- A close that never came (a peer dropping mid-warp) times out; dKey stays set, or the open would replay.
         if r.dOpenAt and frameCounter - r.dOpenAt > genderFrames.door.HOLD_MAX_FRAMES then
             if r.areaId == localAreaId then
                 genderFrames.door.start("c", r.dOpenX, r.dOpenY)
@@ -7371,25 +4210,13 @@ genderFrames.doorTick = function(localAreaId)
     end
 end
 
--- gFieldEffectObjectTemplate_Bird (pokeemerald.map). A SpriteTemplate, the same 0x18-byte layout
--- spawnSurfBlob reads: tileTag 0x00, paletteTag 0x02, oam 0x04, anims 0x08, images 0x0C,
--- affineAnims 0x10, callback 0x14. Its frames are 32x32, so sixteen tiles, like the blob's.
+-- gFieldEffectObjectTemplate_Bird: a SpriteTemplate in the layout spawnSurfBlob reads; 32x32 frames, so 16 tiles.
 flyRide.BIRD_TEMPLATE = 0x0850d4a8
 flyRide.BIRD_TILES = 16
--- Palette 0, OAM priority 1, subpriority 1 for the bird. These are the decompilation's reading of
--- the engine's own bird (CreateFlyBirdSprite, a pointer) and are not measured on a live bird.
+-- The decompilation's palette and subpriority for the engine's bird (CreateFlyBirdSprite); not measured on a live bird.
 flyRide.BIRD_PALETTE, flyRide.BIRD_SUBPRIORITY = 0, 1
 
--- Hide or show a ghost -- THROUGH THE OBJECT, and then the sprite.
---
--- The object's `invisible` (+0x01 bit 0x20) is treated as the durable one and the one the peer is
--- actually reporting. That the engine copies it down onto the sprite each frame, and that
--- `hideobjectat` sets the same bit, is the decompilation's reading (a pointer), not measured.
---
--- The sprite's bit (0x04 of the flags at +0x3E, also per the decompilation -- the same bit despawnSurfBlob
--- sets when it retires one) is set alongside it so the change lands on THIS frame rather than the
--- next, which is the difference between a clean cut and one visible frame of a character standing
--- on water.
+-- Hide or show a ghost: the object's invisible bit (what the peer reports) and the sprite's, so it lands this frame.
 flyRide.setHidden = function(g, hidden)
     local a, d = objAddr(g.objId), sprAddr(g.sprId)
     if hidden then
@@ -7401,19 +4228,8 @@ flyRide.setHidden = function(g, hidden)
     end
 end
 
--- PUT A CARRIED SPRITE BACK ON THE MAP.
---
--- The bird's callback drives its passenger's sprite in SCREEN coordinates with coordOffsetEnabled
--- cleared -- and nothing on the engine's side ever recomputes an object event's sprite position
--- from its map coordinates. Movement actions write it, MoveObjectEventToMapCoords writes it, and
--- otherwise it just IS. So when a carry ends, the sprite stays wherever the arc left it while the
--- object underneath stands on the right tile, and a stationary peer gives the engine no movement
--- to write it back with. The user, watching a landing: *"the 'player/ghost' shows up 3 tiles
--- left, 4 tiles up. instead of where its actually landing"* -- the release point of the arc --
--- and then *"teleporting kinda after the fly landing"* when the rebuild finally snapped it home.
---
--- Same formula as spawnGhost's placement, and the same caveat: exact only on a settled camera,
--- which a landing gives us -- the watcher is standing still to watch.
+-- Put a carried sprite back on the map: the bird drives it in screen coordinates, and the engine never recomputes an
+-- object's sprite position from its map coordinates. Exact on a settled camera, which a landing gives.
 flyRide.reground = function(g)
     local a, d = objAddr(g.objId), sprAddr(g.sprId)
     local sx, sy = spriteScreenPos(rs16(a + 0x10), rs16(a + 0x12), r8(d + 0x29))
@@ -7422,17 +4238,8 @@ flyRide.reground = function(g)
     w8(d + 0x3e, r8(d + 0x3e) | 0x02)  -- coordOffsetEnabled: back on the map's clock
 end
 
--- THE BIRD IS THE ENGINE'S, AND SO IS THE FLIGHT.
---
--- This code points the engine's own bird callback (SpriteCB_FlyBirdSwoopDown) at the ghost's
--- sprite through data[6], so the flight is the engine's rather than a reimplementation. That the
--- callback carries whichever sprite data[6] names, off the map's clock, and that the game already
--- uses it for NPCs (FldEff_NPCFlyOut) is the decompilation's reading -- pointers, not measured. It
--- builds the sprite the template describes, points it at the engine's routine, and names the
--- ghost as its passenger.
---
--- Built from the template rather than copied from a live bird, for the same reason the surf blob
--- is: no bird exists unless somebody is already flying, and the peer's is on another machine.
+-- Builds the engine's own bird from its template (none exists unless someone is already flying) and points it at
+-- SpriteCB_FlyBirdSwoopDown, which carries whichever sprite data[6] names, so the flight is the engine's.
 flyRide.spawnBird = function(g, k)
     if g.birdSprId then return g.birdSprId end
     local tmpl = flyRide.rom(flyRide.BIRD_TEMPLATE)
@@ -7455,45 +4262,24 @@ flyRide.spawnBird = function(g, k)
     w32(d + 0x0c, imagesPtr)
     w32(d + 0x10, affinePtr)
     w32(d + 0x1c, flyRide.rom(flyRide.BIRD_SWOOP_CB))
-    -- THE ARC IS CENTRED ON THE CHARACTER IT SERVES, not on the screen.
-    --
-    -- StartFlyBirdSwoopDown parks the bird at (120,0) -- top of the screen, horizontally centred
-    -- -- and the whole cosine arc hangs off that anchor, its low point landing at screen centre.
-    -- That is only correct because the engine flies exactly one character, the player, who IS the
-    -- screen centre. A ghost is not: on the watcher's screen the peer stands wherever it stands,
-    -- and an arc anchored at (120,0) swoops down to the WATCHER's own feet and carries the ghost
-    -- there first. Seen twice on 2026-08-26 before this was written: on the compare rig both
-    -- birds stacked into one dark jumble at screen centre (the loopback ghost's arc ignored its
-    -- two-tile offset), and on a watcher any peer's departure teleported the ghost to centre
-    -- before lifting it.
-    --
-    -- The engine's own anchor is kept and TRANSLATED by where the ghost stands relative to the
-    -- local player -- who is at the exact screen position the peer occupied on their own screen,
-    -- so the translation preserves the engine's arc-to-character relationship 1:1. The ghost's
-    -- half comes from its OBJECT coordinates via spriteScreenPos, not from its sprite, which
-    -- could still be stranded mid-air by an earlier carry.
+    -- The engine anchors the arc at (120,0), right only for the player at screen centre. Keep its anchor, translated by
+    -- where the ghost stands relative to the local player, from its object coordinates (its sprite may be stranded).
     local ga = objAddr(g.objId)
     local gsx, gsy = spriteScreenPos(rs16(ga + 0x10), rs16(ga + 0x12),
         r8(sprAddr(g.sprId) + 0x29))
     local pd = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
     w16(d + 0x20, (120 + gsx - rs16(pd + 0x20)) & 0xffff)
     w16(d + 0x22, (gsy - rs16(pd + 0x22)) & 0xffff)
-    -- centerToCornerVec, which every engine-made sprite carries and a hand-built one must be
-    -- given: -(width/2), -(height/2) for a 32x32 frame, so the sprite's position means its centre.
-    -- The surf blob was drawn a full tile down-right for want of exactly this.
+    -- centerToCornerVec, which a hand-built sprite must be given (-16,-16 at 32x32) so its position means its centre.
     w8(d + 0x28, (-16) & 0xff)
     w8(d + 0x29, (-16) & 0xff)
     w8(d + 0x43, flyRide.BIRD_SUBPRIORITY)
-    -- data[2] SEEDED FROM THE PEER'S OWN BIRD, not from zero. Both birds then step by 4 a frame on
-    -- the engine's clock, so seeding costs nothing per frame and starts them in phase rather than
-    -- one interpolation delay apart.
+    -- Seeded from the peer's own bird: both then step by 4 a frame on the engine's clock, in phase.
     w16(d + 0x32, (k or 0) & 0xffff)          -- data[2]: the arc parameter
-    -- data[6]: sPlayerSpriteId. Seeded EMPTY, exactly as StartFlyBirdSwoopDown seeds it -- the
-    -- passenger is written by the caller, every frame, from the peer's own hand-off. A bird that
-    -- spawns already carrying somebody has skipped the descent, which is the bug this seed had.
+    -- data[6], sPlayerSpriteId: empty, as StartFlyBirdSwoopDown seeds it; the caller writes the passenger every frame.
     w16(d + 0x3a, flyRide.NO_RIDER)
     w16(d + 0x3c, 0)                          -- data[7]: sAnimCompleted
-    w8(d + 0x3e, 0x01)                        -- inUse; NOT coordOffsetEnabled -- see above
+    w8(d + 0x3e, 0x01)                        -- inUse, not coordOffsetEnabled: the arc is in screen coordinates
     w8(d + 0x3f, 0x04)                        -- animBeginning
     g.birdSprId, g.birdTileStart = sprId, tileStart
     return sprId
@@ -7503,44 +4289,22 @@ flyRide.despawnBird = function(g)
     if not g.birdSprId then return end
     local d = sprAddr(g.birdSprId)
     w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04) -- inUse = 0, invisible = 1
-    -- Freed through the queue, never here: the hardware is still drawing from these tiles for two
-    -- more frames, and a range reclaimed inside that window is stamped over by a copy that was
-    -- already scheduled. The whole reasoning is at swapGhostGraphicInPlace's deferred free.
+    -- Freed through the queue: the hardware draws from these tiles for two more frames (swapGhostGraphicInPlace).
     if g.birdTileStart then
         queueTileFree({ g = g, start = g.birdTileStart, count = flyRide.BIRD_TILES,
             at = frameCounter })
     end
     g.birdSprId, g.birdTileStart = nil, nil
-    -- GIVE THE PASSENGER BACK TO THE MAP -- position included, not just the scroll bit. The
-    -- first version restored only coordOffsetEnabled, and the sprite kept the arc's last screen
-    -- position for as long as the peer stood still: flyRide.reground's header is the symptom.
+    -- Give the passenger back to the map, position included, not just the scroll bit.
     flyRide.reground(g)
 end
 
--- THE VEHICLE IS A SPRITE OF ITS OWN, and the ghost inside it is simply hidden.
---
--- That is how the decompilation's ride script reads (a hidden player and a boat object on the same
--- coordinates -- see flyRide's header; unmeasured). Reproducing it as a separate sprite rather
--- than by dressing the ghost in the boat's graphic is the difference between copying the game and
--- imitating it -- and it also avoids handing the ghost a graphic from a palette family its own
--- machinery has no way to give back afterwards.
---
--- Built the way spawnGhostShadow builds its sprite: from the graphic's own ROM entry, with the
--- engine's do-nothing callback, positioned from Lua each frame.
---
--- THE PALETTE IS THE ONE THING THAT CAN REFUSE. A ghost normally borrows the palette slot already
--- loaded for the player, which works only because every Brendan/May state shares one tag. A boat
--- is an NPC graphic on PALSLOT_NPC_3, so it needs its own slot to be loaded -- and it is loaded
--- exactly when the watcher's own map has that boat on it. Where it is not, there is no way to draw
--- the vehicle in its real colours, and the caller hides the ghost instead.
+-- The vehicle is its own sprite with the ghost hidden inside, built like the shadow. A boat's palette is an NPC slot,
+-- loaded only where the watcher's map has that boat, so this can refuse, and the caller then hides the ghost.
 flyRide.spawnVehicle = function(g, gfxId)
     if g.vehicleSprId then return g.vehicleSprId end
     local gi = graphicsInfo(gfxId)
     if not gi or not gi.raw or gi.images == 0 or gi.oam == 0 then return nil end
-    -- hwPaletteSlotForTag is the hardware tier's own lookup into sSpritePaletteTags -- the
-    -- engine's record of which tag is loaded in each of the sixteen OBJ palette slots. Shared
-    -- rather than reimplemented: it is the same question, and a second copy is a second thing to
-    -- get wrong when a ROM moves.
     local slot = hwPaletteSlotForTag(gi.paletteTag)
     if not slot then return nil end
     if r16(genderFrames.spriteCallbackDummy - 1) ~= 0x4770 then return nil end
@@ -7564,8 +4328,7 @@ flyRide.spawnVehicle = function(g, gfxId)
     w32(d + 0x0c, gi.images)
     w32(d + 0x10, gi.affineAnims)
     w32(d + 0x1c, genderFrames.spriteCallbackDummy)
-    -- The ride sets the boat's subpriority to 0 before it starts (`setobjectsubpriority
-    -- LOCALID_ROUTE104_BOAT`), which is the script saying "draw this in front of what it passes".
+    -- The ride sets the boat's subpriority to 0 (setobjectsubpriority): in front of what it passes.
     w8(d + 0x43, 0)
     w8(d + 0x28, (-(gi.width // 2)) & 0xff)
     w8(d + 0x29, (-(gi.height // 2)) & 0xff)
@@ -7573,8 +4336,7 @@ flyRide.spawnVehicle = function(g, gfxId)
     w8(d + 0x3f, 0x04)
     g.vehicleSprId, g.vehicleTileStart, g.vehicleTiles = sprId, tileStart, nTiles
     g.vehicleGfx = gfxId
-    -- The pixels now, rather than waiting for an engine copy that will never come -- this sprite
-    -- has a do-nothing callback and no animation driver of its own.
+    -- Copy the pixels now: this sprite has a do-nothing callback and no animation driver to copy them.
     local src = r32(gi.images)
     if isRomPtr(src) then
         local dst = 0x06010000 + tileStart * 32
@@ -7594,33 +4356,11 @@ flyRide.despawnVehicle = function(g)
     g.vehicleSprId, g.vehicleTileStart, g.vehicleTiles, g.vehicleGfx = nil, nil, nil, nil
 end
 
--- WHAT TO DO WITH A PEER THE ENGINE HAS STOPPED DRAWING AS A CHARACTER.
---
--- Returns true when it has taken the ghost over for this frame, which means the caller must not
--- place, step or animate it: a flying ghost's sprite belongs to the bird's callback, and writing a
--- map position over the top of it would undo the arc every frame.
---
--- The order is the order of authority. A fly is the strongest statement -- the character is not on
--- the map at all -- a vehicle next (on the map, drawn as something else), and a bare `invisible`
--- last (on the map, simply not drawn).
--- WHAT THE RECEIVER SAW AND WHAT IT DID, one line per change, under compare mode.
---
--- The engine side of a fly is fully covered by `probes/fly_probe.lua`, which reads the game and
--- never this file. What that cannot see is the DECISION: which `fly`/`flyk` actually arrived over
--- the wire and which branch it took. Both halves are needed together -- the 2026-08-26 departure
--- bug looked identical from the engine side whether the value never arrived or arrived and was
--- ignored. Change-keyed, so a whole fly is a dozen lines, and to the FILE, never the console.
--- NOT GATED ON COMPARE MODE, deliberately, and this is why: the fly bugs that survived the first
--- three fixes are all on the side that WATCHES a flying peer, and the watching client is the one
--- running the shipped configuration with no dev flags set. A trace only the dev rig emits is a
--- trace that cannot see them. It is change-keyed and file-only, so a whole fly is about a dozen
--- lines and a session that never flies writes none.
+-- Logs what the receiver got for a fly and what it did, one line per change, to the file. Not gated on compare mode:
+-- the watching client runs the shipped config, and a session that never flies writes nothing.
 flyRide.trace = function(g, remote, where)
     if not remote.fly and not g.flyTraceKey then return end
-    -- THE DECISIVE PAIR IS "WHERE THE PEER SAYS IT IS" NEXT TO "WHERE THE GHOST ACTUALLY IS", and
-    -- the two must come from different places or the line proves nothing: the first is received
-    -- input, the second is read back out of the engine's own object. A trace that printed only
-    -- what we intended would agree with itself through every one of these bugs.
+    -- Received position beside the one read back from the engine: a trace of our intent would agree with itself.
     local a = g.objId and objAddr(g.objId)
     local gx = a and (rs16(a + 0x10) - MAP_OFFSET) or -1
     local gy = a and (rs16(a + 0x12) - MAP_OFFSET) or -1
@@ -7637,163 +4377,57 @@ flyRide.trace = function(g, remote, where)
         remote.x or -1, remote.y or -1, tostring(remote.areaId), gx, gy, frameCounter))
 end
 
--- THE FLIGHT'S STATE LIVES ON THE PEER, NOT ON THE GHOST -- because a cross-town fly destroys the
--- ghost halfway through it. The peer's area id changes the moment the warp completes, which on the
--- ARRIVAL side means the watcher suddenly has a peer in its own map and builds a ghost for it: a
--- fresh record, no idea a flight is in progress. So the peer stood on the landing tile for a
--- moment, the arrival's own fly frames then hid it again, and the bird brought it in. The user:
--- *"the ghost briefly spawn, goes invisible, and then becomes visible with the bird flying
--- animation happening"* -- three states where there should have been one.
---
--- `remotes[playerId]` is updated in place and outlives any number of ghost rebuilds, so it is the
--- only place a fact about the whole flight can be kept.
+-- Takes over a peer the engine no longer draws as a character (a fly, then a vehicle, then invisible); true means the
+-- caller must not place, step or animate it. Flight state lives on the remote, which outlives a ghost rebuild.
 flyRide.apply = function(g, remote, playerId)
     flyRide.trace(g, remote, "enter")
-    -- THE SURFING GRAPHIC DOES NOT MEAN SURFING HERE, and this is the one place in the game where
-    -- that is true. To sit on the bird the engine puts the character in the SURFING graphic with
-    -- the mount animation (FlyOutFieldEffect_JumpOnBird) -- it is a riding pose, borrowed, and the
-    -- game itself destroys the real blob at that moment rather than making one.
-    --
-    -- Every path here that sees a surfing graphic attaches a surf blob, because everywhere else
-    -- that graphic really does mean a character on the water. So a flying peer got one: the user,
-    -- watching, *"think i saw some surf blobs during the fly animation itself ? instead of just
-    -- the bird thing"*. It also outlives the flight -- a blob follows an object id stored in its
-    -- own sprite data, so one left attached swims along under the peer afterwards, which is the
-    -- other half of *"the spawned ghost on the right got a glitchy/weird sprite afterwards"*.
-    --
-    -- Suppressed at the source rather than cleaned up after: `g.noBlob` is read by both attach
-    -- sites, and this runs before either of them in the frame.
+    -- To sit on the bird the engine borrows the surfing graphic, so suppress the surf blob both attach sites would add.
     g.noBlob = remote.fly ~= nil or nil
     if remote.fly then
-        -- A FLY RESUMING AFTER A GAP IS A NEW FLIGHT. The departure ended with the latch set and
-        -- the wire going quiet through the warp; these frames are the ARRIVAL, on its own fresh
-        -- arc, and the latch held over from the departure would refuse it a bird and keep the
-        -- landing hidden.
+        -- A fly resuming after a gap is the arrival, a new flight: the departure's latch must not refuse it a bird.
         if remote.flyGapAt then
             remote.flyGapAt = nil; remote.flyDone = nil; remote.flyLastPhase = nil
         end
         despawnSurfBlob(g)
         g.wasFlying = true
         flyRide.despawnVehicle(g)
-        -- THE BIRD ARRIVES BEFORE ITS PASSENGER, which is the whole shape of the animation.
-        --
-        -- Measured 2026-08-26 (`probes/fly_probe.lua`), second run: the ghost's bird was being
-        -- created at arc position 80 of 128 while the engine's was at 84 -- two thirds through --
-        -- so the ghost had no swoop at all. It appeared near the top of the arc already carrying
-        -- somebody and left. The user, watching it: *"fly is still looking weird
-        -- animation/sprite/location wise"*.
-        --
-        -- The cause is that a bird and its passenger are two different events. The engine's bird
-        -- starts its swoop EMPTY (`StartFlyBirdSwoopDown` zeroes the arc and sets sPlayerSpriteId
-        -- to "nobody"), flies down, and only then is the character handed to it
-        -- (`SetFlyBirdPlayerSpriteId`, from FlyOutFieldEffect_FlyOffWithBird) -- about twenty
-        -- frames later. Waiting for `fly == 2`, which is the peer reporting that HAND-OFF, meant
-        -- skipping the entire descent.
-        --
-        -- So the bird is built as soon as the peer HAS one, whether or not it is carrying yet, and
-        -- the passenger slot is written every frame from the peer's own answer. Both halves then
-        -- happen at the same arc positions they happened at on the peer's screen, which is the
-        -- only definition of 1:1 available here.
+        -- The bird is built as soon as the peer has one, carrying or not, and its passenger is written every frame: the
+        -- engine's bird swoops down empty and is handed the character about twenty frames later.
         if not remote.flyDone and remote.flyk then
             if remote.flyk >= 0x80 then
-                -- The peer's arc is ALREADY over -- a fly noticed late, across a network delay.
-                -- Starting a bird here would draw the second half of a swoop with no first half.
-                --
-                -- LATCHED WHATEVER THE PHASE. This used to require fly==2, on the reasoning that
-                -- only a carried peer has an arc worth finishing -- and an ARRIVAL breaks that:
-                -- the engine hands its character off the bird partway down and finishes the
-                -- descent with its own drop table, so the peer reports fly==1 for the rest of a
-                -- flight whose arc is still running. The latch never took, and the wire repeats a
-                -- flyk for several frames at 20Hz against 60fps, so the frame after each teardown
-                -- still read an under-0x80 arc with no bird and built another one. Measured
-                -- 2026-08-26 across an arrival: bird 58, nil, 58, nil on consecutive frames.
+                -- The peer's arc is already over (seen late): latch done whatever the phase, since an arrival is handed
+                -- off partway down and reports phase 1 while its arc still runs.
                 remote.flyDone = true
             elseif not g.birdSprId then
                 flyRide.spawnBird(g, remote.flyk)
             end
         end
-        -- WHO THE BIRD IS CARRYING, re-stated every frame from the peer rather than set once at
-        -- spawn: the hand-off is the peer's event to announce, and a bird that spawned before it
-        -- must be empty until it arrives. NO_RIDER is the engine's own sentinel for that.
-        -- ONE LIFECYCLE FOR THE BIRD, SHARED BY BOTH PHASES -- and this is where the departure was
-        -- still being lost after the two-phase spawn went in. The `fly == 1` branch below used to
-        -- retire the bird, from when fly==1 meant "no bird exists yet": so the descent spawned one
-        -- and the same frame destroyed it, over and over, and a bird only ever survived once the
-        -- peer reported fly==2. Measured 2026-08-26: `flyk` was on the wire from 8, and `bird` was
-        -- still nil at 72. The retire belongs to the bird's own "done", not to a phase.
+        -- The passenger is restated every frame (NO_RIDER until the hand-off); the bird retires on its own done flag.
         if g.birdSprId then
             w16(sprAddr(g.birdSprId) + 0x3a,
                 (remote.fly == 2) and g.sprId or flyRide.NO_RIDER)
             if r16(sprAddr(g.birdSprId) + 0x3c) ~= 0 then
-                remote.flyDone = true   -- phase-independent, for the reason just above
+                remote.flyDone = true
                 flyRide.despawnBird(g)
             end
         end
-        -- WHICH WAY THIS FLIGHT ENDED is the only thing that separates a departure from an
-        -- arrival once the wire goes quiet, and the two need opposite treatment. See the gap
-        -- branch below.
+        -- The phase a flight ended on is all that tells a departure from an arrival once the wire goes quiet.
         remote.flyLastPhase = remote.fly
         if remote.fly == 2 then
-            -- THE ARC HAPPENS ONCE, AND "DONE" HAS TO BE LATCHED. Measured 2026-08-26
-            -- (`probes/fly_probe.lua`): without the latch this spawned and destroyed a bird on
-            -- EVERY FRAME of the departure, and the ghost blinked in and out with it.
-            --
-            -- The loop is closed and the engine's own callback is what closes it.
-            -- SpriteCB_FlyBirdSwoopDown sets sAnimCompleted when its arc parameter passes 0x80 and
-            -- then KEEPS INCREMENTING -- it never stops, because in the real game the task tears
-            -- the sprite down. There is no task here, so this retired the bird on `done`, and the
-            -- next frame found `remote.fly` still 2 and no bird, spawned a fresh one seeded with
-            -- the peer's arc value, which was already past 0x80 -- so it reported done immediately
-            -- and the whole thing went round again, once per frame.
-            --
-            -- That single loop is BOTH symptoms the user reported: the blink is *"sprites are
-            -- glitchy"*, and the passenger's coordOffsetEnabled being cleared by a new bird and
-            -- restored by the old one's teardown on alternate frames is *"the ghosts are not
-            -- following the player at all during fly"* -- the ghost's position alternating between
-            -- the bird's screen coordinates and the map's.
-            --
-            -- So: the flight is attempted once per fly. Latched done, the peer stays hidden, which
-            -- is what the player themselves is -- off the top of the screen, on the way somewhere.
+            -- The callback sets sAnimCompleted past 0x80 and keeps counting (the engine's task tears the sprite down;
+            -- there is none here), so done is latched: one flight per fly, then hidden, as the player is, off-screen.
             flyRide.setHidden(g, remote.flyDone == true)
             return true
         end
-        -- fly == 1: on the ground, in the field-move pose. An ordinary character drawn the
-        -- ordinary way -- and if a bird is still attached from the swoop, this is where it is let
-        -- go, which is also the arrival case: the peer is set down and the bird leaves.
-        --
-        -- THE LATCH IS NOT CLEARED HERE, and that was the arrival's whole bug. An arrival IS a
-        -- second flight and does need a fresh latch -- but it is already separated from the
-        -- departure by frames where the wire carries no fly at all (the warp), and the gap branch
-        -- below clears it on the way back in. Clearing it here instead cleared it every frame of
-        -- every descent, which re-armed the spawn immediately after each teardown.
-        -- THE RELEASE IS WHERE THE SPRITE GETS STRANDED. The peer reports fly 2 -> 1 the moment
-        -- the engine hands its own character off the bird -- which happens partway down the arc,
-        -- not at its end -- and from that frame our bird stops writing the ghost's sprite. The
-        -- object is on the landing tile; the sprite is wherever the arc let go. Re-anchored here,
-        -- every frame the scroll bit says a bird had it, so the pose plays AT THE LANDING TILE
-        -- instead of hanging in the air off to the side.
+        -- fly == 1: on the ground; an attached bird lets go. The latch is cleared by the gap branch, never here (here
+        -- it would re-arm the spawn every descent frame). Re-anchor the sprite while the scroll bit says a bird had it.
         if (r8(sprAddr(g.sprId) + 0x3e) & 0x02) == 0 then flyRide.reground(g) end
         flyRide.setHidden(g, false)
         return false
     end
 
-    -- FLY OVER THE WIRE ENDED. Two very different reasons produce the same nil, and the latch is
-    -- what tells them apart:
-    --
-    --   * the last phase was 2 -- the peer was CARRIED AWAY and is now mid-warp, behind its own
-    --     fade, with the fly-out task destroyed and the fly-in task not yet created. On a
-    --     same-town fly this gap is ~25 frames, and rebuilding here put a standing ghost on the
-    --     takeoff tile between the two halves of the flight -- a pop the player being watched
-    --     never shows, because their screen is black. So the ghost stays hidden and NOTHING is
-    --     rebuilt until the arrival's own fly frames arrive (a fresh flight: the latch clears
-    --     below), a different area tears the ghost down, or a timeout says it is not coming.
-    --   * the last phase was 1 -- the peer was SET DOWN. The engine releases its character
-    --     partway down the arrival arc and finishes with its own drop table, so a landed peer's
-    --     last word is always phase 1, and a departed one's is always phase 2. That is the whole
-    --     discriminator, and it has to be the phase rather than the done-latch: the arrival runs
-    --     an arc of its own, so it ends latched too, and testing the latch hid every peer that
-    --     had just landed for the full timeout -- the user, watching arrivals, *"they appear for
-    --     a bit, go invisible, and then appear again"*.
+    -- Fly ended on the wire. Last phase 2 (carried off, mid-warp behind a fade): stay hidden until the arrival, another
+    -- area or the timeout. Last phase 1: set down. The phase tells them apart; an arrival ends latched too.
     if remote.flyLastPhase == 2 then
         remote.flyGapAt = remote.flyGapAt or frameCounter
         if frameCounter - remote.flyGapAt < 480 then
@@ -7808,21 +4442,8 @@ flyRide.apply = function(g, remote, playerId)
     flyRide.despawnBird(g)
     remote.flyDone = nil
 
-    -- A LANDED PEER IS REBUILT, NOT REPAIRED.
-    --
-    -- A fly leaves a ghost holding six things that are all individually wrong afterwards: the
-    -- mount graphic, the mount animation with its paused bit, a sprite offset from the drop table,
-    -- a cleared coordOffsetEnabled, a map position frozen at the tile it took off from, and -- for
-    -- a same-town fly, where the area id never changes and nothing else triggers a rebuild -- no
-    -- reason for any other code path to revisit any of it. The user, after the arc was fixed:
-    -- *"none of the ghosts are lining up next to the player after flying, and some of the ghosts
-    -- get stuck in bad animation poses"*. Both are that list.
-    --
-    -- Restoring the six by hand is six chances to miss one, and the adapter already has a routine
-    -- that produces a correct ghost from nothing: the spawn path. So the end of a flight drops the
-    -- ghost and lets the next frame rebuild it at the peer's real position wearing the peer's real
-    -- graphic. One frame of absence, spent while the peer is landing behind a fade -- which is the
-    -- cheapest moment in the whole sequence to spend it.
+    -- A landed peer is rebuilt, not repaired: a fly leaves six fields wrong and, on a same-town fly, nothing else to
+    -- revisit them, so drop the ghost and let the spawn path rebuild it while the landing is behind a fade.
     if g.wasFlying then
         g.wasFlying = nil
         if playerId then
@@ -7834,9 +4455,7 @@ flyRide.apply = function(g, remote, playerId)
     if remote.boat then
         if g.vehicleGfx and g.vehicleGfx ~= remote.boat then flyRide.despawnVehicle(g) end
         if g.vehicleSprId or flyRide.spawnVehicle(g, remote.boat) then
-            -- The boat sits exactly where the character it replaced would be. Screen position
-            -- rather than map coordinates, because that is the one both sprites already agree on
-            -- and it needs no camera arithmetic of its own.
+            -- Screen position, which both sprites already agree on, so it needs no camera arithmetic.
             local cd, vd = sprAddr(g.sprId), sprAddr(g.vehicleSprId)
             w16(vd + 0x20, rs16(cd + 0x20))
             w16(vd + 0x22, rs16(cd + 0x22))
@@ -7844,9 +4463,7 @@ flyRide.apply = function(g, remote, playerId)
             flyRide.setHidden(g, true)
             return false
         end
-        -- The vehicle could not be drawn -- see spawnVehicle for the one reason that happens.
-        -- Hiding is then the honest answer: the engine is not drawing this character either, and a
-        -- walker sliding across open water is a worse lie than an absence.
+        -- The vehicle cannot be drawn (see spawnVehicle): hide, since a walker sliding across water is a worse lie.
         flyRide.setHidden(g, true)
         return true
     end
@@ -7861,40 +4478,14 @@ flyRide.apply = function(g, remote, playerId)
 end
 
 
--- Request a movement action: three object fields plus the sprite's action-function index, after
--- the decompilation's ObjectEventSetHeldMovement (a pointer; which fields, unmeasured). The engine
--- then plays out the whole tile -- animation, slide, coordinates.
+-- Request a movement action (the fields ObjectEventSetHeldMovement writes); the engine plays out the whole tile.
 local function requestAction(g, action)
     local a = objAddr(g.objId)
     w8(a + 0x1c, action)
     w8(a + 0x00, (r8(a + 0x00) | 0x40) & ~0x80) -- heldMovementActive = 1, finished = 0
     w16(sprAddr(g.sprId) + 0x32, 0) -- data[2] = sActionFuncId
-    -- AND GIVE THE ANIMATION BACK, because we may have taken it.
-    --
-    -- Mirroring a HELD peer sets the sprite's animPaused bit, which is right while the peer stands
-    -- still and disastrous the moment it moves: nothing here clears it, so the engine played the
-    -- step -- position, timing, everything -- with the legs frozen. That is a character travelling
-    -- without moving, and the user called it exactly: *"they are 'sliding/gliding' at some parts"*.
-    -- It only showed after an idle spell, which is what made it look like a movement bug rather
-    -- than an animation one.
-    --
-    -- Done here, at the one place every step goes through, rather than in the mirror -- the mirror
-    -- deliberately does not run while a peer is moving, so it is the wrong place to undo something
-    -- that matters only then. This sets `enableAnim`, which the decompilation reads as clearing
-    -- animPaused and disableAnim and then itself (TryEnableObjectEventAnim, a pointer; unmeasured).
-    --
-    -- ...UNLESS THE PEER IS FORBIDDEN ONE. A slide is a movement that does not animate, and this
-    -- rescue is what stopped a ghost reproducing it: the peer holds disableAnim for the whole of
-    -- an ice slide, we requested the matching WALK_FAST, and then handed the animation straight
-    -- back, so the ghost strode across the ice the player glided over (user, 2026-08-21: the drawn
-    -- and spawned copies *"are doing the 'walking' animation instead of freezing/holding the
-    -- pose"*). The bit is set on the ghost instead, which is what the engine does to the player.
-    --
-    -- AND IT HAS TO COME BACK OFF, on the first step after the ice. disableAnim is sticky -- the
-    -- engine only ever clears it through enableAnim -- so leaving it set once would cost the ghost
-    -- its walk cycle for the rest of the session, which is a far worse bug than the one being
-    -- fixed. Cleared here, at the same one place every step goes through, and with enableAnim set
-    -- alongside so the sprite is un-paused the way TryEnableObjectEventAnim does it.
+    -- Give the animation back, or a held peer's animPaused freezes the legs through the step. Under the peer's
+    -- disableAnim (an ice slide) set that instead, and clear it on the next step: only enableAnim ever clears it.
     if genderFrames.syncNoAnim then
         w8(a + 0x01, (r8(a + 0x01) | 0x04) & ~0x08)
     elseif (r8(a + 0x01) & 0x04) ~= 0 or (r8(sprAddr(g.sprId) + 0x2c) & 0x40) ~= 0 then
@@ -7903,22 +4494,8 @@ local function requestAction(g, action)
     end
 end
 
--- A CHARACTER CAN FACE ONE WAY AND MOVE ANOTHER, and only the game says so.
---
--- Asking for a step also turns the ghost, which is right nearly always and wrong exactly where the
--- engine has taken the facing away from the movement. A muddy slope is that case:
--- the rider is pushed SOUTH while still facing NORTH -- you watch yourself slide back down still
--- looking up the hill (ForcedMovement_MuddySlope is the pointer). Measured over 527 frames of
--- it, 2026-08-20: the ghost's facing was south on
--- 181 of them while the player's never left north.
---
--- The peer already sends its facing, and its step direction is known here, so a disagreement
--- between the two IS the locked case -- no new wire field needed. The ghost is then given the
--- peer's facing and the engine's own lock bit, so the step cannot turn it back
--- (facingDirectionLocked, which this code writes as bit 0x02 of byte +0x01 -- the bit position
--- follows the decompilation's global.fieldmap.h and is unmeasured).
--- GLOBAL, like drawRunList and swapGhostGraphicInPlace: this chunk is at Lua's hard 200-local
--- ceiling, and one more local here is a parse failure rather than a slow script.
+-- A character can face one way and move another (a muddy slope): when the peer's facing and step disagree, the ghost
+-- gets that facing and the lock bit so the step cannot turn it. Global: this chunk is at Lua's 200-local ceiling.
 function lockGhostFacing(g, remote, stepDir)
     local a = objAddr(g.objId)
     local want = DIR_ID[remote.orientation]
@@ -7931,10 +4508,7 @@ function lockGhostFacing(g, remote, stepDir)
     end
 end
 
--- Clear a finished held movement (ObjectEventClearHeldMovement is the pointer). The engine sets
--- heldMovementFinished when a step completes but leaves heldMovementActive SET -- clearing is the
--- caller's job. Found live 2026-08-18: a ghost took exactly one step and then froze forever,
--- reading held=1/1 in the log, because "active" was being treated as "still moving".
+-- The engine sets heldMovementFinished but leaves heldMovementActive set; clearing it is the caller's job.
 local MOVEMENT_ACTION_NONE = 0xff
 local function clearHeldMovement(g)
     local a = objAddr(g.objId)
@@ -7945,17 +4519,8 @@ local function clearHeldMovement(g)
     w16(d + 0x32, 0) -- data[2] = sActionFuncId
 end
 
--- "Ready for a new order", which is not the same question as "is a movement flagged active".
---
--- WITH A WATCHDOG, because an action that never finishes strands the ghost for the rest of the
--- session: no step is issued while it is busy, so it stops following entirely. Seen twice on the
--- Acro Bike -- the in-place wheelie poses are HOLDS that run until something ends them, and at
--- least one action issued after a jump never reports finished at all.
---
--- No legitimate movement outlasts this: an ordinary step is 16 frames, the fastest is 4, a ledge
--- jump about 24. Sixty is generous enough that it can only catch something genuinely stuck, and it
--- LOGS the action id when it fires -- a watchdog that hides the fault it catches would just move
--- the bug somewhere quieter.
+-- Ready for a new order, with a watchdog: an action that never finishes would strand the ghost, and nothing real
+-- outlasts 60 frames (a step is 16, a ledge jump about 24). It logs the action it frees so the fault stays visible.
 local function ghostIsIdle(g)
     local a = objAddr(g.objId)
     local b0 = r8(a + 0x00)
@@ -7984,20 +4549,8 @@ end
 
 local function teleportGhost(g, mapX, mapY)
     local a = objAddr(g.objId)
-    -- **BOUNDED AT THE WRITE (review I34, 2026-09-11).** These coordinates come from a peer, and
-    -- `chooseSpawned`'s range gate FAILS OPEN for the ~7 s after every load while the
-    -- self-location scan is still running (`xmW == 0`) -- deliberately, and for a good reason its
-    -- own comment gives, but it means a same-map peer's raw x/y can reach here unchecked during
-    -- that window.
-    --
-    -- A u16 write of a wild value does not fail: it WRAPS, and the object appears somewhere
-    -- arbitrary on the map, which looks like a bug in the game rather than a bad packet. The
-    -- bound is the engine's own addressable grid plus its 7-tile border, which is the widest a
-    -- legitimate ghost is ever placed at (see chooseSpawned). The low end is -MAP_OFFSET and
-    -- not one less: the write adds MAP_OFFSET, so -8 would still produce -1 and wrap. Anything
-    -- outside is refused
-    -- rather than clamped, because clamping would park a nonsense peer at the map edge and make
-    -- it look deliberate.
+    -- Peer coordinates can skip chooseSpawned's range gate after a load, and a u16 write wraps: refuse (not clamp)
+    -- anything off the grid plus its border; the low end is -MAP_OFFSET since the write adds MAP_OFFSET.
     if type(mapX) ~= "number" or type(mapY) ~= "number"
         or mapX ~= mapX or mapY ~= mapY                       -- NaN
         or mapX < -MAP_OFFSET or mapY < -MAP_OFFSET or mapX > 1000 or mapY > 1000 then
@@ -8015,68 +4568,9 @@ local function teleportGhost(g, mapX, mapY)
     g.mapX, g.mapY = mapX, mapY
 end
 
--- LOAD THE FIRST FRAME OURSELVES, so a new graphic is never worn over the old graphic's pixels.
---
--- Measured, per frame, across a rod being cast (probes/tilewatch, 2026-08-19):
---
---   f=11  ghost gfx=0    tile=44  pixels=250A6BD5   -- walker
---   f=12  ghost gfx=137  tile=44  pixels=250A6BD5   -- fishing SHAPE, walker PIXELS
---   f=13  ghost gfx=137  tile=44  pixels=AD0B1438   -- fishing pixels arrive
---
--- The engine's own tile copy is queued and executes at the next VBlank, so there is always exactly
--- one frame where the sprite has the new graphic's 32-wide shape and the previous graphic's
--- content. That single frame is the snap: the user, with the painted copy beside it as the
--- control, *"it still snaps compared to the drawn & player"* -- and the painted copy cannot show
--- it, because it decodes from ROM every frame and has no VRAM waiting to be filled.
---
--- So the pixels are written at the moment the graphic is applied -- the same bytes the engine will
--- copy a frame later, from the same place: images[frame] resolved through the graphic's own
--- animation table. Nothing here races the engine; it simply gets there first.
---
--- A GLOBAL because this chunk is at Lua's 200-local ceiling.
--- WHO CALLED, logged on change (COMPARE_TIERS only): five sites call this, and a pixel state that
--- oscillates every frame means two of them disagree. Naming the writer beats a tenth theory.
--- AN ANIMATION NUMBER BELONGS TO A GRAPHIC. Mirroring the peer's `sanim` onto a ghost is only
--- meaningful while the two are wearing the SAME graphic: every special state has its own animation
--- table, of its own length, so a number that means "surfing, facing south" on the peer indexes past
--- the end of a walker's table -- or, worse, lands on a real but unrelated animation.
---
--- This is the pair that goes incoherent during a transition, and it is not hypothetical: measured
--- 2026-08-21 at the start of surfing, the ghost held gfx 3 (the field-move pose) while being fed
--- anim 20 (surfing) -- the graphic swap and the animation mirror are applied by different code on
--- different frames, so for a handful of frames the ghost is dressed in one graphic and posed from
--- another. Both self-drawn tiers show it in their own way and the spawned one drew rubbish.
---
--- Standing aside for those frames costs nothing: the engine animates the ghost's own action
--- meanwhile, and the swap arrives a frame or two later with the right frame loaded by its own path.
--- A nil `remote.gfx` means the peer never told us -- the pair cannot be incoherent, so mirror.
--- NO ENGINE ANIMATION RESTART NEAR A GRAPHIC SWAP -- the restart's frame copy is the tear.
---
--- The chain, closed by subtraction on 2026-08-21 after six narrower fixes each failed on screen:
--- with the peer-graphic path off (no swaps) the scramble never occurs; with swaps on and ONLY the
--- engine's animation restarts suppressed, it never occurs either -- while every boundary-time
--- instrument (sprite struct, hardware OAM, VRAM-vs-ROM, allocation bitmap) read clean throughout,
--- and a write-watch put BIOS CpuSet bursts inside the ghost's tiles on exactly the scramble
--- frames. That is a MID-FRAME copy tearing the sprite while the PPU scans it: asking the engine
--- to restart an animation makes it re-copy the frame on its own clock, during active display,
--- right after the tile range has moved -- when old and new bytes differ the most. Our own copies
--- run at the Lua tick, between frames, and cannot tear.
---
--- SUPPRESSED ONLY NEAR A SWAP, not always: fishing's cast is engine-animated and user-confirmed
--- 1:1, and its animation changes arrive with no graphic change -- the cooldown leaves it exactly
--- as it was. 30 frames covers the measured +2..3-frame tear window ten times over. Within the
--- window the ghost stays paused and the wire mirror's boundary-time loads carry the pose;
--- requestAction un-pauses a stepping ghost as always.
---
--- MESHGHOST_EMERALD_NO_ANIM_RESTART (probe) forces the suppression EVERYWHERE, which is the
--- subtraction experiment this was proven with; never ship it set.
--- SIX FRAMES, NOT THIRTY. The measured tear window is the OAM pipeline's ~2 frames plus the
--- swap's own; thirty was a lazy 10x margin, and the margin itself was visible: a 16-frame pose
--- (the field-move stance at surf start) spent its whole life inside the cooldown with the sprite
--- paused, so the ghost held frame 0 and then the engine sprinted through the rest when it woke.
--- The user: *"the drawn ghost does the starting surf animation a tiny bit slow"* -- the painted
--- copy reads its frame from that same paused sprite in compare mode, so it showed the stall too.
--- Measured: player 0/0..0/4 in 16 frames, copies 25 frames and skipping three.
+-- No engine animation restart for six frames after a graphic swap: its frame copy runs mid-display just after the
+-- tiles moved, and tears, where ours run between frames. Six covers the OAM pipeline's ~2 plus the swap's; longer
+-- stalls the field-move pose. Globals (the 200-local ceiling). MESHGHOST_EMERALD_NO_ANIM_RESTART is a probe.
 ANIM_RESTART_COOLDOWN = 6
 function animRestartBlocked(g)
     return MESHGHOST_EMERALD_NO_ANIM_RESTART
@@ -8091,10 +4585,14 @@ function animRestart(d, g)
     end
 end
 
+-- An animation number belongs to a graphic (each has its own table, of its own length): mirror the peer's only while
+-- the ghost wears the same one. A nil graphic on either side cannot disagree.
 function animBelongsToGhost(g, remote)
     return remote.gfx == nil or g.gfx == nil or remote.gfx == g.gfx
 end
 
+-- Loads a frame's pixels now, so a new graphic is never worn over the old one's for the frame before the engine's
+-- VBlank copy. Under COMPARE_TIERS it logs the calling line on change: a pixel state that flips means two writers.
 function loadGhostFrameNow(g, info, animNum, animIdx)
     if COMPARE_TIERS then
         local who = debug.getinfo(2, "l")
@@ -8106,24 +4604,8 @@ function loadGhostFrameNow(g, info, animNum, animIdx)
         end
     end
     if not info or info.anims == 0 or info.images == 0 or not g.tileStart then return end
-    -- A FRAME THAT CANNOT BE RESOLVED MUST STILL LEAVE PIXELS BEHIND.
-    --
-    -- This is called from the graphic swap, immediately after a FRESH tile range has been claimed
-    -- and the sprite pointed at it -- so returning early here does not leave the ghost looking as
-    -- it did a moment ago, it leaves it drawing from VRAM nobody has written: grey rubbish. The
-    -- user, watching the surf start: *"the spawned ghost glitch out sometimes when starting surf,
-    -- like a grey/glitched sprite"*, and SOMETIMES is the tell -- it depends on which animation
-    -- the peer happened to be in when its graphic changed.
-    --
-    -- Why it fails at all: the peer's animation number belongs to the graphic the peer had. Every
-    -- special state has its OWN anim table, and they are not the same length -- the field-move
-    -- graphic uses sAnimTable_FieldMove where a walker uses sAnimTable_Standard -- so a peer
-    -- carrying anim 20 into a graphic with a handful of animations indexes past the end of the
-    -- table and reads whatever ROM sits after it. Measured 2026-08-21: the ghost held anim 20/4
-    -- while wearing gfx 3.
-    --
-    -- The fallback is the graphic's own first frame, which every graphic has. A ghost briefly
-    -- facing the wrong way is a small, legible wrongness; a grey block is not.
+    -- An unresolvable frame falls back to the graphic's first: the swap has just claimed fresh tiles, so returning
+    -- would leave them unwritten (grey rubbish). The peer's animation number belongs to the graphic it had.
     local function resolve(an, ai)
         local animPtr = r32(info.anims + (an or 0) * 4)
         if not isRomPtr(animPtr) then return nil end
@@ -8134,66 +4616,19 @@ function loadGhostFrameNow(g, info, animNum, animIdx)
     end
     local src = resolve(animNum, animIdx) or resolve(0, 0)
     if not src then return end
-    -- OBJ VRAM, 32 bytes per 4bpp tile. info.size is the graphic's own byte count, so this copies
-    -- exactly one frame and never spills into a neighbour's range.
+    -- OBJ VRAM, 32 bytes per 4bpp tile; info.size copies exactly one frame.
     local dst = 0x06010000 + g.tileStart * 32
     for off = 0, info.size - 4, 4 do w32(dst + off, r32(src + off)) end
-    -- A frame copy is info.size/4 read+write pairs -- 128 of each for a 32x32 graphic. Cheap once
-    -- and ruinous per frame, so it must stay on a CHANGE and never become per-frame work.
-    -- Measured 2026-08-20 in ordinary play: 1 per 300 frames.
+    -- 128 read+write pairs for a 32x32 frame: on a change only, never per frame.
 end
 
--- CHANGE A GHOST'S GRAPHIC IN PLACE. The rebuild is the glitch.
---
--- Evidence, not preference: the artifact appears at BOTH graphic changes -- picking the rod up and
--- putting it away -- on the spawned tier only, while the painted copy is perfect through both
--- (user, 2026-08-19: *"it snaps a bit at the start, and towards the end it snaps + looks really
--- glitch"*). The painted copy decodes from ROM every frame and is never rebuilt; the spawned one
--- is destroyed and re-created, and that is the one thing they do not share.
---
--- What a rebuild costs, all of it avoidable: the object is cleared and re-initialised, a new
--- sprite slot is taken (draw order can change), a new tile range is allocated, and every field the
--- engine had settled -- position, pos2, animation phase, ground-effect state -- is rebuilt from
--- scratch in one frame. Patching instead touches only what describes the GRAPHIC and leaves the
--- rest exactly where the engine had it.
---
--- Falls back to the rebuild if it cannot do the whole job, because a half-applied graphic (new
--- shape, old tiles) is worse than a rebuild.
--- WHAT THE HARDWARE IS ACTUALLY TOLD TO DRAW -- used only by the animation trace above, which is
--- off unless MESHGHOST_EMERALD_ANIM_TRACE is set. Scans the 128 OAM entries (0x07000000, 8 bytes
--- apart) for the one using the ghost's tile range and the one using the player's, and reports
--- their raw screen x/y plus shape/size bits.
---
--- This is the ground truth that every sprite struct field only FEEDS, and reading it is what ended
--- HOLD A PEER'S POSE, rather than restart its animation.
---
--- A peer standing still does not report "idle": it reports the animation it last played, the
--- command index it stopped on, and animPaused -- e.g. facing north after a step, `sanim=5 sidx=3`
--- with the pause bit set, which resolves to the standing picture. Reproducing that is three
--- writes, and NONE of them is animBeginning: setting that restarts the animation from command 0,
--- which is a ghost walking on the spot.
---
--- Extracted 2026-08-21 because two paths need it and only one had it. The steady-state mirror held
--- the pose correctly; the SPAWN path wrote animNum alone and set animBeginning, so a ghost came
--- into the world mid-stride and only corrected itself once the peer moved and the mirror took
--- over. The user: *"the spawned ghost spawns in with the wrong pose, gets fixed after moving
--- around."*
---
--- THE MIRROR STILL CARRIES ITS OWN COPY of this, deliberately not folded in yet: that path is
--- confirmed on screen and was left untouched while the spawn fix was being judged. Folding it in
--- is the next edit here, and until it happens the two must be changed together -- which is the
--- exact divergence this extraction exists to end.
---
--- THE FLIP COMES WITH IT, and that is not optional here: east is the WEST artwork with the OAM's
--- horizontal flip, and that flip is normally applied by AnimCmd_frame as an animation ADVANCES.
--- A held sprite never advances, so nothing would ever set it.
+-- Holds a standing peer's pose (animation, index, animPaused) instead of restarting it from command 0, plus the OAM
+-- flip a held sprite never gets from AnimCmd_frame (east is the west art flipped).
 function applyHeldPose(g, remote)
     if not (remote.spaused and remote.sanim and remote.sidx) then return false end
     if COMPARE_TIERS and (frameCounter - (genderFrames.poseLogAt or 0)) >= 60 then
         genderFrames.poseLogAt = frameCounter
-        -- What the ghost's own tiles actually HOLD, read back out of VRAM: which rows carry ink.
-        -- The standing frame and a mid-stride frame do not have their art on the same rows, so
-        -- this says which picture is really on screen rather than which one was asked for.
+        -- What the ghost's tiles hold in VRAM, by which rows carry ink: standing and mid-stride frames differ by row.
         local fr, lr = nil, nil
         if g.tileStart then
             for row = 0, 31 do
@@ -8227,9 +4662,7 @@ function applyHeldPose(g, remote)
             tostring(g.tileStart), tostring(fr), tostring(lr),
             r16(dd2 + 0x04) & 0x3ff))
     end
-    -- The peer's pose is only meaningful while the ghost wears the peer's graphic; see
-    -- animBelongsToGhost. Holding a pose from the wrong animation table is how a ghost ends up
-    -- displaying a frame that does not exist.
+    -- A pose from another graphic's table displays a frame that does not exist (animBelongsToGhost).
     if not animBelongsToGhost(g, remote) then return false end
     local d = sprAddr(g.sprId)
     local settled = r8(d + 0x2a) == remote.sanim and r8(d + 0x2b) == remote.sidx
@@ -8240,24 +4673,10 @@ function applyHeldPose(g, remote)
     w8(d + 0x2a, remote.sanim)
     w8(d + 0x2b, remote.sidx)
     w8(d + 0x2c, r8(d + 0x2c) | 0x40)
-    -- CLEAR animBeginning AND animEnded, which is the half of "hold this pose" that was missing.
-    --
-    -- The fields alone are not the pose. With animBeginning still set -- and it IS set, because a
-    -- ghost's sprite is copied from the player's and the restart path elsewhere sets it -- the
-    -- engine runs the animation once more before it honours animPaused, and an animation that
-    -- runs COPIES ITS FRAME into the object's tiles. So the ghost ended up with the right numbers
-    -- and command 0's picture: fields saying "standing north", pixels showing a stride. Measured
-    -- 2026-08-21 with the GHOSTPOSE trace -- `want=5/3 img=1` against `artRows=11..31`, where
-    -- image 1's own art is rows 10..30 -- after the user reported *"the spawned ghost spawns in
-    -- with the wrong pose, gets fixed after moving around"*: moving hands the animation back, the
-    -- engine advances it properly, and the tiles come good on their own.
-    --
-    -- Bits 0x04 and 0x10 at +0x3F cleared here rather than set: the pair the decompilation names
-    -- animBeginning/animEnded (StartSpriteAnim, a pointer; the bit meanings are unmeasured).
+    -- Clear animBeginning and animEnded too: with them set the engine runs the animation once more before honouring
+    -- animPaused, and copies command 0's picture into the tiles.
     w8(d + 0x3f, r8(d + 0x3f) & ~0x14)
-    -- THE OAM BIT ONLY, NEVER the sprite struct's own hFlip: this code treats that field as a BASE
-    -- the animation command's flip is combined with (the decompilation's SetSpriteOamFlipBits, a
-    -- pointer; unmeasured), so setting both would read correct only while the sprite stays paused.
+    -- The OAM bit only, never the struct's hFlip: that is a base the animation command's flip is combined with.
     local hgi = graphicsInfo(g.gfx)
     if hgi and hgi.anims ~= 0 then
         local hap = r32(hgi.anims + remote.sanim * 4)
@@ -8266,19 +4685,15 @@ function applyHeldPose(g, remote)
             w16(d + 0x02, hfl and (r16(d + 0x02) | 0x1000) or (r16(d + 0x02) & 0xefff))
         end
     end
-    -- AND THE PIXELS LAST, so the copy lands after everything that could have moved them. Held
-    -- for a few frames past the write (heldCopiedAt above) because the engine's own sprite update
-    -- runs between our ticks: one copy can still be overwritten by the update that follows it,
-    -- and re-asserting for three frames costs three frame copies once per stop, not per frame.
+    -- The pixels last, re-asserted for three frames: the engine's sprite update between our ticks can undo one copy.
     loadGhostFrameNow(g, hgi, remote.sanim, remote.sidx)
     if not settled then g.heldCopiedAt = frameCounter end
     g.animSetFor = remote.sanim
     return true
 end
 
--- the fishing investigation: pos2, animNum and animCmdIndex all agreed with each other for frames
--- in which the OAM x moved 8px and back. If a snap exists, it is visible here, on an exact frame,
--- by an exact number of pixels.
+-- The OAM entries the hardware draws for the ghost's and the player's tiles (128 entries, 8 bytes apart), for the
+-- animation trace: struct fields only feed these, and in the fishing work they agreed while OAM x moved 8px and back.
 function oamEntryFor(ghostTile, playerTile)
     local gout, pout = "-", "-"
     for i = 0, 127 do
@@ -8296,24 +4711,8 @@ function oamEntryFor(ghostTile, playerTile)
     return "gOAM[" .. gout .. "] pOAM[" .. pout .. "]"
 end
 
--- THE FISHING OFFSET IS COMPUTED, NOT COPIED. The fishing sprite's frames are not all aligned the
--- same inside their 32-wide canvas, so the offset follows the frame being DISPLAYED: this code
--- derives it from the ghost's own current animation command (fishingFrameShift, below). The
--- per-image values it uses follow the decompilation (AlignFishingAnimationFrames, a pointer), and
--- are MEASURED 2026-09-16 (probes/borrowed_values_probe.lua, the player casting in all four
--- directions): the player sprite's pos2 was (-8,0) facing left and (8,0) facing right for images
--- 1-3, (0,-8) for 5, (0,8) for 10 and 11, and zero for 0, 4, 6-9, on every frame of each cast.
---
--- Copying the player's offset over the wire was therefore wrong by construction: the ghost's
--- animation lags the player's, so it kept receiving the offset for a frame it was not yet
--- showing. Measured at every cast end in one trace -- the wire honestly said sox=0 (the player's
--- new frame) while the ghost still displayed the old one, and the OAM x moved 8px for exactly
--- those frames. The player and the drawn tier never move because for both of them offset and
--- image change together; this gives the spawned ghost the same property, from the same rule,
--- driven by its OWN animCmdIndex.
--- The rule itself, shared by BOTH tiers: given an anims table and a frame within it, the shift
--- that frame needs. One implementation, because the defect all day has been two consumers of the
--- same state disagreeing about which frame it belongs to.
+-- The fishing offset follows the frame displayed, computed from the ghost's own animation command: the player's
+-- offset over the wire belongs to a frame the lagging ghost is not showing yet. One rule, shared by both tiers.
 function fishingFrameShift(anims, animNum, idx, facingWest)
     if not anims or anims == 0 then return 0, 0 end
     local animPtr = r32(anims + animNum * 4)
@@ -8340,40 +4739,24 @@ function alignFishingGhost(g)
     w16(d + 0x26, y2 & 0xffff)
 end
 
--- The two graphics the rule belongs to (the fishing graphics' ids per the decompilation, a
--- pointer). 137 MEASURED 2026-09-16: Brendan's object event held it for the length of each cast;
--- May's 138 is unmeasured.
+-- The fishing graphics, 137 Brendan and 138 May (May's unmeasured).
 function isFishingGfx(gfx) return gfx == 137 or gfx == 138 end
 
--- EVERY action that leaves the ground, which is more than a ledge hop.
--- The shadow was written for ledge hops and gated on their four action ids, so the Acro Bike --
--- whose whole point is hopping -- got none of it (user, 2026-08-20: *"no shadow still"*).
---   0x0C..0x0F JUMP_2_*  ·  0x42..0x45 JUMP_*  ·  0x46..0x4D JUMP_IN_PLACE_*
---   0x70..0x73 ACRO_WHEELIE_HOP_FACE_*  ·  0x74..0x7B ACRO_WHEELIE_HOP/JUMP_*
--- (ids and names per the decompilation's numbering, a pointer; unmeasured unless noted)
---
--- 0x42..0x45 IS TAKEN AS THE ACRO BIKE'S SIDE HOP, and the range used to start at 0x46 -- so the
--- one Acro move that is neither a wheelie nor a ledge got no shadow and no dust on ANY tier (user,
--- 2026-08-21: *"none of the ghosts have a shadow or dust, when doing the side hop"*). That the side
--- hop uses the plain JUMP_* ids is the decompilation's reading (`AcroBikeTransition_SideJump`, a
--- pointer), not a measured action id.
---
--- 0x70..0x73 was missed on the first pass, and the omission had a precise symptom: those are the
--- hops that leave the ground WITHOUT changing tile, so the ghost hopped -- the arc is on its sprite
--- -- with no shadow under it, while the travelling hops had one. The user, 2026-08-20: *"they are
--- not showing shadow/dust properly ... when they are idle/not moving a tile vs when they are
--- moving"*. A range that reads as "the moving ones" is exactly where an in-place variant hides.
+-- Every action that leaves the ground, in-place hops included: 0x0C-0x0F JUMP_2, 0x42-0x45 JUMP (the Acro side hop),
+-- 0x46-0x4D JUMP_IN_PLACE, 0x70-0x7B Acro wheelie hops.
 function isJumpAction(act)
     return act ~= nil and ((act >= 0x0c and act <= 0x0f)
         or (act >= 0x42 and act <= 0x4d)
         or (act >= 0x70 and act <= 0x7b))
 end
 
--- Mach and Acro, both genders: Brendan 1/63, May 90/91 (verified.md's graphicsId table).
+-- Mach and Acro bikes, both genders: Brendan 1/63, May 90/91.
 function isBikeGfx(gfx)
     return gfx == 1 or gfx == 63 or gfx == 90 or gfx == 91
 end
 
+-- Changes a ghost's graphic in place: a rebuild re-creates the object, sprite slot, tile range and every settled field
+-- in one frame, which is the visible glitch. Returns false, for the caller to rebuild, when it cannot do the whole job.
 function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused, wireX, wireY)
     local info = graphicsInfo(graphicsId)
     if not info or not ghostAlive(g) then return false end
@@ -8381,21 +4764,8 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused, 
     -- leave the sprite pointing at a range it still owns.
     local tileStart = allocSpriteTiles(info.tileCount)
     if not tileStart then return false end
-    -- THE OLD RANGE IS FREED LATER, NOT NOW -- the hardware is still drawing from it.
-    --
-    -- Measured 2026-08-21, hardware OAM dumped per frame across a graphic swap: for TWO frames
-    -- after this function runs, the entries at 0x07000000 still carry the OLD tile number (the
-    -- OAM the PPU shows lags the sprite struct by the buffer-build/VBlank-copy pipeline). Freed
-    -- immediately, those two frames draw whatever the engine loads into the reclaimed range next
-    -- -- harmless most of the time, and exactly wrong during the start of surfing, where the
-    -- show-mon effect is loading a full Pokemon picture into OBJ VRAM that instant: the ghost
-    -- renders scrambled pieces of the incoming picture for a frame. Whether the allocator lands
-    -- there varies run to run, which is why the user saw it "every 2-3 savestate reloads".
-    --
-    -- Queued with the ghost that owns it, and the service point frees only while that ghost is
-    -- still ITSELF alive (identity, not slot state) -- a world rebuild between queue and free
-    -- means the engine reset the bitmap and the bits are not ours to touch, the same rule every
-    -- other free in this file follows.
+    -- Free the old range later: hardware OAM lags the struct by two frames, and a range reclaimed now draws whatever is
+    -- loaded next. Queued with its ghost, and freed only while that ghost is still itself.
     if g.tileStart then
         queueTileFree({ g = g, start = g.tileStart, count = g.tileCount, at = frameCounter })
     end
@@ -8405,8 +4775,7 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused, 
     local d = sprAddr(g.sprId)
     w16(d + 0x04, (r16(d + 0x04) & 0xfc00) | (tileStart & 0x03ff))
     if info.oam ~= 0 then
-        -- Shape and size only -- the rest of a template OAM puts a live sprite out of step with
-        -- the engine's own per-frame building, which spawnGhost records at length.
+        -- Shape and size only: the rest of a template OAM puts a live sprite out of step with the engine (spawnGhost).
         w16(d + 0x00, (r16(d + 0x00) & 0x3fff) | (r16(info.oam + 0x00) & 0xc000))
         w16(d + 0x02, (r16(d + 0x02) & 0x3fff) | (r16(info.oam + 0x02) & 0xc000))
     end
@@ -8414,51 +4783,20 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused, 
     w32(d + 0x0c, info.images)
     w32(d + 0x10, info.affineAnims)
     w32(d + 0x18, info.subspriteTables)
-    -- Preserve the engine-chosen subsprite table number; forcing 0 (the empty table) scrambled
-    -- one frame at every graphic change. Full reasoning at spawnGhost's identical write.
+    -- Keep the engine's subsprite table number; forcing 0 scrambles one frame at every change (spawnGhost).
     local keepSubNum = r8(d + 0x42) & 0x3f
     w8(d + 0x42, 0)
     if info.subspriteTables ~= 0 then w8(d + 0x42, keepSubNum | (1 << 6)) end
     w8(d + 0x28, (-(info.width // 2)) & 0xff)
     w8(d + 0x29, (-(info.height // 2)) & 0xff)
-    -- Start the new graphic's animation, and put its first frame in the new tiles NOW: the
-    -- engine's own copy is queued to the next VBlank, which is one frame of the old pixels worn
-    -- through the new shape.
+    -- Start the new animation and put its frame in the tiles now, ahead of the engine's VBlank copy.
     w8(d + 0x2a, sanim or 0)
     w8(d + 0x2b, 0)
-    -- ARRIVE PAUSED WHEN THE PEER IS PAUSED. animBeginning starts the new graphic's animation, and
-    -- for a peer standing still that is a walk or pedal cycle played out of nowhere between the
-    -- transition and the settle -- the user, after the settle fix landed: *"its doing a animation
-    -- in between, its supposed to stay static"*. A moving peer's swap (a rod cast, a ride) still
-    -- wants the animation started, so this is gated on the peer's own paused bit rather than
-    -- removed. spaused is nil for pre-upgrade peers, and nil keeps the old behaviour.
-    -- NEVER animBeginning AT A SWAP -- the engine's restart copy is the one mid-frame writer we
-    -- control, and it is both redundant and the prime tearing suspect.
-    --
-    -- Setting animBeginning asks the engine to restart the animation, which re-copies the frame
-    -- into the tiles from ITS OWN clock -- mid-frame, during active display, while the PPU may be
-    -- scanning those very tiles. Our own copy (loadGhostFrameNow, below and at every mirror site)
-    -- runs at the Lua tick, between frames, which cannot tear. The write-watch put BIOS CpuSet
-    -- bursts inside the ghost's range on exactly the frames the user sees a one-frame scrambled
-    -- sprite at the start of surfing (2026-08-21); everything at frame BOUNDARIES measured clean
-    -- across five different instruments, which is what mid-frame tearing looks like from outside.
-    --
-    -- So a swap arrives PAUSED with its frame already in VRAM, for moving peers too: the anim
-    -- mirror above drives the pose from the wire (and now agrees on the graphic, so it is
-    -- coherent), and a stepping ghost is un-paused by requestAction's enableAnim on its next
-    -- order, exactly as after a settle.
+    -- Arrive paused with the frame already in VRAM, never with animBeginning, whose restart copy runs mid-frame and
+    -- tears. The wire mirror drives the pose from here, and requestAction's enableAnim un-pauses a stepping ghost.
     w8(d + 0x2c, r8(d + 0x2c) | 0x40)
     w8(d + 0x3f, r8(d + 0x3f) & ~0x14)
-    -- AND THE SPRITE OFFSET, IN THE SAME BATCH AS THE SHAPE. These two belong to each other: a
-    -- fishing frame is 32 wide and sits on its tile only because the game's task offsets it by 8,
-    -- so a frame drawn with the new shape and the old offset is a frame drawn half a tile to the
-    -- side. Applying the offset from the mirror block instead left exactly that gap -- the mirror
-    -- runs earlier in the same frame, so the offset could never land before the shape did.
-    --
-    -- Measured across a cast: the ghost took the fishing graphic on one frame with pos2 still 0,0
-    -- and only reached 8,0 two frames later, then the same in reverse when the rod was put away.
-    -- That is both halves of *"it snaps at the start & at the end"* -- an 8px step out and back,
-    -- at each end of the swap. Nothing else moved: position and coords were constant throughout.
+    -- The sprite offset in the same batch as the shape: a 32-wide fishing frame sits on its tile only with its offset.
     g.gfx, g.tileStart, g.tileCount = graphicsId, tileStart, info.tileCount
     g.swapAt = frameCounter -- opens the animation-restart cooldown; see animRestart
     if isFishingGfx(graphicsId) then
@@ -8468,48 +4806,16 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused, 
         if soy then w16(d + 0x26, soy & 0xffff) end
     end
     g.animSetFor = nil -- a new graphic always re-issues its animation, whatever the number was
-    -- THE PEER'S FRAME INDEX, not a hardcoded 0 -- and this is the whole of the wrong-pose bug.
-    --
-    -- The held-pose mirror loads the peer's exact frame and then STOPS, because a held pose is set
-    -- once. This ran afterwards and overwrote it with frame 0 of the same animation, and since a
-    -- held sprite is paused, nothing ever repainted it again: the ghost sat on the bike's first
-    -- standing frame while the peer stood on its second, for as long as they stood there.
-    --
-    -- Traced by logging both loads and where each wrote: the held load fired ONCE with sidx=1 to
-    -- tile 76, the sprite drew from tile 76, and the pixels there were frame 0's. Only one caller
-    -- passes a literal 0.
+    -- The peer's frame index, not 0: a held sprite is paused, so nothing would repaint a wrong frame.
     loadGhostFrameNow(g, info, sanim or 0, sidx or 0)
     w8(sprAddr(g.sprId) + 0x2b, sidx or 0)
 
-    -- AND THE COMPANION SPRITE THE STATE OWNS. A surfing player is a rider AND the blue Pokemon
-    -- underneath (documentation.md's surfing section) -- one state, two sprites -- and only
-    -- spawnGhost knew that. Every way a peer actually ENTERS the water comes through here instead:
-    -- they were already spawned as a walker, so the graphic is patched rather than rebuilt, and
-    -- the blob was never created. Seen on screen 2026-08-19 -- *"both of the ghosts don't have the
-    -- 'blue fish' they are riding on while surfing"* -- with the log showing the ghost correctly
-    -- wearing gfx 2 and animating, and no blob line ever printed.
-    --
-    -- Both directions, because getting OFF the water is the same swap in reverse: a blob left
-    -- behind keeps following the object it names (data[2] is the ghost) and would swim along under
-    -- a peer who is walking down a road.
-    -- ...AND NOT WHILE FLYING -- flyRide.apply's `g.noBlob`, set earlier this frame.
+    -- And the companion sprite the state owns: entering water comes through this swap rather than spawnGhost, so the
+    -- blob is made here, and dropped on leaving (it follows the object in its data[2]); never while flying (g.noBlob).
     if SURFING_GFX[graphicsId] and not g.noBlob then
         if not g.blobSprId then
-            -- AT THE WIRE TILE, NOT THE GHOST'S. On a mount the swap lands a beat before the
-            -- ghost performs its jump (the swap-pending gate orders them), so the ghost's own
-            -- coords still name the LAND tile -- and the mount blob is deliberately inert
-            -- (BOB_NONE, see the park logic), so a blob born on land WAITED on land while the
-            -- ghost jumped past it into the water: the user, *"the spawned ghosts blob is not in
-            -- the water, its on the land while the ghost is jumping out into the water"*. The
-            -- wire tile IS the jump's destination -- the game writes the destination into the
-            -- player's coords as the jump begins -- so it is the blob's birthplace, exactly as
-            -- SurfFieldEffect_JumpOnSurfBlob spawns the real one at tDestX/tDestY.
-            -- NOT during a mount jump: the wire position is the sender's SMOOTHED glide, still
-            -- naming the land tile when this swap fires, and the ghost's own coords are also
-            -- still the land tile (its jump has not been issued yet -- the swap-pending gate
-            -- orders swap first). Both authorities lie here. The mount-jump block in syncGhost
-            -- spawns the blob instead, once the ENGINE has accepted the ghost's jump and moved
-            -- its coords to the destination -- the only moment the destination is readable.
+            -- At the wire tile, the jump's destination, as the engine spawns its blob at tDestX/tDestY. Not during a
+            -- mount jump: the wire and the ghost both still name the land tile, so syncGhost's mount block spawns it.
             if not (g.jsActive and not g.jsDismount) then
                 local a = objAddr(g.objId)
                 spawnSurfBlob(g, wireX or (rs16(a + 0x10) - MAP_OFFSET),
@@ -8517,9 +4823,7 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused, 
             end
         end
     elseif UNDERWATER_GFX[graphicsId] then
-        -- Diving is a WARP, so a peer normally arrives already underwater and gets its bobber from
-        -- the spawn path -- but the swap path has to cover it too, for the same reason the blob
-        -- does: a peer already spawned as a walker has its graphic patched rather than rebuilt.
+        -- Diving is a warp, so the spawn path usually makes the bobber; a peer spawned as a walker comes through here.
         if not g.blobSprId then spawnUnderwaterBobber(g) end
     else
         despawnSurfBlob(g)
@@ -8530,10 +4834,7 @@ end
 -- One remote, one frame. Spawn if missing, step it if it moved one tile, teleport if it jumped,
 -- and turn it on the spot otherwise.
 local function syncGhost(playerId, remote)
-    -- The peer's disableAnim, parked where requestAction can see it. On the table rather than
-    -- threaded through nine call sites, and rather than a new local -- this chunk is at Lua's
-    -- 200-local ceiling. syncGhost runs one peer at a time and synchronously, so the value is
-    -- always the one belonging to the ghost being moved.
+    -- The peer's disableAnim for requestAction, on a table rather than a new local (the 200-local ceiling).
     genderFrames.syncNoAnim = remote.noanim
     local targetX = math.floor(remote.x + 0.5)
     local targetY = math.floor(remote.y + 0.5)
@@ -8542,376 +4843,110 @@ local function syncGhost(playerId, remote)
         targetY = targetY + LOOPBACK_GHOST_OFFSET_TILES_Y
     end
 
-    -- DO NOT BUILD A GHOST FOR A PEER WHO IS IN THE AIR BETWEEN TWO TOWNS.
-    --
-    -- The state above survives a ghost being torn down; this is what stops a new one being made in
-    -- the first place. A cross-town fly changes the peer's area id the instant the warp completes,
-    -- which is BEFORE its arrival task starts -- so on the destination side the peer becomes
-    -- local, gets a ghost, and stands on the landing tile for a beat before the fly-in hides it
-    -- again. Suppressed here, at the one door every ghost comes through, the peer simply is not
-    -- there until the bird brings it in, which is what the game shows the player themselves.
-    --
-    -- Only for a peer that was CARRIED AWAY and is inside the gap window; a landed peer, or one
-    -- whose arrival never came, falls straight through.
-    -- ...and NOT while the peer is actively flying. The arrival's own fly frames are what end the
-    -- gap, and they arrive before anything clears it -- so without this the suppression outlived
-    -- the thing it was waiting for and held the peer invisible for the whole 480-frame timeout.
+    -- No ghost for a peer carried away and still in the warp gap (a cross-town fly changes its area before the arrival
+    -- starts), unless it is flying again: the arrival's own fly frames are what end the gap.
     if remote.flyLastPhase == 2 and remote.flyGapAt and not remote.fly
         and frameCounter - remote.flyGapAt < 480 and not ghosts[playerId] then
         return
     end
-    -- AND NEVER BUILD ONE FOR A PEER THE ENGINE IS NOT DRAWING. The clause above can only fire on
-    -- a watcher that SAW the departure -- and the one watching the destination town never did,
-    -- because the peer was in another area with no ghost and `flyRide.apply` never ran for it. So
-    -- that side had no flight state at all: the peer's area id flipped to the local one mid-warp
-    -- and a ghost was built on the spot, standing on the landing tile a beat before the arrival
-    -- hid it again. The user: *"the ghost briefly spawn, goes invisible, and then becomes visible
-    -- with the bird flying animation"*.
-    --
-    -- The peer's own `invisible` bit is the answer, and it needs no history: the engine clears it
-    -- in FlyInFieldEffect_BirdSwoopDown, so it is set for exactly the window between the warp
-    -- landing and the arrival starting. Same rule the whole file already follows for a door --
-    -- while the game will not draw its own player, there is nobody for a ghost to stand beside --
-    -- applied one step earlier, at the spawn instead of after it.
+    -- Nor for a peer the engine is not drawing, for a watcher that never saw the departure: its invisible bit covers
+    -- the warp landing until the arrival starts (cleared in FlyInFieldEffect_BirdSwoopDown).
     if remote.invis and not ghosts[playerId] then return end
 
     local g = ghosts[playerId]
     if g and not ghostAlive(g) then
-        -- The engine cleared it (map load) or culled it (walked out of view). Both are normal, and
-        -- in both cases the tiles went with it -- freeing our old range here would clear bits the
-        -- new map's sprites now own. Drop the record, free nothing. The blob went the same way:
-        -- it lives in the same sprite array the engine reset.
-        --
-        -- SAID OUT LOUD, throttled: this is the one place a ghost can vanish and reappear without
-        -- anything being wrong, and doing it silently means a user report of *"the spawned ghost
-        -- disappears sometimes, but very rarely"* has nothing in the log to match against. One line
-        -- per second at most, and it names which of the two it was -- the map id moving says a load,
-        -- the map id holding still says a cull.
+        -- The engine cleared (map load) or culled the ghost, tiles and blob with it: drop the record, free nothing.
+        -- Logged, at most once a second, so a ghost that vanishes and comes back has a line to match.
         if not tiering.lastReclaimFrame or frameCounter - tiering.lastReclaimFrame > 60 then
             tiering.lastReclaimFrame = frameCounter
-            -- logFile, NOT console.log (2026-08-20): a BizHawk console line is a GUI append,
-            -- measured earlier as heavy enough to drop the emulator to single-digit fps in bulk --
-            -- and reclaims cluster around seams and doors, exactly where the user then reported
-            -- consistent lag and a console "all the time". The record survives in the log file.
+            -- logFile, not console.log: a console line is a GUI append, and reclaims cluster at seams and doors.
             logFile(string.format(
                 "MeshGhost: the engine reclaimed %s's ghost slot (%s) -- respawning.",
                 tostring(playerId), inOverworld() and "cull or map load" or "not the overworld"))
         end
         ghosts[playerId] = nil
         g = nil
-        -- SWEEP HERE, at the moment an orphan can be created.
-        --
-        -- The record has just been dropped because the engine reclaimed the slot -- but if the
-        -- engine only PARTLY reclaimed it (the object still active, still wearing our localId,
-        -- while its sprite link changed) then it is orphaned as of this line: no longer tracked,
-        -- and still drawn. The periodic sweep would find it up to a second later, and the
-        -- transition sweep already ran earlier this tick while the record still existed, so it
-        -- spared it. That gap is what the user saw: *"i did briefly see a 2nd ghost after exiting
-        -- out from my inventory/bag"*.
-        --
-        -- Sweeping now closes it to zero frames, because the very next thing this function does is
-        -- spawn the replacement.
+        -- Sweep now: a partly reclaimed object is orphaned as of this line, and the replacement spawns next.
         sweepOrphanGhosts()
     end
     if not g then
-        -- Nothing to spawn into: a peer this frame already found the object array full, and it
-        -- cannot empty mid-frame. Skipping the rest is what keeps a room bigger than the map from
-        -- costing a full array re-scan per unplaceable peer per frame.
+        -- A peer already found the object array full this frame, and it cannot empty mid-frame: skip the re-scan.
         if tiering.blockedFrame == frameCounter then return end
-        -- Placement is only exact on a settled camera; a frame's wait is free.
-        -- DO NOT SPAWN WHAT THE ENGINE WILL IMMEDIATELY CULL (2026-08-20). The engine removes
-        -- object events that fall outside its view of the camera, and a peer trailing far enough
-        -- behind -- or parked on the far side of a seam -- sits permanently outside it. Spawning
-        -- such a peer starts a loop: spawn, engine culls, respawn next frame, cull again -- VRAM
-        -- tile allocation and sprite setup every cycle, plus a log line per reclaim. Measured on
-        -- the fps ride: 16 reclaims clustered at the route's two seam crossings, with worst
-        -- frames of 217ms landing in this section, felt as *"lagging in 2 places consistently"*.
-        --
-        -- The gate is a conservative SUBSET of the visible screen (15x10 tiles): spawn only a
-        -- peer within +/-8 x and +/-7 y of the local player. Inside that, the engine keeps the
-        -- object; outside it, the peer was invisible either way -- the difference is that we no
-        -- longer pay for a ghost nobody could see. It comes into view, it spawns, one time.
+        -- Placement is only exact on a settled camera; a frame's wait is free. Spawn only within +/-8 x and +/-7 y of
+        -- the player, inside the 15x10 screen: the engine culls anything outside, looping spawn, cull, respawn.
         local pvX = rs16(objAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)) + 0x10) - MAP_OFFSET
         local pvY = rs16(objAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)) + 0x12) - MAP_OFFSET
         if math.abs(targetX - pvX) > 8 or math.abs(targetY - pvY) > 7 then return end
         if cameraIsSettled() then
             local wantNow = wantedGfx(remote)
             spawnGhost(playerId, targetX, targetY, remote.orientation, wantNow)
-            -- EVERY path that gives a ghost a graphic must also give it that graphic's state.
-            --
-            -- The offset and the animation were applied in the graphic-SWAP path only, and a ghost
-            -- is usually re-created through THIS one instead: the engine reclaims its slot when a
-            -- menu closes, so the peer's rod arrives on a brand-new sprite that never saw the
-            -- swap. Measured with a probe loaded BEFORE the adapter, which is the only way to see
-            -- what the engine left rather than what we just wrote: two frames of the fishing
-            -- graphic at pos2 0,0 -- drawn 8px left -- and then a snap into place. Every earlier
-            -- probe read our own write back and reported a perfect 8.
+            -- Every path that gives a ghost a graphic gives it that graphic's state: a respawn never saw the swap.
             local ng = ghosts[playerId]
             if ng then
                 local d = sprAddr(ng.sprId)
-                -- A PEER THAT IS STANDING STILL IS HELD, NOT RESTARTED. Without this a ghost
-                -- arrived mid-stride and stayed there until the peer moved and the steady-state
-                -- mirror below took over -- which is exactly how it was reported.
+                -- A standing peer is held, not restarted.
                 if not applyHeldPose(ng, remote) and remote.sanim then
                     w8(d + 0x2a, remote.sanim)
                     animRestart(d, ng)
                 end
-                -- After the animation write, so the offset is computed from the frame the ghost
-                -- will actually show.
+                -- After the animation write, so the offset is computed from the frame the ghost will show.
                 if isFishingGfx(wantNow) then
                     alignFishingGhost(ng)
                 else
                     if remote.sox then w16(d + 0x24, remote.sox & 0xffff) end
                     if remote.soy then w16(d + 0x26, remote.soy & 0xffff) end
                 end
-                -- THE GRAPHIC THE GHOST IS ACTUALLY WEARING, not the one that was asked for.
-                --
-                -- `wantNow` is nil for every spawn where the peer's own graphic is not being
-                -- adopted -- which is the normal case, since the peer-graphics gate is off -- and
-                -- spawnGhost then falls back to the local player's. Passing the nil through means
-                -- `graphicsInfo(nil)` is nil, loadGhostFrameNow takes its early return, and the
-                -- freshly claimed tile range is never written: the ghost draws from VRAM nobody
-                -- has filled. That routine's own header describes the result exactly -- grey
-                -- rubbish -- and it was survivable only because something else usually repaints a
-                -- ghost within a frame or two.
-                --
-                -- A fly is where that stopped being true. The rebuild after a landing spawns a
-                -- ghost for a peer who has just come to a standstill, so it arrives paused with
-                -- nothing to repaint it, and the rubbish stays: the user, after every other fly
-                -- fault was fixed, *"the spawned ghost sprite still looks broken/glitched"* only
-                -- ever after a landing. `ng.gfx` is what spawnGhost actually chose.
+                -- The graphic spawnGhost actually chose: wantNow is nil when the peer's graphic is not adopted, and nil
+                -- info would leave the fresh tiles unwritten.
                 loadGhostFrameNow(ng, graphicsInfo(ng.gfx), remote.sanim, remote.sidx)
             end
         end
         return
     end
 
-    -- IS THIS PEER STILL A CHARACTER? Before anything below places, steps or animates the ghost,
-    -- because for a peer on Briney's boat or in the middle of a Fly the answer is no, and every
-    -- one of those is then a write on top of something the engine is already driving. flyRide's
-    -- header has what the two states are and why nothing else this file sends can describe them.
+    -- Is this peer still a character? On a boat or in a fly the engine is drawing something else, so stop here.
     if flyRide.apply(g, remote, playerId) then return end
 
-    -- MIRROR THE PEER'S SPRITE ANIMATION, for the states the engine will not drive for us.
-    --
-    -- Adopting a peer's graphicsId gives a ghost the rod; the game's fishing TASK is what makes it
-    -- fish, and a ghost has no task. So the animation number travels with the state and is applied
-    -- here: animNum is written and the flags at +0x3F touched (see animRestart), after the
-    -- decompilation's StartSpriteAnim (a pointer; the flag bits are unmeasured). Written only on a
-    -- CHANGE, so it costs a comparison per frame.
-    --
-    -- Only while the peer is idle, deliberately: a walking ghost's animation belongs to the engine
-    -- step we asked for, and two things writing animNum would fight. Fishing, surfing on the spot
-    -- and standing poses are exactly the cases the engine is not already animating.
-    -- ONLY FOR GRAPHICS THE ENGINE IS NOT ALREADY DRIVING. The walking graphic (ids 0 and 89 in
-    -- this code, BRENDAN_NORMAL/MAY_NORMAL per the decompilation -- a pointer) is animated by the
-    -- movement actions we request: steps, turns, bumps. Writing animNum over the top of those left
-    -- the ghost stuck in whatever pose the collision landed on -- the user, after this shipped:
-    -- *"the spawned ghost's facing animations are wrong now, its stuck in the wrong pose after
-    -- turning directions"*, and again after running. Two things writing one field.
-    --
-    -- A fishing rod, a bike or a surfboard is the opposite case: the engine has no action of ours
-    -- driving it, so without this the ghost holds the animation's first frame forever. So the rule
-    -- is exactly that -- mirror the peer's animation only where nothing else is doing it.
-    --
-    -- EXCEPT WHEN THE PEER IS FORBIDDEN AN ANIMATION, where "the engine is already driving it" is
-    -- precisely what has stopped being true. On an ice slide the peer holds one frame while
-    -- crossing tiles; requestAction now sets disableAnim on the ghost so the engine stops
-    -- animating it, and that leaves the ghost frozen on whatever frame it happened to be on --
-    -- measured mid-slide: the player held 10/0 while its copy sat on 10/2. Freezing the WRONG
-    -- frame is not the fix, so the mirror takes over for exactly this case and holds the peer's.
+    -- Mirror the peer's animation where nothing else drives it: our movement actions animate the walking graphic (0,
+    -- 89), not a rod, bike or surfboard, and under disableAnim (an ice slide) the engine would hold the wrong frame.
     local engineDrivesAnim = (remote.gfx == nil or remote.gfx == 0 or remote.gfx == 89)
         and not remote.noanim
-    -- AND ONLY ONCE THE GHOST IS ACTUALLY WEARING THAT GRAPHIC. An offset describes a shape: 8px
-    -- is what keeps a 32-wide fishing frame on its tile, and it is simply wrong for the 16-wide
-    -- walker. The peer's graphic is held six frames on the way out (it has to be -- the sender
-    -- measures an unsettled state otherwise), but the offset and the animation are not, so for a
-    -- frame the wire says "walking graphic, fishing offset". Applying that drew the ghost half a
-    -- tile to the side and then snapped it back as the swap landed -- measured: pos2 8,0 with
-    -- gfx 0 at f=2474, gfx 137 at f=2475.
-    --
-    -- Matching on the ghost's own graphic is what makes the two arrive together, and it needs no
-    -- guess about timing: the swap applies both in one batch, and this block only maintains them
-    -- afterwards.
-    -- ...EXCEPT WHEN NOTHING IS DRIVING IT. "The engine animates the walking graphic" holds only
-    -- while one of our movement actions is running. A ghost standing still on foot has none, and
-    -- the last thing to touch its animation may have been a different graphic entirely -- so it
-    -- keeps whatever frame it was left on. Measured at the last commit, standing: the ghost held
-    -- exactly the ROM frame for index 0 while the player stood on index 1.
-    --
-    -- "Nothing is running" is the held-movement bit, NOT the action id: movementActionId keeps the
-    -- last action's number long after it finished, so a settled ghost reads 0x00 and never NONE.
+    -- Only once the ghost wears that graphic (the peer's is held six frames on the way out, its offset is not). A
+    -- walker with no held movement running is mirrored too (movementActionId keeps the last action's number).
     if PEER_GFX_ENABLED and remote.sanim and g.gfx == remote.gfx
         and (not engineDrivesAnim
             or (remote.spaused and (r8(objAddr(g.objId)) & 0x40) == 0))
-        -- ...unless the peer is on a BIKE, where the engine's own choice is provably wrong.
-        --
-        -- Letting the engine animate a moving ghost is right for the WALKING graphic: the movement
-        -- action we request carries the matching walk cycle, and mirroring on top of it put two
-        -- writers on one field and left ghosts stuck in a pose after a turn. A bike is the
-        -- opposite. Measured with MESHGHOST_EMERALD_ANIM_TRACE at top speed, 2026-08-20:
-        --
-        --   f=597  P.anim=4/0 | R.sanim=4/0 | G.anim=8/3
-        --   f=605  P.anim=4/1 | R.sanim=4/1 | G.anim=8/3   <- ten frames on one frame
-        --
-        -- The player rides on animation 4; the action-derived animation for that graphic is 8,
-        -- which runs to its last frame and holds there while the ghost keeps moving. A character
-        -- travelling with its legs stopped is exactly what the user reported as *"sliding/gliding
-        -- at top speed"*. The peer was sending the right number the whole time.
-        --
-        -- So on a bike the peer's number wins even while moving. The number ONLY -- no
-        -- animBeginning, no enableAnim -- so the engine keeps advancing the frames at its own rate
-        -- and there is still only one thing driving them.
+        -- On a bike the peer's number wins even while moving: the action's own animation (8) runs to its end and holds
+        -- while the player rides on 4. The number only, so the engine still advances the frames.
         and (remote.anim ~= "walking" and remote.anim ~= "running" or isBikeGfx(remote.gfx))
-        -- AND NOT WHILE THE PEER IS MOVING AT ALL. The pose string only ever says "walking" or
-        -- "running", so it cannot describe a bike -- a riding peer falls through it and the mirror
-        -- writes animNum while the engine is also animating the step we asked for. Two writers on
-        -- one field is the exact shape that left a ghost *"stuck in the wrong pose after turning
-        -- directions"* during the fishing work.
-        --
-        -- gPlayerAvatar.bikeSpeed answers it: this code takes 0 as standing and anything above as
-        -- movement the engine is already driving (the decompilation's PLAYER_SPEED_*, a pointer;
-        -- unmeasured for bikes). Peers that
-        -- do not send it (an older adapter) keep the previous behaviour.
-        --
-        -- THE BIKE ESCAPE HOLDS ONLY WHILE THE PEER IS ACTUALLY RIDING, 2026-08-20. It was written
-        -- for a peer at a sustained top speed, and unqualified it also fired for a peer who had
-        -- already STOPPED while the ghost was still finishing its catch-up step: the mirror then
-        -- wrote the peer's standing animation onto a ghost the engine was mid-step animating, and
-        -- the two alternated frame by frame -- the ghost cycling through a whole walk cycle for one
-        -- tile. The user: *"when moving a single tile, its 'over animating', the characther is not
-        -- supposed to wiggle from just 1 step, only when constantly biking in 1 direction"*.
-        -- Measured in the tile log as the ghost's animation number flipping between the moving
-        -- family and the standing one on consecutive frames.
-        --
-        -- `bikeSpeed` cannot answer this: it is the Mach Bike's acceleration counter and stays 0 on
-        -- the Acro all the way (verified.md). The peer's own movementActionId can -- a rider sends
-        -- a movement action while riding and a FACE action the moment they stop.
+        -- Not while the peer is moving (pspeed above 0; older peers send none), unless a bike rider is sending a
+        -- movement action, not a face one; bikeSpeed cannot tell, since it stays 0 on the Acro.
         and (remote.pspeed == nil or remote.pspeed == 0
             or (isBikeGfx(remote.gfx) and remote.act and remote.act > 0x03 and remote.act ~= 0xff))
-        -- THE BIKE ESCAPE COVERS JUMPS TOO, and excluding them was a mistake that took three
-        -- passes to see. It was excluded on the reasoning that a ghost trails the peer by a
-        -- bounce, so mirroring the peer's CURRENT hop animation would dress it in a facing its
-        -- body had not reached yet -- which is a statement about POSITION, and this writes an
-        -- ANIMATION NUMBER.
-        --
-        -- What it actually did was remove the only writer that can turn a ghost mid-hop. A held B
-        -- is one repeating action, so the engine never re-reads a direction on its own; and
-        -- `ghostIsIdle` is false for the whole of a continuous hop, so every other path that could
-        -- have issued a turn is closed at the same time. The result is a ghost locked to whichever
-        -- way it set off -- the user, after each of the three attempts that followed: *"the ghost
-        -- get stuck facing with the direction it starts the jumping with"*.
-        --
-        -- The peer's own animation number IS the 1:1 answer: it is the number the peer's game is
-        -- displaying this frame, direction included, and copying it is what every other state on
-        -- this tier already does. Number only, as ever -- no animBeginning, no enableAnim -- so
-        -- the engine keeps advancing the frames and there is still one thing driving them.
+        -- The bike escape covers jumps too: a held B is one repeating action, so the peer's animation number is the
+        -- only writer that can turn a ghost mid-hop.
         and (ghostIsIdle(g)
             or (isBikeGfx(remote.gfx) and remote.act and remote.act > 0x03
                 and remote.act ~= 0xff)) then
         local d = sprAddr(g.sprId)
-        -- SET THE ANIMATION, DO NOT RE-SET IT. The engine advances a ghost's animation perfectly
-        -- well on its own -- measured: 3/0, 3/1, 3/2 with its pixels tracking the player's a beat
-        -- later. What it cannot survive is being restarted: writing animNum with animBeginning
-        -- every time the peer's number changes puts it back to the first frame before it can play
-        -- one, which is what *"it gets stuck in an animation instead of doing the animation"* is.
-        --
-        -- So the number is written only when the ghost is not already playing that animation, and
-        -- the engine is left to run it. Stepping it frame by frame from the peer was tried and was
-        -- worse -- *"it looks really bad/off"* -- because two things were then advancing it.
-        -- Compared against what we LAST SET, never against the sprite's live value: the engine
-        -- moves that on every frame it animates, so testing it means re-issuing the same animation
-        -- forever. The fishing sequence really does move through several animations, and each one
-        -- should start exactly once.
-        -- RE-ARM WHENEVER THE ENGINE HAS PAUSED IT, not only when the number changes. The engine
-        -- re-pauses the sprite every time the ghost goes back to a plain standing graphic, and
-        -- `animSetFor` remembers the number across that. So a SECOND cast of the same rod matched
-        -- the remembered number, skipped the enable, and held one pose for the whole state --
-        -- measured: at the revert the paused bit came back on (0x2C = 0xcd) with animSetFor still
-        -- 3, and the next cast of animation 3 never re-enabled. The condition is therefore about
-        -- what the sprite IS, not what we last told it.
+        -- Set the animation, never re-set it: animSetFor is what we last set (the engine moves the live value), and it
+        -- re-arms whenever the engine has paused the sprite, as it does at every plain standing graphic.
         if (r8(d + 0x2c) & 0x40) ~= 0 then g.animSetFor = nil end
 
-        -- IS THE PEER'S ANIMATION EVEN RUNNING? A number and a frame do not describe a sprite on
-        -- their own; the third part is whether it is playing, and the overworld PAUSES an idle
-        -- character's sprite.
-        --
-        -- Handing every mirrored state to the engine is right for fishing, where the game's own
-        -- task really is animating the player, and wrong for anything a character can simply SIT
-        -- in. Measured 2026-08-19: the player's own Mach Bike idles at anim 7 frame 3 with
-        -- animPaused SET, while a spawned ghost given the same number pedalled on the spot.
-        --
-        -- So a held peer is reproduced as held: its exact frame index, the paused bit set, and its
-        -- pixels loaded -- because a paused sprite is never going to copy them itself. No
-        -- animBeginning here, which would reset the index to 0 and show the wrong frame of the
-        -- loop.
         if COMPARE_TIERS and genderFrames.lastSp ~= tostring(remote.spaused) then
             genderFrames.lastSp = tostring(remote.spaused)
             logFile("WIRE spaused -> " .. genderFrames.lastSp .. " (act=" .. tostring(remote.act) .. ")")
         end
-        -- THE FIELD-MOVE POSE JOINS THE BIKES HERE, and the reason is the same one written above
-        -- for bikes: the engine's own choice is wrong for this graphic. The pose (gfx 3/93, the
-        -- stance at the start of surfing) keeps ONE animation and advances only its command
-        -- index, 0/0 through 0/4 in 16 frames, driven by the game's field-move task. A ghost has
-        -- no such task, so nothing here moved it -- every other path keys on the animation NUMBER
-        -- changing -- and the pose fell to the engine's free-running playback at its own command
-        -- durations: 25 frames, skipping steps, which the painted copy shows too because in
-        -- compare mode it reads its frame from this sprite. The user: *"the drawn ghost does the
-        -- starting surf animation a tiny bit slow"*.
-        --
-        -- Narrow on purpose: bikes and this pose only. Surfing and fishing are confirmed 1:1 on
-        -- their current paths and are not disturbed.
+        -- The field-move pose (gfx 3/93) joins the bikes: it keeps one animation and steps only its index (0/0-0/4 in
+        -- 16 frames) from the game's field-move task, which a ghost lacks. Surfing and fishing keep their paths.
         if (isBikeGfx(remote.gfx) or remote.gfx == 3 or remote.gfx == 93)
             and not remote.spaused then
-            -- Number only, and only when it differs: restarting here would reset the cycle every
-            -- time the peer's animation ticked, which is the "stuck on frame 0" failure from the
-            -- fishing work wearing different clothes.
-            --
-            -- AND THE PIXELS WITH IT, on that same change. A new animation number says which frames
-            -- the ghost SHOULD be showing; it puts none of them in VRAM. An object event's tiles
-            -- are copied when its animation ADVANCES, and a hop's frames are held for many frames
-            -- at a time -- so a peer turning mid-hop got the right number immediately and the old
-            -- direction's artwork until the engine happened to step the animation. That is the
-            -- whole of *"its turning a bit slow"* (user, 2026-08-21), and it is the same
-            -- one-frame-late copy the settle path and the held path each already fix in their own
-            -- branch; this is the third and last place that needed it.
-            --
-            -- ON THE CHANGE ONLY. A frame copy is info.size/4 read+write pairs -- 128 of them for
-            -- a 32x32 graphic -- and loadGhostFrameNow's own header is blunt that it is cheap once
-            -- and ruinous per frame. Gated on the number actually differing, this runs once per
-            -- turn, not once per frame.
-            -- NEVER DRESS A GHOST IN A DIRECTION ITS BODY IS NOT PERFORMING.
-            --
-            -- A peer turning mid-hop changes its animation number instantly, but the ghost's own
-            -- ACTION cannot change until its current bounce ends -- so copying the number straight
-            -- across leaves it hopping one way while wearing the artwork for another. Measured
-            -- with probes/facing_probe.lua, 2026-08-21, three frames of it every single turn:
-            --   P face=up act=75 anim=21 | G face=right act=77 anim=21
-            -- the ghost travelling RIGHT under 0x77 while showing the UP hop. That is the *"extra
-            -- animation before swapping facing direction"*.
-            --
-            -- The first attempt at this silenced the mirror for every jump, which removed the only
-            -- writer that could turn a ghost at all and cost four passes to see. The honest rule is
-            -- narrower: mirror freely while the two are performing the SAME action -- that is what
-            -- keeps a pedal cycle in step -- and stand aside while they disagree, leaving the engine
-            -- to animate the hop the ghost is actually doing. They re-converge a frame later when
-            -- the ghost adopts the peer's action, and the engine sets that animation itself.
+            -- Number and pixels on a change only (a restart resets the cycle; a copy per frame is costly). While the
+            -- peer's jump differs from the ghost's action, stand aside, or it hops one way wearing another's art.
             local agrees = not isJumpAction(remote.act)
                 or r8(objAddr(g.objId) + 0x1c) == remote.act
-            -- MIRROR THE PAIR, NOT JUST THE NUMBER. A pose that keeps one animation and advances
-            -- only its command index -- the field-move pose is exactly that, 0/0 through 0/4 --
-            -- changed nothing here, because the test was on `animNum` alone. That was invisible
-            -- while the engine animated the ghost itself; it stopped being invisible when the
-            -- post-swap cooldown started holding the sprite PAUSED to stop it tearing, since
-            -- then NOBODY advanced the pose: the ghost sat on frame 0 and jumped to 4, and the
-            -- painted twin -- which reads its frame from this sprite in compare mode -- showed
-            -- the same stall as *"the drawn ghost does the starting surf animation a tiny bit
-            -- slow"*. Measured: the player stepped 0/0..0/4 in 16 frames, the copies took 25 and
-            -- skipped three.
-            --
-            -- The index is written only while restarts are blocked. Outside the cooldown the
-            -- engine owns that field and advances it itself; writing it there would be two
-            -- writers on one field, which this file has paid for before.
+            -- Mirror the pair, not just the number (the field-move pose steps only its index). The index only while
+            -- restarts are blocked: outside the cooldown the engine owns it.
             local pairKey = (remote.sanim or 0) * 256 + (remote.sidx or 0)
             if agrees and animBelongsToGhost(g, remote) and g.animPairFor ~= pairKey then
                 g.animPairFor = pairKey
@@ -8919,22 +4954,12 @@ local function syncGhost(playerId, remote)
                 if animRestartBlocked(g) then w8(d + 0x2b, remote.sidx or 0) end
                 loadGhostFrameNow(g, graphicsInfo(g.gfx), remote.sanim, remote.sidx or 0)
             end
-            -- AND UN-PAUSE IT, because setting a number on a paused sprite changes nothing.
-            -- The peer is not paused (checked above), so the ghost should not be either -- but the
-            -- engine pauses an object's sprite whenever it settles, and on the Acro Bike that left
-            -- the ghost moving with its legs stopped: measured `paused=232` of 252 stepping frames
-            -- while it rode. requestAction hands the animation back the same way when it issues a
-            -- step; this covers the frames between steps.
+            -- And un-pause it: the engine pauses a sprite whenever its object settles, freezing the legs between steps.
             if (r8(d + 0x2c) & 0x40) ~= 0 then
                 w8(objAddr(g.objId) + 0x01, r8(objAddr(g.objId) + 0x01) | 0x08)
             end
         elseif remote.spaused and remote.sidx then
-            -- THE HELD POSE, through the one helper both this path and the spawn path use. It was
-            -- written out here and only here, which is how the spawn path came to restart the
-            -- animation instead of holding it (2026-08-21). Everything that used to be inline --
-            -- the change test, the three writes, the OAM flip a held sprite never gets from an
-            -- advancing animation, the frame copy and the animSetFor bookkeeping -- is in
-            -- applyHeldPose now, unchanged.
+            -- The held pose, through the helper the spawn path shares.
             if COMPARE_TIERS then
                 logFile(string.format("HELD LOAD: g.gfx=%s live=%d sanim=%s sidx=%s tileStart=%s"
                     .. " oamTile=%d", tostring(g.gfx), r8(objAddr(g.objId) + 0x05),
@@ -8945,79 +4970,37 @@ local function syncGhost(playerId, remote)
         elseif g.animSetFor ~= remote.sanim and animBelongsToGhost(g, remote) then
             w8(d + 0x2a, remote.sanim)
             animRestart(d, g)
-            -- AND ASK THE ENGINE TO ACTUALLY PLAY IT. Setting the animation number alone is not
-            -- enough, and this is the thing two earlier attempts both missed: the overworld PAUSES
-            -- an idle object event's sprite, so the ghost held the animation's first frame for the
-            -- entire cast. Measured across one: the ghost sat at 3/0 for 256 frames and then 11/0
-            -- for the rest, while the player's own frame index cycled 0, 1, 3 throughout.
-            --
-            -- Done through the game's own switch rather than by clearing the paused bit ourselves.
-            -- This sets `enableAnim` (byte +0x01 bit 0x08), which the decompilation reads as
-            -- clearing animPaused AND disableAnim and then itself (TryEnableObjectEventAnim, a
-            -- pointer; the bit and that behaviour are unmeasured). One write per animation start is
-            -- meant to hand the whole thing back to the engine, so the frames advance at the game's
-            -- own rate instead of one we would have had to invent.
-            -- Gated on the same swap cooldown as animRestart: enableAnim clears animPaused, and
-            -- an un-paused ghost inside the tear window puts the engine's mid-frame frame copies
-            -- right back. animSetFor stays nil while blocked, so the whole start re-runs -- with
-            -- the engine allowed in -- on the first anim change past the window.
+            -- And let the engine play it: enableAnim (TryEnableObjectEventAnim) un-pauses the sprite. Not inside the
+            -- swap cooldown, where un-pausing lets the engine's mid-frame copies back; animSetFor stays nil to retry.
             if not animRestartBlocked(g) then
                 w8(objAddr(g.objId) + 0x01, r8(objAddr(g.objId) + 0x01) | 0x08)
                 g.animSetFor = remote.sanim
             end
         end
 
-        -- AND THE SPRITE OFFSET THE TASK APPLIES. Measured: the engine sets the fishing player's
-        -- pos2 to 8,0, which is what keeps the character on its tile inside a 32-wide frame. Our
-        -- ghost has no fishing task to do that, so it sat half a tile to the side from the moment
-        -- it picked up the rod -- *"both ghosts move while fishing"*, reported repeatedly while
-        -- every position measurement said the ghost was exactly where it should be. It was: the
-        -- OFFSET was missing, not the position.
+        -- And the sprite offset the fishing task applies (8,0 keeps a 32-wide frame on its tile), which a ghost lacks.
         if isFishingGfx(g.gfx) then
-            -- Owned by the BuildOamBuffer hook when it is active (registered at the bottom of
-            -- this file): a write from HERE lands between emulated frames, and the engine then
-            -- advances the animation before building OAM -- so image and offset change on
-            -- different frames and the ghost flicks 8px at every alignment change. Measured:
-            -- pos2 constant at 8 while OAM x went 144, 136, 144 on consecutive frames.
+            -- The BuildOamBuffer hook owns this when active: written here, between frames, the engine advances the
+            -- animation before building OAM, and image and offset change on different frames.
             if not tiering.fishAlignActive then alignFishingGhost(g) end
         elseif g.blobSprId then
-            -- THE BOB IS THE ENGINE'S, so do not write over it. A surf blob set to
-            -- surfBlob.bobMode drives the RIDER's pos2 as well as its own -- that is the whole
-            -- of the up-and-down on the water -- and it is already pointed at this ghost. Writing
-            -- the peer's own offset here would put two things on one field, the same shape as the
-            -- animNum fight that left a ghost stuck in a pose: our write lands between frames and
-            -- the engine's lands during one, so the ghost would bob at the peer's phase, our
-            -- phase, or neither. The peer's bob is not wanted anyway -- the ghost has a real blob
-            -- of its own now, and it should ride its own.
+            -- A surf blob drives its rider's pos2 (the bob), so the peer's offset is not written over it.
         else
             if remote.sox then w16(d + 0x24, remote.sox & 0xffff) end
             if remote.soy then w16(d + 0x26, remote.soy & 0xffff) end
         end
     end
 
-    -- UNDERWATER THE BOB IS A POSITION, NOT AN ANIMATION -- so it is applied even while moving.
-    --
-    -- The mirror above deliberately stands aside for a WALKING peer: its animation is the engine's
-    -- to drive, and mirroring on top of that put two writers on one field. But the peer's sprite
-    -- OFFSET is not an animation, and underwater it is the whole of the bob -- the game drives it
-    -- with a dummy sprite we deliberately do not reproduce (spawnUnderwaterBobber's header). With
-    -- the offset trapped inside that gate, a diver bobbed while idle and went rigid the moment it
-    -- moved: the user, *"they stay static and don't bob while moving around"*.
-    --
-    -- Only underwater, and only when nothing else owns the field: a surf blob drives its rider's
-    -- pos2 itself, and a walking ghost on land has no offset to carry.
+    -- Underwater the bob is a position, not an animation, so it applies while moving too (the game drives it with a
+    -- dummy sprite we do not reproduce), unless a surf blob owns the field.
     if g.gfx and UNDERWATER_GFX[g.gfx] and not g.blobSprId and remote.soy then
         local dw = sprAddr(g.sprId)
         w16(dw + 0x26, remote.soy & 0xffff)
         if remote.sox then w16(dw + 0x24, remote.sox & 0xffff) end
     end
 
-    -- SLIDE COUNTER, kept rather than temporary: between them these two numbers found the paused
-    -- sprite on the Mach Bike, the frozen legs on the Acro Bike, and the stranded ghost -- three
-    -- faults no position or speed reading could see. A moving character with `paused` high is
-    -- sliding, and that is invisible in any other measurement. "Sliding" is a character whose position advances while its legs
-    -- do not, and no position counter can see it. Per second: frames the ghost was mid-step, how
-    -- many of those changed its animCmdIndex, and how many it spent PAUSED while moving.
+    -- Slide counter, per second: frames mid-step, how many changed animCmdIndex, and how many were spent paused. A
+    -- moving sprite that is paused is sliding, which no position reading can see.
     if tiering.slide then
         local gd = sprAddr(g.sprId)
         local idx = r8(gd + 0x2b)
@@ -9033,17 +5016,8 @@ local function syncGhost(playerId, remote)
         g.lastIdx = idx
     end
 
-    -- THE ANIMATION-ALIGNMENT TRACE (probe, off by default -- MESHGHOST_EMERALD_ANIM_TRACE).
-    --
-    -- One line per frame carrying the PLAYER's sprite animation state and the GHOST's TOGETHER,
-    -- plus the real OAM entry each is drawn from. Both halves on one line is the whole point: the
-    -- fishing misalignment was two consumers disagreeing about which frame a value belonged to,
-    -- and that is invisible in any trace that follows one of them at a time. The OAM columns are
-    -- what settled it -- every struct field agreed with every other while the pixels on screen
-    -- did not.
-    --
-    -- Buffered and flushed in batches, never console.log: per-frame console output visibly lags
-    -- the game, and even a per-frame io.open is a probe heavy enough to change what it measures.
+    -- Animation-alignment trace (probe, MESHGHOST_EMERALD_ANIM_TRACE): the player's and the ghost's animation state and
+    -- real OAM entries on one line, buffered to a file, since per-frame console output or io.open changes the reading.
     if tiering.animTrace then
         local pd = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
         local gd = sprAddr(g.sprId)
@@ -9075,64 +5049,31 @@ local function syncGhost(playerId, remote)
             tiering.animTraceBuf = {}
         end
     end
-    -- Never interrupt a half-played step -- EXCEPT for a pending graphic change that is not
-    -- fishing. The deferral was measured in for the rod (the engine owns the sprite offset
-    -- mid-step, and a mid-step rod swap drew 8px off for three frames), but it costs up to a
-    -- whole step of latency, and on a mount that is the spawned ghost visibly changing AFTER the
-    -- painted one -- the user, with the pose war finally won: *"its doing the mount/dismount
-    -- slower than the drawn ghost & player"*. A bike's and a walker's plain frames carry no
-    -- offset, so for them the measured fault cannot occur and the swap may land mid-step; the
-    -- swap branches below return on their own, so nothing past them runs while busy.
-    -- PARK THE BLOB THE MOMENT A DISMOUNT IS ON THE WIRE -- before the busy guard, every frame,
-    -- idempotently. The first version wrote BOB_JUST_MON only where the jump is ISSUED, and a
-    -- ghost that happens to be busy that frame skips the issue -- the glide then walks it ashore
-    -- with the blob still in PLAYER_AND_MON, following. The engine re-reads the state every
-    -- frame, so writing it every frame of the jump costs nothing and depends on no timing.
-    --
-    -- MOUNT AND DISMOUNT SHARE THE ACTION IDS, and the discriminator is NOT the blob's age --
-    -- that was the second version, ">30 frames old", and the user's quick load-and-jump beat it
-    -- (*"the blob still follows it onto land"* with a blob ~20 frames old). The honest test is
-    -- ORDER, the same order the game itself has: a mount CREATES its blob after the jump is
-    -- already underway, a dismount's blob exists before the jump begins. So the edge of the
-    -- action records whether a blob was already there, and that verdict holds for the action's
-    -- whole lifetime.
+    -- Park the blob once a dismount is on the wire, every frame, before the busy guard. Mount and dismount share action
+    -- ids; order tells them apart: a mount makes its blob after the jump starts, a dismount's exists before it.
     local inJs = remote.act and remote.act >= 0x3a and remote.act <= 0x3d
     if inJs and not g.jsActive then
         g.jsActive, g.jsDismount = true, g.blobSprId ~= nil
     elseif not inJs then
-        -- The jump ended. A MOUNT's blob spent the jump inert (below); hand it to the engine
-        -- now, exactly when PlayerAvatarTransition_Surfing does for the player's own.
+        -- The jump ended: hand a mount's inert blob to the engine, as PlayerAvatarTransition_Surfing does.
         if g.jsActive and not g.jsDismount and g.blobSprId then
             local bd = sprAddr(g.blobSprId)
             w8(bd + 0x2e, (r8(bd + 0x2e) & 0xf0) | 1) -- surfBlob.bobMode
         end
         g.jsActive, g.jsDismount = nil, nil
     end
-    -- A MOUNT'S BLOB IS BORN HERE, once the engine holds the ghost's jump. InitJump writes the
-    -- destination into the object's coords as the jump begins, so "the ghost's movementActionId
-    -- is the jump" is exactly when its coords stop lying about where the blob belongs -- the
-    -- swap-time spawn used the wire's smoothed position and put the blob on the LAND tile, where
-    -- BOB_NONE then faithfully kept it (*"its still on the grass... then teleports when the
-    -- spawned ghost actually gets onto the water"*).
+    -- A mount's blob is born once the engine holds the ghost's jump: InitJump writes the destination into its coords.
     if inJs and not g.jsDismount and not g.blobSprId and g.gfx and SURFING_GFX[g.gfx]
         and not g.noBlob then
         local ja = objAddr(g.objId)
         local heldAct = r8(ja + 0x1c)
         if heldAct >= 0x3a and heldAct <= 0x3d then
             local bid = spawnSurfBlob(g, rs16(ja + 0x10) - MAP_OFFSET, rs16(ja + 0x12) - MAP_OFFSET)
-            -- RE-PLACE FROM THE RIDER'S SPRITE. spawnSurfBlob's screen math carries the two
-            -- camera terms that only cancel while the camera is AT REST -- documentation.md's own
-            -- warning on this exact sprite -- and a mount jump is precisely when the camera is
-            -- moving, so the blob landed a tile ashore of its correct water tile (logged born at
-            -- the right tile while the user watched it sit on the grass). The engine's own
-            -- placement is rider + (0, +8), measured 2026-08-19, and the rider's sprite position
-            -- is engine-maintained against the live camera every frame -- so it cannot be stale.
-            -- pos2 (the arc) is deliberately NOT copied: the blob waits flat on the water.
+            -- Re-place it from the rider's sprite: spawnSurfBlob's screen math is exact only on a resting camera, and a
+            -- mount jump moves it. The engine seats a blob at rider + (0, +8); the arc in pos2 is not copied.
             if bid then
-                -- Plus the jump's own one-tile step: at the accept frame the rider's sprite is
-                -- still AT the land tile (the sprite animates across, it does not snap), and the
-                -- destination is one tile along the jump's direction -- which the action id
-                -- carries (JUMP_SPECIAL_DOWN..RIGHT, 0x3A..0x3D).
+                -- Plus the jump's one-tile step: the rider's sprite is still on the land tile at the accept frame
+                -- (JUMP_SPECIAL_DOWN..RIGHT, 0x3A..0x3D).
                 local dxs = { [0x3a] = 0, [0x3b] = 0, [0x3c] = -TILE, [0x3d] = TILE }
                 local dys = { [0x3a] = TILE, [0x3b] = -TILE, [0x3c] = 0, [0x3d] = 0 }
                 local gs2, bd2 = sprAddr(g.sprId), sprAddr(bid)
@@ -9146,19 +5087,12 @@ local function syncGhost(playerId, remote)
         if g.jsDismount then
             w8(bd + 0x2e, (r8(bd + 0x2e) & 0xf0) | 2) -- BOB_JUST_MON: park in the water
         else
-            -- A MOUNT'S BLOB IS INERT UNTIL THE RIDER LANDS ON IT. This code leaves the blob's bob
-            -- state at none during the jump, so it waits in the water while the rider arcs onto
-            -- it, and sets surfBlob.bobMode only after. That the game's own mount does the same is
-            -- the decompilation's reading (FldEff_SurfBlob, UpdateBobbingEffect -- pointers), not
-            -- measured on a mount. Ours went straight
-            -- to PLAYER_AND_MON, whose position sync dragged the blob along the rider's arc --
-            -- the user: *"the drawn ghost jumps with the blob onto the water, instead of jumping
-            -- from the grass onto the blob in the water"* (and the spawned did the same, less
-            -- visibly). Our ghost's jump sets its object coords to the destination at the start,
-            -- so the blob is already spawned at the right tile -- it just has to sit still.
+            -- A mount's blob stays inert (bob state none) until the rider lands on it, waiting in the water.
             w8(bd + 0x2e, r8(bd + 0x2e) & 0xf0)    -- BOB_NONE: wait at the destination
         end
     end
+    -- Never interrupt a half-played step, except for a pending non-fishing graphic change: the engine owns pos2
+    -- mid-step, so a rod swapped then draws 8px off, but bike and walker frames carry no offset.
     if not ghostIsIdle(g) then
         local pending = wantedGfx(remote)
         if not (pending and g.gfx and pending ~= g.gfx
@@ -9167,28 +5101,10 @@ local function syncGhost(playerId, remote)
         end
     end
 
-    -- The graphic swap waits for the step to END, below this guard rather than above it.
-    --
-    -- A peer's state arrives while the ghost may still be mid-stride: its walk is engine-driven and
-    -- takes 16 frames from when we asked for it, so a rod that arrives partway through lands on a
-    -- WALKING ghost. The player can never do that -- you cannot start fishing mid-step -- and it
-    -- has a mechanical consequence too: the engine owns pos2 for the duration of a step, so the
-    -- peer's own sprite offset is overwritten every frame until the step finishes. Measured with a
-    -- probe loaded before the adapter: three frames of the fishing graphic at pos2 0,0, drawn 8px
-    -- left, ending exactly when the step did.
-    --
-    -- Waiting costs at most one step. It buys a ghost that stops, then fishes, like the player.
-    -- The peer changed what they are: got on a bike, started surfing, cast a rod. Patched in place
-    -- where possible -- position, pos2 and the engine's own settled state all survive, so there is
-    -- no frame where the ghost is missing, doubled, or wearing the previous graphic's pixels.
+    -- The peer changed what they are (a bike, surfing, a rod): patched in place where possible, so nothing is missing,
+    -- doubled or wearing the old pixels.
     local wantNow = wantedGfx(remote)
-    -- A GRAPHIC CHANGE ENDS IN A SETTLE, BOTH DIRECTIONS. The frame the swap loads is sampled from
-    -- the wire mid-transition and can be a stride; every field-level correction attempted against
-    -- that (six across one afternoon) either lost a tug-of-war or was judged against the wrong
-    -- bytes. The user's own observation is the mechanism: *"it does get the correct/proper pose if
-    -- you mount/dismount and then move 1 tile afterwards"* -- a step makes the ENGINE set the
-    -- pose. The settle is a zero-motion step, so ask for it and let the game do the part only it
-    -- does correctly. Static, not walk-in-place: nobody pedals or paces getting on or off a bike.
+    -- A graphic change ends in a settle: a static zero-motion step, so the engine sets the pose itself.
     if COMPARE_TIERS and remote.gfx ~= g.gfxWireSeen then
         g.gfxWireSeen = remote.gfx
         logFile(string.format("f=%d GFX on wire -> %s (ghost wears %s, idle=%s)",
@@ -9196,17 +5112,8 @@ local function syncGhost(playerId, remote)
     end
     if wantNow and g.gfx and wantNow ~= g.gfx then
         if COMPARE_TIERS then logFile(string.format("f=%d emu=%d SWAP %s -> %s", frameCounter, emu.framecount(), tostring(g.gfx), tostring(wantNow))) end
-        -- NO SETTLE FOR THE FIELD-MOVE POSE. The settle is a zero-motion step that makes the
-        -- engine set a pose properly, and it is right for a state a peer STAYS in -- a bike, a
-        -- rod, a surfboard. The field-move stance is not one of those: it is a 16-frame transient
-        -- the game plays and leaves, and the settle's own step keeps the ghost BUSY for its whole
-        -- duration -- which returns out of this function every frame, before the animation mirror
-        -- that would have driven the peer's frames. So the pose fell to the engine's free-running
-        -- playback at its own command durations: 25 frames instead of 16, skipping steps, which
-        -- the painted copy shows too because in compare mode it reads its frame from this very
-        -- sprite. The user: *"the drawn ghost does the starting surf animation a tiny bit slow"*.
-        -- Measured with a gate trace: every mirror condition passed and the wire delivered all
-        -- four steps on time -- the mirror was simply never reached.
+        -- No settle for the field-move pose: a 16-frame transient, and the settle's step would keep the ghost busy past
+        -- the mirror that drives its frames.
         if not (wantNow == 3 or wantNow == 93) then
             g.needsSettle = true
             g.settleStatic = true
@@ -9216,49 +5123,32 @@ local function syncGhost(playerId, remote)
     if wantNow and g.gfx and wantNow ~= g.gfx
         and swapGhostGraphicInPlace(g, wantNow, remote.sanim, remote.sox or 0, remote.soy or 0,
             remote.sidx, remote.spaused,
-            -- targetX/Y, not raw wire: the loopback ghost stands offset from the player, and its
-            -- blob must be born at ITS destination, not the player's.
+            -- targetX/Y, not raw wire: the loopback ghost's blob is born at its own destination.
             targetX, targetY)
     then
-        -- No offset write here: swapGhostGraphicInPlace set it in the same batch as the shape,
-        -- from the right source for the graphic. Writing the wire value on top of that -- which
-        -- this path did until 2026-08-19 -- put the PLAYER'S current frame's offset onto the
-        -- ghost's several-frames-older one, an 8px flash on the exact frame of every swap.
+        -- No offset write: the swap set it with the shape, and the wire value is the player's newer frame's.
         return
     end
 
-    -- The peer changed what they are: got on a bike, started surfing, cast a rod. A graphic swap
-    -- means different images, animations, OAM shape and tile count, so the sprite is rebuilt
-    -- rather than patched -- the same thing the engine does when the player's own state changes.
+    -- When the swap cannot patch, rebuild the sprite, as the engine does for the player's own change.
     local want = wantedGfx(remote)
     if want and g.gfx and want ~= g.gfx and cameraIsSettled() then
         local a = objAddr(g.objId)
         local atX, atY = rs16(a + 0x10) - MAP_OFFSET, rs16(a + 0x12) - MAP_OFFSET
         despawnGhost(playerId)
         spawnGhost(playerId, atX, atY, remote.orientation, want)
-        -- The new sprite's tiles are whatever was in that range; fill them with the frame the
-        -- engine is about to copy, so no frame is drawn with the old graphic's pixels.
+        -- Fill the new sprite's tiles with the frame now, so no frame shows the old graphic's pixels.
         local ng = ghosts[playerId]
         if ng then loadGhostFrameNow(ng, graphicsInfo(want), remote.sanim, remote.sidx) end
-        -- SWEEP IN THE SAME FRAME. despawnGhost only clears a slot it can still prove is ours
-        -- (ghostAlive), and when that proof fails it deliberately touches nothing -- correct, but
-        -- it leaves the old object active while the new one already exists. Captured in the
-        -- fishing log: slot14 and slot15 both live across the swap, until the once-a-second sweep
-        -- caught it. Sweeping here closes that window to the frame it happens in, which is what
-        -- the user was seeing as the ghost "moving" when it casts a rod.
+        -- Sweep in the same frame: despawnGhost leaves an object it cannot prove is ours active beside the new one.
         sweepOrphanGhosts()
-        -- AND APPLY THE PEER'S SPRITE OFFSET IN THE SAME FRAME. This path returns before the
-        -- mirroring block below, so without this the ghost spends a frame at pos2 0,0 with its new
-        -- 32-wide graphic -- half a tile off -- and then snaps into place when the next update
-        -- arrives. The rebuild is already a visible cut; adding a snap to it is what
-        -- *"looks a bit snappy and they also briefly move"* is made of.
+        -- And the peer's sprite offset in the same frame, since this path returns before the mirror.
         if ng then
             local nd = sprAddr(ng.sprId)
             if remote.sanim then
                 w8(nd + 0x2a, remote.sanim)
                 animRestart(nd, ng)
-                -- And let the engine play it -- a rebuilt ghost is paused exactly like a swapped
-                -- one, and without this it holds the first frame for the whole state.
+                -- A rebuilt ghost is paused like a swapped one; let the engine play it.
                 if not animRestartBlocked(ng) then
                     w8(objAddr(ng.objId) + 0x01, r8(objAddr(ng.objId) + 0x01) | 0x08)
                     ng.animSetFor = remote.sanim
@@ -9275,86 +5165,11 @@ local function syncGhost(playerId, remote)
     end
 
 
-    -- A LEDGE HOP, BEFORE ANY STEP LOGIC LOOKS AT THE DISTANCE.
-    --
-    -- Two earlier attempts failed and the capture says why. First: "the peer moved two tiles in
-    -- one update" -- it never does. The engine advances the tile counter ONE TILE AT A TIME
-    -- through a hop (measured: coords 16,18 -> 16,19 -> 16,20 while act stayed 12), and the core's
-    -- interpolation smooths it further. Second: the same test as an `elseif` after the one-tile
-    -- branch -- unreachable, because a one-tile delta is exactly what a hop looks like every
-    -- frame, so the walk branch always matched first and the ghost walked down the ledge.
-    --
-    -- What the peer sends is the ENGINE'S OWN INTENTION: movementActionId, which is
-    -- JUMP_2_DOWN/UP/LEFT/RIGHT (0xC..0xF) for the whole hop. Acting on that has to come first,
-    -- because by the time distance is being measured the hop is indistinguishable from walking.
-    --
-    -- Issued ONCE per hop: the action stays set for the whole jump, and re-issuing it every frame
-    -- would send the ghost hopping across the map. The latch clears when the peer stops reporting
-    -- a jump, so the next ledge is a fresh one.
-    -- ACTIONS THE PEER PERFORMS THAT NO AMOUNT OF WATCHING POSITIONS CAN RECOVER.
-    --
-    -- A ledge hop was the first of these: two tiles and an arc, indistinguishable from walking by
-    -- the time distance is being measured. The Acro Bike is a whole family of them, and they share
-    -- the property that made the ledge hop impossible to infer -- they happen ON THE SPOT. A bunny
-    -- hop, a standing wheelie, popping into or out of one: the tile never changes, so every branch
-    -- below sees "the peer did not move" and falls through to turning the ghost on the spot. The
-    -- user, riding one: *"the spawned ghost is turning, while im jumping around on it"*, and
-    -- *"not supposed to turn facing direction that way"*.
-    --
-    -- So the peer's own movementActionId is performed verbatim for all of them (id ranges and
-    -- names per the decompilation's numbering, a pointer; unmeasured unless noted):
-    --   0x0C..0x0F  JUMP_2_*                 ledge hops
-    --   0x46..0x4D  JUMP_IN_PLACE_*          the bunny hop, including the two-way variants
-    --   0x64..0x83  ACRO_*                   wheelie face/pop/end/hop/jump/in-place/move
-    --
-    -- LATCHED ON THE VALUE, not on a boolean: a hop is a one-shot and a standing wheelie is a HOLD,
-    -- and issuing either one twice restarts it. Re-issuing only when the action CHANGES covers both
-    -- without needing to know which is which.
-    -- HALF OF THEM MOVE A TILE, and holding those stops the ghost following at all -- reported
-    -- immediately: *"the ghosts are not following me when im jumping and moving"*. Reading the
-    -- block as one range was the mistake; it interleaves in-place and travelling actions:
-    --   IN PLACE  0x46..0x4D jump in place · 0x64..0x73 wheelie face/pop/end/hop-face
-    --             0x7C..0x7F wheelie in place
-    --   TRAVELS   0x0C..0x0F ledge jump · 0x74..0x7B wheelie hop/jump · 0x80..0x83 pop-wheelie move
-    -- An in-place action is mirrored and HELD, because nothing else will move the ghost and the
-    -- position logic below would turn it instead. A travelling one is mirrored once and then left
-    -- to the ordinary step logic, which is what keeps the ghost following.
-    -- THE WHEELIE POSES ARE MIRRORED AGAIN, 2026-08-20, after the reason they were dropped turned
-    -- out not to be true. They had been excluded because the watchdog in ghostIsIdle kept freeing
-    -- 0x69, 0x6B and 0x6D at its 60-frame limit, and the guess written here was that they need the
-    -- acro state the engine keeps on the PLAYER, which a ghost has none of.
-    --
-    -- Measured instead of guessed (probes/wheelie_watch.lua and probes/wheelie_ghost.lua, both in
-    -- verified.md). On the player every one of these actions completes -- 0x6B ran nine frames and
-    -- reported finished. On a GHOST they complete too, in eleven frames, under every condition the
-    -- hang was blamed on: sitting idle, issued on top of a step already running, and with the
-    -- sprite's paused bit set or cleared. Nothing reproduced the hang, so what caused it was
-    -- something else in the state of that session, and the same day's paused-sprite and
-    -- graphic-swap fixes are the candidates.
-    --
-    -- CORRECTED 2026-08-20: this comment used to add "and in all four directions including the
-    -- exact ids the watchdog had been freeing". That was never measured. The probe's issuing line
-    -- ignored each condition's action id and re-derived it from the ghost's own facing, so all six
-    -- "directions" issued the same id -- which is why all six finished in exactly eleven frames.
-    -- A mismatched direction remains UNTESTED. `probes/wheelie_ghost.lua`'s header carries the
-    -- detail and the fix.
-    --
-    -- The watchdog stays exactly as it is: it costs nothing, it logs what it frees, and it is the
-    -- reason this was diagnosable at all. If the hang comes back, it will say so by name.
-    -- RELEASE THE SIDE-HOP FACING LOCK THE MOMENT THE PEER STOPS SIDE HOPPING.
-    --
-    -- It was released only once the ghost stood still on its target tile, which is too late: a peer
-    -- who hops sideways and then rides on leaves the ghost MOVING with facing still pinned, and
-    -- `SetObjectEventDirection` refuses to write facingDirection while the bit is set -- so the
-    -- ghost carried the hop's facing through the steps that followed and only caught up when it
-    -- finally stopped. The user, 2026-08-21: *"while jumping and then moving, the spawned ghost is
-    -- changing the direction a bit slow"*.
-    --
-    -- This code releases it when the peer's action leaves the side-hop range. That the engine
-    -- releases the player's on the input tick after the jump is the decompilation's reading
-    -- (`AcroBikeHandleInputSidewaysJump`, a pointer), not measured. Only OUR lock is cleared: `lockGhostFacing`
-    -- uses the same bit for the move-one-way-face-another case and manages its own lifecycle per
-    -- step, and this runs before that so it can re-assert it in the same frame if it still applies.
+    -- Actions positions cannot recover (a ledge hop, the bunny hop, the Acro family: one arc, or on the spot) are the
+    -- peer's movementActionId performed verbatim, latched on its value so a hold is not restarted. In-place ones are
+    -- held; a travelling one must not stop the step logic, which keeps the ghost following. First, release our side-hop
+    -- facing lock once the peer leaves the side-hop range (SetObjectEventDirection refuses while it is set);
+    -- lockGhostFacing shares the bit and runs after, so it can re-assert it.
     if g.sideHopLock and not (remote.act and remote.act >= 0x42 and remote.act <= 0x45) then
         local sa = objAddr(g.objId)
         w8(sa + 0x01, r8(sa + 0x01) & ~0x02)
@@ -9365,57 +5180,19 @@ local function syncGhost(playerId, remote)
         (remote.act >= 0x46 and remote.act <= 0x4d)
         or (remote.act >= 0x64 and remote.act <= 0x73)
         or (remote.act >= 0x7c and remote.act <= 0x7f))
-    -- THE TRAVELLING BLOCK RUNS TO 0x8B, not 0x83. Cut short, the wheelie MOVE and END_WHEELIE
-    -- MOVE actions fell through to an ordinary walk: the ghost kept up -- its coordinates track the
-    -- peer's throughout, measured -- but rode along without the wheelie or the hop, which is what
-    -- "not doing it like the player" looks like from the chair.
-    --   0x74..0x7B WHEELIE_HOP/JUMP · 0x80..0x83 POP_WHEELIE_MOVE
-    --   0x84..0x87 WHEELIE_MOVE     · 0x88..0x8B END_WHEELIE_MOVE
-    -- 0x42..0x45 JUMP_* -- THE SIDE HOP -- IS PERFORMED VERBATIM, like a ledge hop.
-    --
-    -- It was in neither list, so the ghost never performed it: it simply STEPPED to the tile the
-    -- peer had hopped to. That is why it had no dust. The engine raises landing dust from a jump
-    -- FINISHING (`UpdateJumpAnim` sets landingJump, and GroundEffect_JumpLandingDust reads the
-    -- object's coords), and a ghost that walks the tile never finishes a jump, so there was nothing
-    -- to raise it -- measured 2026-08-21 with probes/shadowdust_probe.lua over a run of side hops:
-    -- 19 dust sprites, every one of them at dx=0, i.e. the player's own and none for the ghost.
-    --
-    -- Performing the action is also the right fix rather than painting a puff ourselves, and for
-    -- the standing reason on this project: let the game do the work. The ghost hops, so the engine
-    -- gives it the arc, the dust and the landing -- and the painted tiers, which are pinned to that
-    -- sprite, then record their puff where the ghost actually lands instead of where it was still
-    -- catching up to. That is the same *"not supposed to trail/be after you"* the user reported,
-    -- fixed at its cause instead of by an offset.
-    --
-    -- Verbatim rather than animation-only (the acroBase treatment below): like a ledge hop this
-    -- covers real ground in one arc that no ordinary step reproduces, and the position logic agrees
-    -- with it afterwards.
-    -- 0x3A..0x3D JUMP_SPECIAL -- THE HOP ONTO THE WATER -- is here for the same reason the side
-    -- hop is: it covers a tile in one arc that no ordinary step reproduces, and it is the whole
-    -- difference between a peer who STARTS SURFING and one who slides onto the sea.
-    --
-    -- The game's own sequence: field-move pose, then the surfing graphic with a JUMP_SPECIAL action
-    -- (the decompilation's surf field effect in field_effect.c is the pointer; the blob appearing at
-    -- the destination tile is its reading, unmeasured). Measured live 2026-08-21 on the player's
-    -- own object event: gfx 0 ->
-    -- 3 with act=0x39 (START_ANIM_IN_DIRECTION, the pose), then gfx=2 with act=0x3A and pos2 y=-4,
-    -- the arc itself. The ghost read act=0x00/0xFF throughout, because 0x3A fell through every
-    -- list here -- so it popped from standing on land to surfing and then glided down a tile. The
-    -- user, watching all three tiers: *"its just the starting surf -> going to surf part that is
-    -- weird"*.
+    -- Travelling actions. The ledge jump 0x0C..0x0F, the surf jump 0x3A..0x3D and the side hop 0x42..0x45 are performed
+    -- verbatim: each covers ground in one arc no step reproduces, and the engine then gives the ghost the landing. The
+    -- Acro hop (0x74..0x7B) and wheelie-move (0x80..0x8B) families become animation-only below.
     local travels = remote.act and (
         (remote.act >= 0x0c and remote.act <= 0x0f)
         or (remote.act >= 0x3a and remote.act <= 0x3d)
         or (remote.act >= 0x42 and remote.act <= 0x45)
         or (remote.act >= 0x74 and remote.act <= 0x7b)
         or (remote.act >= 0x80 and remote.act <= 0x8b))
-    -- One line per CHANGE of the peer's action, with what the ghost is doing at that moment. Three
-    -- edits have now been made to the Acro handling without once looking at what the peer actually
-    -- sends, which is the guessing this project has a rule against.
+    -- Compare mode: one line per change of the peer's action, with what the ghost is doing at that moment.
     if COMPARE_TIERS and g.lastAct ~= remote.act then
         g.lastAct = remote.act
-        -- The SENT graphic beside the RECEIVED one: `gfx=nil` on the wire while the player is
-        -- visibly on a bike means the two disagree, and only printing both says which end is wrong.
+        -- The sent graphic beside the received one: only both together say which end is wrong.
         logFile(string.format("ACT sending gfx=%s | peer=%s -> ghost act=%d idle=%s inPlace=%s "
             .. "travels=%s gfx=%s pos2=%d,%d",
             string.format("%s (confirmed=%s objId=%d raw=%d sent=%s pending=%s ticks=%s)",
@@ -9429,94 +5206,32 @@ local function syncGhost(playerId, remote)
             tostring(inPlace and true or false), tostring(travels and true or false),
             tostring(remote.gfx), rs16(sprAddr(g.sprId) + 0x24), rs16(sprAddr(g.sprId) + 0x26)))
     end
-    -- A TRAVELLING ACTION MOVES THE GHOST ITSELF, so issuing it verbatim AND letting the step
-    -- logic run is two things moving one character -- the ghost lurching about while the painted
-    -- copy, which is driven only by the position stream, looked correct (user, 2026-08-20: *"the
-    -- spawned ghost is moving weird ... the drawn one looks fine"*). That comparison is the whole
-    -- diagnosis: same data in, one tier fine, so the fault is in what the spawned tier DOES with it.
-    --
-    -- A ledge hop is the exception and stays verbatim: it covers two tiles in one arc that no step
-    -- can reproduce, and the position logic agrees with it afterwards.
-    --
-    -- Every other travelling Acro action is used for its ANIMATION only: the step below asks for
-    -- the same family in the direction the ghost actually needs to go. The families are four
-    -- consecutive actions in DIR order starting at a multiple of four (0x74 hop, 0x78 jump, 0x80
-    -- pop-wheelie move, 0x84 wheelie move, 0x88 end-wheelie move), so the family base is act & 0xFC.
+    -- A travelling action moves the ghost itself, so issuing it and stepping too moves it twice. The Acro families are
+    -- used for their animation only: the step below asks for the same family (base = act & 0xFC, four ids in DIR order)
+    -- in the direction the ghost needs.
     local acroBase = nil
     if travels and remote.act >= 0x74 then acroBase = remote.act & 0xfc end
     if acroBase then travels = false end
 
-    -- A POSE IS A HOLD, AND A HOLD HAS TO BE RELEASED.
-    --
-    -- The in-place Acro actions are not one-shots: a standing wheelie holds until something ends
-    -- it. Issued to a ghost and then left, the object never reports finished, so `ghostIsIdle` is
-    -- false for ever, no further step is ever requested, and the ghost simply stops following --
-    -- with its sprite paused the whole time, which is what `paused=300 of 300` in the status line
-    -- was saying. The peer moving on is the signal to let go.
+    -- A pose holds until released: once the peer moves on, let go, or the ghost never goes idle and stops following.
     if not (inPlace or travels) then
         if g.jumped then clearHeldMovement(g) end
         g.jumped = nil
     end
-    -- A REPEATED one-shot has to re-fire. Latching on the value alone means a peer hopping on the
-    -- spot over and over reports the same action id throughout, so the ghost hopped ONCE and then
-    -- stood there -- which is also why its landing dust appeared only when it was travelling
-    -- (user, 2026-08-20). Clearing the latch once the ghost is idle again lets each hop be its own
-    -- hop, while a HELD pose (a standing wheelie) still issues once because the ghost never goes
-    -- idle underneath it.
+    -- Clear the latch once idle so a repeated hop re-fires; a held pose never goes idle, so it still issues once.
     if inPlace and g.jumped == remote.act and ghostIsIdle(g) then g.jumped = nil end
-    -- AN IN-PLACE POSE MUST NEVER COST THE GHOST A STEP IT OWES.
-    --
-    -- This branch issues the peer's action and RETURNS, so no step is taken that frame -- which is
-    -- right for a pose and wrong whenever the ghost still has ground to cover. The wheelie poses
-    -- were folded back into `inPlace` earlier today and brought that straight back: a peer who pops
-    -- a wheelie and rides on reports a new pose id repeatedly, the branch fires on each one, and
-    -- the ghost never steps. *"If i wheelie, and move 1 tile, the ghosts are not following me"* --
-    -- the same shape as the older *"the ghosts are not following me when im jumping and moving"*,
-    -- which is why the poses were dropped the first time.
-    --
-    -- The guard further down already says it: being AT the target tile is the honest test for
-    -- "there is nothing to do but pose". Applied here too, so a pose is issued only when the ghost
-    -- is where it belongs, and otherwise the step logic below runs and covers the tile first.
-    -- Travelling actions are unaffected -- they move the ghost themselves.
+    -- Pose only at the target tile: this branch returns without stepping, so a pose must not cost a tile still owed.
     if inPlace and not travels
         and (targetX ~= rs16(objAddr(g.objId) + 0x10) - MAP_OFFSET
             or targetY ~= rs16(objAddr(g.objId) + 0x12) - MAP_OFFSET)
     then
         inPlace = false
     end
-    -- LATCH ONLY WHAT ACTUALLY LANDED.
-    --
-    -- `g.jumped` records "this peer action has been performed", and it used to be set at the
-    -- moment of asking. A ghost mid-bounce is not listening: the engine is playing out the
-    -- current jump and the movementActionId written underneath it is picked up only when that
-    -- finishes -- so an order given mid-arc is dropped, while the latch remembers it as done and
-    -- nothing ever re-sends it. On a held B, where the peer's action changes ONLY in its
-    -- direction, that is a ghost frozen in whichever way it first set off: the user, twice, and
-    -- precisely the second time -- *"the ghost get stuck facing with the direction it starts the
-    -- jumping with, even if the player swaps direction while jumping afterwards"*. The facing
-    -- probe measured the same thing from the other end: the ghost held act=72 for seven state
-    -- changes after the peer went to 73, then adopted it the moment its bounce ended.
-    --
-    -- So the latch is set only when the ghost was actually free to take the order. Busy, it is
-    -- left alone and the same order is re-sent next frame, which costs nothing and lands on the
-    -- first frame the engine is listening. The branch still returns either way -- a pose must not
-    -- also spend a step -- so nothing else about this path changes.
-    -- NEVER START AN ACTION ON A GRAPHIC THAT IS ABOUT TO BE REPLACED.
-    --
-    -- The engine chooses an animation for the action it is given, and it chooses it for whatever
-    -- graphic the sprite is wearing at that instant. Issue the surf jump one frame before the
-    -- surfing graphic lands and it sets the jump's animation number on the field-move sprite,
-    -- whose table is shorter and has no such entry -- one frame of a frame that does not exist,
-    -- which is visible: *"a weird grey/flashing glitched sprite"*. Measured as `anim=20/4 gfx=3`
-    -- by probes/dive_probe.lua's VRAM-against-ROM check, one frame before every swap.
-    --
-    -- The send side was fixed first (the graphic and the action now leave together), and a single
-    -- frame of skew survived it, so this is the belt to that braces.
-    --
-    -- GATED ON A PENDING SWAP, not on the two graphics simply matching. With the peer-graphic path
-    -- off -- the shipped default -- a ghost wears the LOCAL player's graphic, so "they differ" is
-    -- the normal state and gating on it would silently stop a peer on a bike ever hopping. What
-    -- matters is narrower: are we about to change this ghost's graphic? Then wait one frame.
+    -- Latch an action only once the ghost was idle to take it: an order given mid-arc is dropped, so it is re-sent each
+    -- frame until it lands.
+    -- Wait out a pending graphic swap: the engine picks the action's animation for the graphic worn at that instant,
+    -- and the field-move graphic has no surf-jump animation. Gated on a pending swap, not on the graphics differing:
+    -- with peer graphics off a ghost wears the local graphic, so differing is the normal state.
     local swapPending = (function()
         local w = wantedGfx(remote)
         return w ~= nil and g.gfx ~= nil and w ~= g.gfx
@@ -9525,47 +5240,20 @@ local function syncGhost(playerId, remote)
         if ghostIsIdle(g) then
             g.jumped = remote.act
             g.needsSettle = nil
-            -- A SIDE HOP TRAVELS WITHOUT TURNING, and the lock is how the engine says so.
-            --
-            -- Performing a sideways jump turned the ghost to face the jump, which is right for a
-            -- ledge hop and wrong for this, the one move whose whole character is hopping sideways
-            -- while still looking where you were. So this code sets facingDirectionLocked FIRST
-            -- and then issues the jump. That the game's side hop does the same, and that the lock
-            -- is what keeps the facing, is the decompilation's reading (InitJump,
-            -- `AcroBikeTransition_SideJump` -- pointers), not measured.
-            -- Issuing the action without the lock gave the ghost the turn the player never makes
-            -- -- the user, 2026-08-21: *"its supposed to keep looking forward during the side hop,
-            -- not turn to face towards where the side hop goes"*.
-            --
-            -- Released by the standing-on-target branch below, meant to match when the game
-            -- releases the player's (`AcroBikeHandleInputSidewaysJump` is the pointer; unmeasured).
-            -- objAddr directly: the function's own `a` is declared further down, and reaching
-            -- for it here would read a nil GLOBAL -- the forward-reference trap this file has
-            -- already been bitten by three times.
+            -- A side hop keeps its facing: set facingDirectionLocked before the jump; the standing-on-target branch
+            -- releases it. objAddr directly: `a` is declared further down, and reading it here would be a nil global.
             if remote.act >= 0x42 and remote.act <= 0x45 then
                 local ja = objAddr(g.objId)
                 w8(ja + 0x01, r8(ja + 0x01) | 0x02)
                 g.sideHopLock = true
             end
-            -- A DISMOUNT PARKS THE BLOB BEFORE THE JUMP, exactly as the game does it.
-            --
-            -- The blob's bob state changes on the dismount frame and the blob stays parked (filmed
-            -- below); Task_StopSurfingInit and UpdateBobbingEffect are the decompilation's pointers
-            -- for it. That is the whole of "the blob stays in the
-            -- water while you jump ashore". We never sent that state, so a ghost's blob rode
-            -- ashore under it: the user, with slot 2 re-aimed at this exact transition, *"the
-            -- blob follows them onto land... the blob is supposed to stay in the water"*.
-            -- Filmed on the player's own blob during the repro: data[0] low nibble 1 -> 2 on
-            -- the dismount frame, position parked.
-            --
-            -- Distinguishing a dismount from a MOUNT (same action ids): a mount's blob is
-            -- created moments before its jump, a dismount's has been alive the whole surf.
-            -- No restore is needed -- every dismount ends in the walker graphic, whose swap
-            -- despawns the blob, exactly as Task_WaitStopSurfing destroys the game's own.
+            -- A dismount parks the blob in the water before the jump, as the game's own blob does. A mount's blob is
+            -- created moments before its jump, a dismount's has lived the whole surf. No restore: the walker graphic's
+            -- swap despawns it.
             if remote.act >= 0x3a and remote.act <= 0x3d and g.blobSprId
                 and g.blobSince and frameCounter - g.blobSince > 30 then
                 local bd = sprAddr(g.blobSprId)
-                w8(bd + 0x2e, (r8(bd + 0x2e) & 0xf0) | 2) -- BOB_JUST_MON (field_effect_helpers.h)
+                w8(bd + 0x2e, (r8(bd + 0x2e) & 0xf0) | 2) -- BOB_JUST_MON
             end
             requestAction(g, remote.act)
         end
@@ -9574,28 +5262,13 @@ local function syncGhost(playerId, remote)
 
     local dir = DIR_ID[remote.orientation] or DIR_ID.south
 
-    -- Trust the engine's own coordinates rather than our record of them: it owns the object once
-    -- a step is under way, and a step that got cancelled would otherwise leave us out of sync.
+    -- Trust the engine's coordinates: it owns the object mid-step, and a cancelled step would desync our record.
     local a = objAddr(g.objId)
     local curX = rs16(a + 0x10) - MAP_OFFSET
     local curY = rs16(a + 0x12) - MAP_OFFSET
     local dx, dy = targetX - curX, targetY - curY
 
-    -- HOLD AN IN-PLACE POSE ONLY WHEN THE GHOST IS WHERE IT BELONGS.
-    --
-    -- The hold exists so a standing wheelie is not turned or stepped out of underneath. But a peer
-    -- riding an Acro Bike reports the in-place hop actions (0x70..0x73) WHILE TRAVELLING between
-    -- tiles too, and holding on those stopped the ghost following at all -- reported twice, and the
-    -- second time it was genuinely this rather than my own input probe fighting the pad.
-    --
-    -- Being at the target tile is the honest test for "there is nothing to do but pose". With a
-    -- tile still to cover, the step logic below must run whatever pose the peer is in.
-    -- WHICH BRANCH DECIDED, once a second. Three edits have been made to this path on reports
-    -- alone; the question "why did the ghost not move" has a finite set of answers and this prints
-    -- which one it was.
-    -- MESHGHOST_EMERALD_HOP_TRACE, not COMPARE_TIERS (moved 2026-09-02): four lines a second PER
-    -- PEER is a crowd's worth of string.format on the emulator thread, and compare mode is the dev
-    -- default rather than a request for this trace.
+    -- Hop trace: which branch decided, every 15 frames. Its own flag: four lines a second per peer is costly.
     if (MESHGHOST_EMERALD_HOP_TRACE or os.getenv("MESHGHOST_EMERALD_HOP_TRACE")) and frameCounter % 15 == 0 then
         logFile(string.format("HOP act=%s inPlace=%s travels=%s latch=%s d=%d,%d idle=%s "
             .. "ghostAct=%d held=%02X orient=%s gFace=%d",
@@ -9607,43 +5280,8 @@ local function syncGhost(playerId, remote)
                 remote.x, remote.y, curX, curY, tostring(g.gfx), tostring(remote.gfx),
                 tostring(wantedGfx(remote))))
     end
-    -- A HOPPING GHOST MUST STILL BE ABLE TO TURN.
-    --
-    -- The pose hold below returns without issuing anything, which is right for a peer holding a
-    -- standing wheelie and wrong the moment they turn while still holding it. On the Acro Bike a
-    -- held B is ONE repeating action, so a peer who spins on the spot mid-hop changes only the
-    -- DIRECTION of that action -- and with the ghost already at the target tile, every branch
-    -- below is skipped and it keeps hopping the way it first set off. The user, who pinned this
-    -- down exactly, 2026-08-21: *"the ghost get stuck facing with the direction it starts the
-    -- jumping with, even if the player swaps direction while jumping afterwards"*, and it is what
-    -- the facing probe measured as the ghost holding act=72 for seven state changes after the
-    -- peer had gone to 73.
-    --
-    -- Re-issuing the peer's own action is the whole fix: its id already encodes the direction, so
-    -- the ghost performs the same hop the peer is performing, facing the same way. Guarded on the
-    -- ghost being IDLE so a bounce already in flight is never interrupted mid-arc, and on the
-    -- facing actually disagreeing so a held pose is still issued exactly once.
-    -- ANY jump, not just the in-place ones: a travelling hop reaches here too the moment the ghost
-    -- has caught up, and the branch below would then spend a separate TURN action to change its
-    -- facing. A hop already carries its own direction -- the id IS the direction -- so turning
-    -- first and hopping second is one animation the peer never performs, seen as *"doing an extra
-    -- animation as well before swapping facing direction when jumping and moving around"* (user,
-    -- 2026-08-21). Re-issuing the peer's own action is both the turn and the hop, in one.
-    -- A PEER WHO IS STILL HOPPING HAS A GHOST THAT IS STILL HOPPING.
-    --
-    -- The wheelie-hop families are handled as animation-only (`acroBase` below), which means the
-    -- ghost performs them only as part of covering a tile. Caught up with the peer, it therefore
-    -- stopped bouncing altogether and waited for ground to cross -- and since a turn can only be
-    -- adopted when an action is issued, the turn waited for that step too. Measured with
-    -- probes/facing_probe.lua, 2026-08-21:
-    --   f=240 P=77 G=73   f=243 P=77 G=FF   f=251 P=77 G=77
-    -- the ghost IDLE at 243 with nothing to do, adopting only at 251. Eleven frames, none of them
-    -- the wire, and it reads as *"turning around a bit slow while jumping around"*.
-    --
-    -- The rule this restores is the plain one: anything the player can do, a ghost does too. A peer
-    -- hopping on the spot is hopping, so the ghost hops -- issued afresh each time it comes free,
-    -- which keeps its bounces in step with the peer's instead of on a grid of its own, and makes a
-    -- direction change land on the very next bounce exactly as it does for the player.
+    -- At the target tile, re-issue the peer's own jump whenever the ghost comes free: the id carries the direction, so
+    -- it is the turn and the hop in one, in step with the peer's bounces and never interrupting one mid-arc.
     if isJumpAction(remote.act) and dx == 0 and dy == 0 then
         if ghostIsIdle(g) then
             g.jumped = remote.act
@@ -9654,106 +5292,37 @@ local function syncGhost(playerId, remote)
     if inPlace and dx == 0 and dy == 0 then return end
 
     if dx == 0 and dy == 0 then
-        -- RELEASE THE FACING LOCK ONCE THERE IS NOWHERE TO GO.
-        --
-        -- `lockGhostFacing` sets the engine's own facingDirectionLocked whenever a peer moves one
-        -- way while facing another, and clears it on the next step where the two agree. The Acro
-        -- Bike's SIDE HOP is that case by definition -- it travels sideways without turning -- so
-        -- it reliably leaves the lock set, and a peer who then just turns on the spot issues no
-        -- step at all: nothing reaches the release, the facing is not rewritten while the bit is set
-        -- (`SetObjectEventDirection` is the pointer), and the ghost is frozen facing the way it
-        -- hopped. The user, 2026-08-21: *"after doing a side hop, the spawned ghost facing
-        -- direction gets stuck until you move a tile"* -- moving a tile being the one thing that
-        -- reached the release.
-        --
-        -- Standing on the target tile means there is no movement left for the lock to protect, so
-        -- this is the honest place to drop it. (That the engine releases the player's lock when the
-        -- hop resolves is the decompilation's reading, not measured.)
+        -- Nowhere left to go: drop the facing lock a side hop leaves set, or a turn on the spot is never adopted.
         if (r8(a + 0x01) & 0x02) ~= 0 then w8(a + 0x01, r8(a + 0x01) & ~0x02) end
-        -- A RIDER DOES NOT WALK IN PLACE. `FACE_ACTION` is walk-in-place-fast on purpose, because
-        -- that is how a walking player turns -- but a rider turns as part of moving, and standing
-        -- still on a bike is the STATIC pose: the player's own object reports 0x00..0x03 the whole
-        -- time it is stopped on the Acro Bike (probes/wheelie_watch.lua, 2026-08-20).
-        --
-        -- So every turn and every settle was spending a walk-in-place animation the player never
-        -- performed, and a single tile costs two of them -- one to turn, one to settle. Measured
-        -- with probes/onestep.lua: one tile east cost the player ONE action and two frames of the
-        -- pedal cycle, and the ghost three actions and four frames. The user: *"when moving a
-        -- single tile, its 'over animating', the characther is not supposed to wiggle from just 1
-        -- step, only when constantly biking in 1 direction"*.
+        -- A rider turns with the static face action: FACE_ACTION is walk-in-place, which is how only a walker turns.
         if (r8(a + 0x18) & 0x0f) ~= dir then
             requestAction(g, (isBikeGfx(remote.gfx) and FACE_STILL_ACTION or FACE_ACTION)[dir])
             g.stillSince = nil
             return
         end
-        -- Facing is already right and the peer has not moved. If they are nonetheless REPORTING
-        -- movement, they are walking into something -- so bump, the way the player does.
+        -- Facing is right and the peer has not moved; if it still reports movement, it is walking into something.
         local moving = (remote.anim == "walking" or remote.anim == "running")
         if not moving then
             g.stillSince = nil
-            -- SETTLE A GHOST THAT WAS RUNNING. We drive a run by issuing a run action per tile;
-            -- when the peer stops we simply stop issuing them, and the engine leaves the object on
-            -- whatever frame the last one ended on -- so the ghost stands there in a running pose.
-            -- The player never looks like that because the game returns them to standing itself.
-            -- Found by the user 2026-08-19 in the side-by-side, and it is the SPAWNED half that
-            -- was wrong for once: *"the injected/spawned ghost gets stuck in a wrong pose/sprite
-            -- after stopping after a run, the drawn one looks fine"*.
-            --
-            -- Asking the engine to face the way it already faces is how the game itself settles a
-            -- character, so the standing frame comes from the same place every other pose does.
+            -- Settle after a run or a ride: the engine leaves the object on its last moving frame, and facing the way
+            -- it already faces is how the game itself settles a character.
             if g.needsSettle then
                 g.needsSettle = nil
                 g.frameFor = nil
-                -- The static pose on a bike, for the reason given at the turn above: a rider that
-                -- settles with walk-in-place pedals once more for no reason. And after a GRAPHIC
-                -- CHANGE for any graphic -- nobody paces while getting on or off a bike.
+                -- The static pose on a bike, and after any graphic change.
                 if COMPARE_TIERS and g.settleStatic then logFile(string.format("f=%d SETTLE fires", frameCounter)) end
                 requestAction(g, ((g.settleStatic or isBikeGfx(remote.gfx))
                     and FACE_STILL_ACTION or FACE_ACTION)[dir])
                 g.settleStatic = nil
-                -- THE STANDING ANIMATION GOES WITH THE SETTLE. The settle is itself an action, and
-                -- for the eight frames it runs the ghost is not idle -- so the mirror below is
-                -- blocked and the engine goes on advancing whatever was playing, which on a bike is
-                -- the pedal cycle. Two more frames of pedalling, every stop, on top of the ones the
-                -- step already cost. Handing it the peer's number here (the number ONLY, no
-                -- animBeginning -- restarting an animation is its own old bug) leaves the engine
-                -- advancing a standing animation instead of a rolling one, and there is still just
-                -- one thing driving it.
+                -- Hand the settle the peer's animation number (no animBeginning), so through the settle the engine
+                -- advances a standing animation rather than the pedal cycle.
                 if remote.sanim and animBelongsToGhost(g, remote) then
                     w8(sprAddr(g.sprId) + 0x2a, remote.sanim)
                 end
             end
-            -- AND THE PIXELS HAVE TO FOLLOW THE POSE. Settling sets the animation the ghost should
-            -- be showing; it does not put that frame's IMAGE anywhere. An object event's frames are
-            -- copied into its own OBJ VRAM range when its animation ADVANCES, and a ghost standing
-            -- still advances nothing -- so it reported the standing frame and went on displaying
-            -- the last rolling one it had been given. The user, 2026-08-20, on the Acro Bike:
-            -- *"it looks as if its tilted while idle, due to the 'while moving' animation making
-            -- the sprite move a bit back/forth left/right while pedaling"*, and *"it looked good
-            -- for a sec there when you swapped/reload... after moving and going idle again its
-            -- still tilted"* -- good exactly while the spawn path's own frame copy was fresh.
-            --
-            -- Invisible to every trace this adapter had, because every FIELD agreed: player and
-            -- ghost both on animation 4/3, unchanged for 180 frames. It took reading the two tile
-            -- ranges (probes/posediff.lua) to see 120 of 512 bytes differing underneath.
-            --
-            -- Copy the frame the PEER is actually displaying, which is the 1:1 answer rather than
-            -- the nearest one, and do it ON A CHANGE ONLY: a frame copy is 128 read+write pairs
-            -- and loadGhostFrameNow's own note is that it is cheap once and ruinous per frame.
-            --
-            -- AND ONLY ONCE THE ENGINE HAS LET GO. A peer stopping does not stop the GHOST: it is
-            -- still a step or two behind and keeps being given catch-up steps, and every one of
-            -- those advances the animation and copies a rolling frame over ours. Measured, which
-            -- is the only reason this was found -- the first version of this copy landed while the
-            -- ghost was still catching up and read `differing: 0`, then the engine's own next step
-            -- put it back to 152 and the key said the work was already done. The user saw exactly
-            -- that: *"it still looks wrong directly after stopping from having moved, it only
-            -- looks correct after stopping and then changing a facing direction"* -- a turn being
-            -- the next thing that happened to give the tiles one last correct copy.
-            --
-            -- movementActionId back to NONE is the engine saying it has nothing left to run, so it
-            -- is the earliest moment a copy cannot be overwritten. Until then the key is cleared,
-            -- so the copy re-arms after every action rather than counting itself already done.
+            -- Copy the frame the peer displays into the ghost's tiles: a standing object advances no animation, so
+            -- nothing else copies its image. Only on a change (a copy is 128 read+write pairs), and only once
+            -- movementActionId is NONE, or the engine's next catch-up step copies a moving frame over it.
             if r8(a + 0x1c) ~= MOVEMENT_ACTION_NONE then
                 g.frameFor = nil
             elseif remote.sanim and g.gfx and animBelongsToGhost(g, remote) then
@@ -9766,17 +5335,7 @@ local function syncGhost(playerId, remote)
             return
         end
         g.stillSince = g.stillSince or frameCounter
-        -- NOT ON A BIKE. `BUMP_ACTION` is the walk-in-place SLOW shuffle a walker does against a
-        -- wall (`PlayerNotOnBikeCollide` -- the name says it), and a rider does not do it. Given to
-        -- a ghost on a bike it reads as the sprite twitching backwards for a moment: the user,
-        -- 2026-08-20, *"the spawned one actually flips the sprite in reverse for a bit for some
-        -- reason"*, and the log had it as action 0x1B on the ghost while the peer was riding.
-        --
-        -- Third member of the same family of bugs today, after FACE_ACTION and the walk step: a
-        -- constant chosen for a walker, correct there, wrong the moment the peer is on a bike.
-        -- Standing still is closer to 1:1 than performing an animation the player cannot perform;
-        -- what a blocked RIDER actually does is unmeasured, and is registered in unverified.md
-        -- rather than guessed at here.
+        -- No bump on a bike: BUMP_ACTION is a walker's shuffle against a wall. What a blocked rider does is unmeasured.
         if frameCounter - g.stillSince >= BUMP_AFTER_FRAMES and not isBikeGfx(remote.gfx) then
             requestAction(g, BUMP_ACTION[dir])
         end
@@ -9784,41 +5343,16 @@ local function syncGhost(playerId, remote)
     end
     g.stillSince = nil
 
-    -- PLAYER_SPEED_* -> the game's own action for that speed, shared by the step below and the
-    -- catch-up path further down so both move at the peer's pace.
-    --   FAST -> WALK_FAST 0x15, FASTER/FASTEST -> WALK_FASTER 0x2D
-    --   (the speed-to-action pairing is the decompilation's reading of the Mach Bike,
-    --   sMachBikeSpeedCallbacks -- a pointer; the 0x15 and 0x2D actions are seen at speed, 2026-08-19.)
+    -- The peer's speed class as the game's own step: FAST -> WALK_FAST 0x15, FASTER/FASTEST -> WALK_FASTER 0x2D.
     local base = nil
     if remote.pspeed == 2 then base = 0x15
     elseif remote.pspeed == 3 or remote.pspeed == 4 then base = 0x2d end
-    -- FORCED MOVEMENT: bikeSpeed is ZERO while the game is pushing you, so the field above cannot
-    -- describe it and the peer's own action must. On a muddy slope below top speed the rider is
-    -- pushed south fast while the speed field says standing (ForcedMovement_MuddySlope is the
-    -- pointer). Measured over 527 frames of
-    -- slide-back, 2026-08-20: the peer reported action 21 (WALK_FAST south) on 416 of them while
-    -- the ghost used WALK_NORMAL throughout, sliding at half the peer's pace.
-    --
-    -- The action is the RIGHT source here and the wrong one for ordinary riding (it is transient,
-    -- and sampling it at 20Hz missed the fast action 6 times in 10). So it is a fallback, not a
-    -- replacement: the stable field first, the action only when the field says "standing still"
-    -- and the action says otherwise.
+    -- Forced movement (a muddy slope) reads bikeSpeed 0, so fall back to the peer's action. It is transient, so only
+    -- where the speed field says standing.
     if not base and remote.act then
         if remote.act >= 0x2d and remote.act <= 0x30 then base = 0x2d
         elseif remote.act >= 0x15 and remote.act <= 0x18 then base = 0x15
-        -- THE ACRO BIKE RIDES ON "RIDE WATER CURRENT", which is not a joke and not a walk:
-        -- this code maps 0x29..0x2C to a speed because the decompilation has the Acro Bike's
-        -- ordinary movement use the ride-water-current actions (AcroBikeTransition_Moving, a
-        -- pointer); the ids a riding peer reports are not measured.
-        --
-        -- Nothing else in this file recognised that family, so the speed lookup found nothing and
-        -- the ghost WALKED after a peer riding a bike: measured `pspeed0` and `walk/run` on every
-        -- step, with the gap reaching four tiles -- past the three-tile chase limit, so it was
-        -- placed instead of walked, over and over. That is the constant teleporting.
-        --
-        -- gPlayerAvatar.bikeSpeed stays 0 here because it belongs to the MACH bike's acceleration
-        -- counter; the Acro Bike has no such ramp. So this family IS the speed for that bike, and
-        -- the ghost performs the same action rather than a walk of its own.
+        -- The Acro Bike rides with the ride-water-current actions and leaves bikeSpeed (the Mach Bike's) at 0.
         elseif remote.act >= 0x29 and remote.act <= 0x2c then base = 0x29 end
     end
 
@@ -9828,61 +5362,13 @@ local function syncGhost(playerId, remote)
         elseif dx == -1 then stepDir = DIR_ID.west
         elseif dy == 1 then stepDir = DIR_ID.south
         else stepDir = DIR_ID.north end
-        -- HOW FAST, TAKEN FROM THE PEER'S OWN ACTION rather than guessed from a pose.
-        --
-        -- A walk/run pair cannot describe a bike. (That the Mach Bike steps through three speeds,
-        -- the top one faster than running, is the decompilation's reading -- sMachBikeSpeedCallbacks,
-        -- a pointer; unmeasured.) A ghost stepping at walk pace after a faster peer falls a
-        -- tile behind per step, until the distance trips the "more than a tile out" branch and it
-        -- is PLACED. That is what *"the ghosts are teleporting around after me"* is made of: not a
-        -- position bug, a speed one.
-        --
-        -- So the speed comes from `movementActionId`, which the peer already sends because the
-        -- ledge hop needed it -- the engine's own statement of what it is doing. The DIRECTION
-        -- stays ours (we know it from the tile delta, and the peer's action may be a turn or NONE
-        -- mid-step); only the speed class is adopted, and the ghost then performs the game's own
-        -- action for that speed. Bases used: WALK_NORMAL 0x08, WALK_FAST 0x15, WALK_FASTER 0x2D,
-        -- each four consecutive ids in DIR_ID order (the decompilation's numbering, a pointer;
-        -- 0x15 south measured on a muddy slope, 2026-08-20).
+        -- Speed from the peer's movementActionId, direction from the tile delta (the peer's action may be a turn or
+        -- NONE mid-step). Bases WALK_NORMAL 0x08, WALK_FAST 0x15, WALK_FASTER 0x2D, four ids each in DIR_ID order.
         local running = (remote.anim == "running")
-        -- A GHOST THAT OWES A TILE ON A BIKE MUST RIDE IT, NOT WALK IT.
-        --
-        -- `acroBase` is taken from the peer's CURRENT action, and a ghost is usually a step behind:
-        -- by the time it covers the tile, the peer has moved on to ending the wheelie or to
-        -- standing, so there is no acro action left to copy and the ghost falls through to a plain
-        -- WALK. Measured on one tile of wheelie ride: the player rode it with action 0x84 and the
-        -- ghost walked it with 0x08 -- a walk step is also twice as long as a ride step, so the
-        -- ride animation ran across the whole of it. The user: the spawned ghost is *"doing the
-        -- while cosntantly riding animation instead of just the small wiggle"*.
-        --
-        -- Remembering the last acro family the peer actually used, and reusing it for as long as
-        -- the peer is on a bike, means the ghost performs the game's own riding action for the
-        -- tiles it owes -- the same shape as the drawn tier remembering the peer's last moving
-        -- animation number, and for exactly the same reason.
-        -- A HOP IS NEVER REMEMBERED AS "how this peer rides".
-        --
-        -- `lastAcroBase` exists so a ghost that owes a tile keeps RIDING rather than falling back
-        -- to a walk. But it used to remember whichever acro family came last, including the two
-        -- hop families -- so a single wheelie hop made every catch-up step afterwards a hop, and
-        -- the ghost bounced (and puffed landing dust) across ground the peer was riding flat.
-        -- The user, 2026-08-21: *"the spawned ghost is also 'jumping/doing the dust' when just
-        -- riding left/right on the bike normally"*.
-        --   0x74..0x7B  WHEELIE_HOP / WHEELIE_JUMP  -- one-off, never a riding style
-        --   0x80..0x8B  POP_WHEELIE_MOVE / WHEELIE_MOVE / END_WHEELIE_MOVE  -- how a peer rides
-        -- Only the second group is worth remembering; the first is an event that happened once.
+        -- Remember the peer's last riding family, so a ghost a step behind rides the tile it owes rather than walking
+        -- it. Only the wheelie moves (0x80..0x8B) are a riding style; a hop (0x74..0x7B) happened once.
         if acroBase and acroBase >= 0x80 then g.lastAcroBase = acroBase end
-        -- WHAT THE PEER IS DOING NOW BEATS WHAT IT WAS DOING BEFORE.
-        --
-        -- The remembered family is a fallback for the frames where the peer's own action says
-        -- nothing useful -- it has finished its step and gone back to standing while the ghost is
-        -- still covering the tile it owes. It is NOT a description of how this peer rides, and
-        -- using it in preference to the peer's live action meant one wheelie ride dressed every
-        -- ordinary step afterwards in a wheelie: the user, 2026-08-21, *"its also doing some
-        -- wheelie animations when just riding the bike normally left/right now"*.
-        --
-        -- `base` is derived from the peer's CURRENT movementActionId, so wherever it exists it is
-        -- the better answer and the memory must stand aside. The memory is also dropped outright
-        -- once the peer is plainly riding some other way, so it cannot come back later.
+        -- The peer's live action beats the remembered family, which is dropped once the peer rides some other way.
         if base then
             g.lastAcroBase = nil
         elseif not acroBase and isBikeGfx(remote.gfx) then
@@ -9895,50 +5381,22 @@ local function syncGhost(playerId, remote)
         else
             requestAction(g, (running and RUN_ACTION or WALK_ACTION)[stepDir])
         end
-        -- Remembered so the stop above can settle it: a run leaves the object on a running frame
-        -- and only an explicit action brings it back to standing. A walk does not need this --
-        -- the user's own test was exact about that, "it does idle->walk fine".
-        --
-        -- A BIKE NEEDS IT TOO, 2026-08-20, and for the same reason a run does: a walk's last frame
-        -- IS the standing frame, which is why walking never needed settling, and a bike's is not.
-        -- It was missed because the flag was set from `running`, and a riding peer reports its
-        -- pose as "walking" -- the wire's pose string has only those two words, so no bike can
-        -- ever set it. The user, on the side-by-side: the spawned ghost idle on the bike was
-        -- *"using the animation/pose that is supposed to happen while actively moving"*, and sat
-        -- visibly offset with it, because the bike's moving frame is a different width from its
-        -- standing one.
+        -- A run or a ride needs a settle: a walk's last frame is the standing frame, a run's and a bike's are not. A
+        -- riding peer reports its pose as walking, hence the bike test.
         g.needsSettle = (running or isBikeGfx(remote.gfx)) or nil
-        -- The engine owns the tiles again for the length of the step, so the settled-frame copy
-        -- above must be re-armed: without this a second stop finds its key unchanged and skips.
+        -- The engine owns the tiles again for the step, so re-arm the settled-frame copy.
         g.frameFor = nil
         lockGhostFacing(g, remote, stepDir)
     elseif frameCounter - (genderFrames.xmap.rebasedAt or -99) <= 3 then
-        -- A SEAM CROSSING IS MID-FLIGHT. The engine rebases every live object one frame AFTER the
-        -- map key flips (measured, probes/coordwatch.log: NPCs at y=6 read y=146 a frame later),
-        -- and our own rebase lands the frame OF the flip -- so for a beat the ghost reads a whole
-        -- map-height out of place while being exactly where it belongs. Acting on that with the
-        -- teleport below would move it, and then the engine's shift would move it AGAIN. Coast
-        -- for the handful of frames the two rebases need to both land.
+        -- A seam crossing is mid-flight: the engine rebases objects a frame after the map key flips, ours on the flip,
+        -- so for a beat the ghost reads a map-height out. Coast until both land, or the teleport moves it twice.
         return
     else
-        -- More than a tile out. This branch was written for a warp or a dropped packet -- cases
-        -- where the ghost is somewhere it has no business being and the only honest answer is to
-        -- put it right. It was also catching something entirely different: a peer simply moving
-        -- faster than one tile per step.
-        --
-        -- At Mach Bike top speed the ghost settles about two tiles back -- the interpolation delay
-        -- made visible -- and a one-tile step cannot close that against a peer travelling at the
-        -- same speed, so the gap sat at 2 and this branch fired again and again. Measured over 300
-        -- frames of riding: PLACED=13, every one of them dist2, against 54 correctly-sped steps.
-        -- That is what *"they are still teleporting a tiny bit"* is.
-        --
-        -- So a SHORT gap is walked, not placed. The ghost trails a couple of tiles while the peer
-        -- is at speed and closes it the moment they slow or stop, which is what a person follows
-        -- like -- and never snaps. A long gap is still a warp and still gets placed.
+        -- More than a tile out. A short gap is walked, not placed: at Mach Bike top speed the ghost trails about two
+        -- tiles and one-tile steps cannot close that, so placing it would snap. A long gap is a warp and is placed.
         local far = math.abs(dx) + math.abs(dy)
         if far <= 3 then
-            -- Dominant axis: with the gap this small the peer is on a line, and stepping the long
-            -- side first is what keeps a diagonal-looking approach from zig-zagging.
+            -- Dominant axis first, so a near-diagonal approach does not zig-zag.
             local sd
             if math.abs(dx) >= math.abs(dy) then
                 sd = dx > 0 and DIR_ID.east or DIR_ID.west
@@ -9951,49 +5409,17 @@ local function syncGhost(playerId, remote)
             lockGhostFacing(g, remote, sd)
             return
         end
-        -- Walking it there would fall further behind every frame, so place it -- but only once the
-        -- camera has settled, for the same reason as spawning.
+        -- Too far to walk: place it, once the camera has settled, as for a spawn.
         if not cameraIsSettled() then return end
         teleportGhost(g, targetX, targetY)
         if (r8(a + 0x18) & 0x0f) ~= dir then requestAction(g, FACE_ACTION[dir]) end
     end
 end
 
--- A SHADOW UNDER A JUMPING GHOST. Registered as a bandage in BANDAGES.md -- this is our art,
--- not the game's, and the reason is worth stating exactly.
---
--- The engine DOES create a shadow for any object's ledge hop (InitJumpRegular ->
--- DoShadowFieldEffect). It binds it with StartFieldEffectForObjectEvent, which passes the
--- object's localId and then re-finds the object every frame via GetObjectEventIdByLocalIdAndMap.
--- Our ghosts wear LOCALID_PLAYER (0xFF), so that lookup returns the PLAYER: the ghost's jump
--- spawns a shadow under the player instead of under the ghost.
---
--- Wearing that id is not an accident and is not negotiable -- GetInteractedObjectEventScript
--- returns NULL for any object with LOCALID_PLAYER, which is exactly what makes a ghost
--- non-interactable using the engine's own check rather than a guard of ours. Giving ghosts their
--- own id would fix the shadow and re-open the script lookup that has no template behind it, a
--- NULL dereference the decomp itself marks as a known bug and the cause of the slot-machine bug
--- the user already hit. The user's call, 2026-08-19: draw it ourselves, the same way the drawn
--- tier compensates for what the hardware cannot do.
---
--- The one thing borrowed from the engine is the part that matters: a jumping sprite carries its
--- ARC in pos2.y (+0x26), so taking the sprite's position WITHOUT that term is the ground it left,
--- exactly. The shadow therefore sits still on the tile while the ghost rises and falls over it,
--- with no arc maths of ours to drift.
--- LEARN THE GAME'S OWN SHADOW, then draw that. The ellipse below is only the fallback.
---
--- Three rounds of "is it too big / too dark / too high" said the same thing each time: an
--- approximation of someone else's art is judged against the original, and loses. The original is
--- readable -- a shadow is an ordinary sprite, so when the LOCAL player hops a ledge there is one
--- on screen with its own images pointer and palette. Learned once per session, decoded with the
--- same run path the drawn tier uses for peer graphics, and drawn for every ghost thereafter.
---
--- Identified by what it is rather than by an address: in use, 16x8 (shape 1, size 0 -- the
--- SHADOW_SIZE_M template the player's graphics info asks for), sitting near the player, while the
--- player is mid-jump. That is the same discipline as every other lookup here: describe the thing,
--- do not memorise where it lives.
--- GLOBAL, like drawRunList above: this chunk is at Lua's hard 200-local ceiling, and a helper
--- that is called once a frame is a better use of the remaining budget than a name.
+-- The engine binds a jump shadow by localId and a ghost wears LOCALID_PLAYER, so the shadow under a jumping ghost is
+-- ours. Rather than approximate it, learn the game's own shadow sprite while the local player hops (in use, 16x8, near
+-- the player, mid-jump) and draw that; the ellipse is only the fallback.
+-- A global: this chunk is at Lua's 200-local ceiling.
 function learnShadowArt()
     if genderFrames.shadowArt ~= nil then return end
     local pObj = objAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05))
@@ -10017,8 +5443,7 @@ function learnShadowArt()
                         pal[k] = (0xFF << 24) | (expand5to8(c & 0x1F) << 16)
                             | (expand5to8((c >> 5) & 0x1F) << 8) | expand5to8((c >> 10) & 0x1F)
                     end
-                    -- 16x8, two 8x8 4bpp tiles side by side, built into runs like every other
-                    -- decoded frame here.
+                    -- 16x8: two 8x8 4bpp tiles side by side, built into runs like every other decoded frame.
                     local runs = {}
                     for y = 0, 7 do
                         local x = 0
@@ -10054,27 +5479,12 @@ function learnShadowArt()
     end
 end
 
--- Draw one shadow at a character's un-arced position. `sx`,`sy` are that character's sprite
--- position in SCREEN space; the sprite box's top-left is x-8, y-4 (the shadow sprite's own c2c),
--- and the shadow sits 12px below the character's y -- all measured, see BANDAGES.md.
--- shadowDrop: a per-size drop indexed by the graphic's shadow size (bits 4-5 of graphicsInfo
--- +0x0C). The per-size values follow the decompilation (gShadowVerticalOffsets, a pointer). Size
--- 1's 4 is MEASURED 2026-09-16 (12 = half the 32px height less 4, walking and Acro Bike hops);
--- 0, 2 and 3 are unmeasured and never selected for a player graphic (the shadow header above).
--- A FIELD, not a local: this chunk is at Lua's hard 200-local ceiling and one more is a parse
--- failure, which is how the adapter silently fails to load.
+-- Shadow drop by the graphic's shadow size (graphicsInfo +0x0C bits 4-5). Only size 1 is measured; 0, 2 and 3 follow
+-- the decompilation. A field: this chunk is at Lua's 200-local ceiling.
 genderFrames.shadowDrop = { [0] = 4, [1] = 4, [2] = 4, [3] = 16 }
 
--- WHERE THE GAME PUTS A SHADOW, rather than where ours was tuned to sit.
---
--- FldEff_Shadow sets sYOffset = (graphicsInfo->height >> 1) - gShadowVerticalOffsets[shadowSize]
--- and UpdateShadowFieldEffect then draws at the character's sprite y PLUS that -- the sprite's
--- pos1, deliberately, so the shadow stays on the ground while the character arcs away on pos2.
---
--- Our own copy used a flat +12 measured against a ledge hop, which is close for a walker and wrong
--- for anything else -- reported on the Acro Bike as *"the drawn ghosts shadow is not properly
--- alligned"*. Computed from the graphic instead: the frame's top-left plus the graphic's height,
--- less the shadow's own offset, less the shadow sprite's 4px half-height.
+-- The shadow's top from the graphic: the frame's top plus its height, less the size's drop, less the shadow sprite's
+-- 4px half-height.
 function shadowTopFor(info, frameTopY)
     local size = 0
     if info and info.raw then size = (r8(info.raw + 0x0c) >> 4) & 0x03 end
@@ -10098,23 +5508,8 @@ local function drawGhostShadows()
         local remote = remotes[playerId]
         if ghostAlive(g) and not (remote and isJumpAction(remote.act)) then
             updateGhostShadow(g, false)
-            -- THE ENGINE'S OWN DUST, once the shadow under the ghost is a real sprite.
-            --
-            -- This used to paint dust ON TOP OF the painted shadow, deliberately: an overlay is
-            -- drawn after the hardware has finished, so our shadow covered the engine's puff and
-            -- the only way to see one was to paint that too. With a real shadow sprite at
-            -- subpriority 148 there is nothing in front of the dust any more, and the painted copy
-            -- is a second puff over the top of a working one.
-            --
-            -- THAT THE ENGINE MAKES ONE FOR A GHOST AT ALL was an assumption this file recorded
-            -- and nobody had checked. It is now measured (`probes/shadowdust_probe.lua`,
-            -- 2026-08-21): a dust sprite on the engine's own UpdateJumpImpactEffect callback,
-            -- 32px to the side, i.e. under the GHOST rather than the player. Unlike the shadow,
-            -- the dust is placed by coordinates rather than bound by localId (FldEff_JumpLandingDust
-            -- is the pointer), so wearing LOCALID_PLAYER never mattered to it.
-            --
-            -- noteLanding is still CALLED either way: it is what latches the landing frame, and
-            -- the painted tier below reads the same record.
+            -- Painted dust only when the shadow is not a real sprite: the engine raises its own landing dust for a
+            -- ghost, placed by coordinates rather than localId. noteLanding still latches the landing either way.
             local f = genderFrames.noteLanding(playerId, false, remote and remote.act)
             if f and not genderFrames.shadowSpriteEnabled then
                 local d = sprAddr(g.sprId)
@@ -10129,9 +5524,7 @@ local function drawGhostShadows()
         if remote and isJumpAction(remote.act) and ghostAlive(g) then
             local d = sprAddr(g.sprId)
             local sx = rs16(d + 0x20) + rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0))
-            -- Deliberately WITHOUT pos2 (+0x24/+0x26): that carries the jump arc, and the shadow
-            -- belongs on the ground the character left -- which is what the game does, its shadow
-            -- sprite reading pos2 0,0 while the character mid-hop reads 0,-6.
+            -- Without pos2 (+0x24/+0x26), which carries the jump arc: the shadow stays on the ground the ghost left.
             local sy = rs16(d + 0x22) + rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0))
             updateGhostShadow(g, true)
             if not genderFrames.shadowSpriteEnabled then
@@ -10146,35 +5539,9 @@ local function drawGhostShadows()
     end
 end
 
--- spawnSet names the peers entitled to an object slot this frame (tiering.chooseSpawned). A peer
--- that loses its place does NOT vanish -- the drawn tier picks it up in the same frame, which is
--- the whole point of the split.
--- MESHGHOST_EMERALD_NO_COLLISION: a ghost you can walk through, using the engine's own rule.
---
--- THE ENGINE DOES HAVE A SWITCH FOR THIS, and this file said twice that it did not -- *"there is
--- no flag in this engine to switch collision off, it is purely positional"*. That was wrong, and
--- it cost two rounds of positional hacks that each broke the ghost's movement.
---
--- WHAT THIS CODE DOES: every frame, it gives the ghost a non-zero currentElevation that differs
--- from the player's current one. The premise -- that two objects collide only when their
--- elevations are compatible, and that two non-zero, different elevations are not -- is the
--- decompilation's reading (DoesObjectCollideWithObjectAt, AreElevationsCompatible -- pointers), not
--- measured on the game.
---
--- WHY IT LOOKED LIKE ELEVATION DID NOT WORK. The earlier attempt set 0, 1 and 15 once and found all
--- three still blocked. The explanation this code acts on is that the engine rewrites
--- currentElevation from the map tile whenever an object moves (ObjectEventUpdateElevation, a
--- pointer; unmeasured), so a value set once did not survive a step -- hence the per-frame write.
--- The player's elevation is assumed to be 3 on land and 1 while surfing (the decompilation's
--- ELEVATION_DEFAULT/ELEVATION_SURF; unmeasured).
---
--- ONLY currentElevation, taken as the LOW nibble of +0x0B. The HIGH nibble is left alone, because
--- the decompilation reads it as previousElevation, the one draw order uses
--- (SetObjectSubpriorityByElevation, a pointer; unmeasured) -- so collision changes and rendering
--- is meant not to.
---
--- A transition frame (elevation 0) is expected to still collide, as it would for any character --
--- also the decompilation's reading, not measured.
+-- Walk-through ghosts: a non-zero currentElevation (low nibble of +0x0B) that differs from the player's, rewritten
+-- every frame since, by the decompilation, the engine resets it from the tile on each move. The high nibble, which draw
+-- order uses, is left alone.
 local function freeGhostCollision()
     if tiering.devNoCollision == nil then
         tiering.devNoCollision = (MESHGHOST_EMERALD_NO_COLLISION
@@ -10184,21 +5551,8 @@ local function freeGhostCollision()
                 .. "are walk-through (elevation made incompatible with the player's). Dev only.")
         end
     end
-    -- **THE ROOM'S POLICY IS THE SECOND INPUT (`session_policy`, review D3, 2026-09-11).**
-    -- This adapter already had the mechanism -- the engine's own elevation rule, above -- and it
-    -- was reachable only from a DEV flag, while the core has been sending the room's
-    -- `ghost_collision` all along and nothing here read it. The shipped relay default is
-    -- disabled, so a player's own chaser or replay ghost could block them in a solo session,
-    -- which is the case the user answered plainly: ghosts should not collide.
-    --
-    -- `session.noCollisionPolicy` is nil until a policy arrives, and nil is NOT "disabled": an
-    -- older core sends nothing, and going walk-through on silence would change what every
-    -- existing setup does on the strength of a message that never came.
-    -- TURNING COLLISION BACK ON NEEDS NO RESTORE, and that is the engine's doing rather than
-    -- luck: ObjectEventUpdateElevation rewrites currentElevation from the map tile whenever an
-    -- object moves (the reason this has to be re-applied every frame in the first place). So a
-    -- ghost left at the incompatible value collides again on its next step, without this code
-    -- touching it.
+    -- The room's ghost_collision policy turns it on too; nil (no policy yet, or an older core) is not "disabled".
+    -- Turning it off needs no restore: the engine rewrites currentElevation on the ghost's next step.
     tiering.noCollision = tiering.devNoCollision or (session.noCollisionPolicy == true)
     if not avatarAddrConfirmed then return end
 
@@ -10215,36 +5569,21 @@ local function freeGhostCollision()
             if tiering.noCollision and (cur & 0x0f) ~= want then
                 w8(a + 0x0b, (cur & 0xf0) | want)
             end
-            -- SHIPPED BEHAVIOUR from here down, not the dev flag above -- this loop runs for
-            -- every ghost regardless of MESHGHOST_EMERALD_NO_COLLISION.
-            --
-            -- hasShadow STAYS SET on a ghost (byte +0x02 bit 6), and this is the fix for the green
-            -- flicker near a hopping ghost (user, 2026-08-21: *"a 'green' spot ... same shape as
-            -- the shadows"*). A ghost's jump runs DoShadowFieldEffect (the pointer), which spawns
-            -- a shadow effect bound by localId --
-            -- and a ghost wears LOCALID_PLAYER, so the effect re-finds the PLAYER, sees its
-            -- hasShadow clear, and FieldEffectStops itself within a frame or two. In that frame it
-            -- is a real 16x8 sprite at an uninitialised position whose VRAM copy has not landed
-            -- yet, i.e. a shadow-shaped patch of whatever pixels were left in that tile range --
-            -- green, on a grass map. The probe caught it as one-frame shadow.M entries at
-            -- dy=-768 (shadowdust_probe, 2026-08-21). DoShadowFieldEffect's own gate is the
-            -- object's hasShadow flag, so holding it set means the engine never spawns the doomed
-            -- effect at all -- the engine's own switch, not a hook. Re-applied per frame because
-            -- the jump-landing ground effects clear it (the decompilation's reading; unmeasured); our real shadow sprite
-            -- is what actually appears under the ghost.
+            -- Shipped, whatever the flag: hold hasShadow (+0x02 bit 6) set, so a ghost's jump never spawns the engine's
+            -- shadow, which binds to the player, stops itself within a frame and flashes stale tiles. Re-applied every
+            -- frame because the landing effects clear it (the decompilation's reading, unmeasured).
             w8(a + 0x02, r8(a + 0x02) | 0x40)
         end
     end
 end
 
+-- spawnSet names the peers entitled to an object slot this frame (tiering.chooseSpawned); a peer that loses its place
+-- goes to the drawn tier in the same frame.
 local function syncRemoteGhosts(localAreaId, spawnSet)
     for playerId in pairs(ghosts) do
         local remote = remotes[playerId]
-        -- Gone, somewhere else, or demoted to the drawn tier. area_id is opaque and compared by
-        -- equality only.
+        -- Gone, elsewhere, or demoted to the drawn tier; area_id is compared by equality only.
         if not remote or remote.areaId ~= localAreaId or not spawnSet[playerId] then
-            -- WHICH condition, on the record: the seam-crossing pop despawns followers while a
-            -- static cross-map peer sails through, and the three reasons here need telling apart.
             if COMPARE_TIERS then
                 logFile(string.format("f=%d DESPAWN %s: remote=%s areaId=%s vs local=%s inSet=%s",
                     frameCounter, tostring(playerId), tostring(remote ~= nil),
@@ -10259,14 +5598,7 @@ local function syncRemoteGhosts(localAreaId, spawnSet)
             syncGhost(playerId, remote)
         end
     end
-    -- SAY IT OUT LOUD IF TWO PEERS EVER SHARE ONE OBJECT AGAIN.
-    --
-    -- The claim check in findFreeObjectSlot/findFreeSpriteSlot is what stops this happening; this
-    -- is what proves it stopped, and what names it immediately if some other path re-creates it.
-    -- A shared slot is otherwise invisible in the log and reads on screen as a ghost blinking
-    -- between two places -- diagnosed 2026-08-20 only by watching one object slot alternate.
-    -- Throttled to once a second: a real collision persists, so nothing is missed by not
-    -- repeating it 60 times, and this runs on the adapter's hot path.
+    -- Name any object or sprite slot two peers share (one ghost blinking between two places); once a second.
     if not tiering.lastSlotAudit or frameCounter - tiering.lastSlotAudit >= 60 then
         tiering.lastSlotAudit = frameCounter
         local seenObj, seenSpr = {}, {}
@@ -10288,44 +5620,12 @@ local function syncRemoteGhosts(localAreaId, spawnSet)
     freeGhostCollision()
 end
 
--- THE FRAME'S SCREEN ANCHOR, shared by both non-engine tiers.
---
--- Extracted from drawRemotes 2026-08-21, unchanged, when the hardware-sprite tier arrived and
--- needed the same numbers. It has to be shared rather than copied: the calibration is STATEFUL
--- (tiering.anchor*/origin* survive between frames and are only refreshed when the player is
--- standing still on a tile-aligned camera), so a second copy would keep its own anchor and the two
--- tiers would place the same peer in two different places. It also has to be callable when the
--- DRAWN tier is off entirely, which is the shipping default -- otherwise the anchor is never
--- calibrated at all and every hardware sprite lands at the wrong offset.
---
--- ONCE PER FRAME, AND THE CACHE IS LOAD-BEARING. The first version of this said it was idempotent
--- and could simply be called from both tiers. That was wrong, and it produced a real defect: the
--- calibration counts how many consecutive frames the player has stood on the same tile, and only
--- refreshes the anchor once that count passes four. Called twice a frame the counter advances twice
--- as fast, so the anchor refreshes while the player is mid-step -- exactly the one-tile spike the
--- "stand still first" guard below exists to prevent.
---
--- The symptom was the hardware ghost drifting 2-3px a frame and then jumping about two tiles back,
--- while the painted copy beside it sat perfectly still. User, 2026-08-21: *"its also lagging
--- behind"*. Found from probes/tier_compare.log rather than by eye -- the painted copy is PINNED to
--- the spawned ghost's own sprite in compare mode, so it could not show the fault at all, and only
--- the third column made it visible.
---
--- So the state advances once per frame and every later caller gets the same four numbers back.
---
--- A GLOBAL because this chunk is at Lua's 200-local ceiling.
+-- The frame's screen anchor, shared by both non-engine tiers: its calibration is stateful, so there is one copy, and it
+-- runs with the drawn tier off. Once per frame, cached: the calibration counts still frames, and a second call in a
+-- frame would refresh it mid-step. A global: this chunk is at Lua's 200-local ceiling.
 function anchorFrame(localAreaId, playerScreenX, playerScreenY, playerMapX, playerMapY)
-    -- A SEAM MOVED THE WHOLE COORDINATE FRAME: move the anchor with it, before anything reads it.
-    -- `xmapRebase` shifted every peer's model by the seam delta and left this note; applying it
-    -- here keeps the paint in ONE frame (`origin + (glide - anchor) * TILE + camPix`) and, by
-    -- stamping the area, stops the `fresh` test below re-latching from a mid-handover frame -- the
-    -- one-tile spike the `settled` guard exists to prevent, and the ~15px jump the user saw as the
-    -- ghost *"snapping/teleporting around a bit"* while crossing (2026-09-12).
-    --
-    -- Only the tile-valued half moves. `originX/originY` and the `Still` pair are SCREEN positions
-    -- and the screen is continuous across a seam; shifting those manufactures a twitch and nothing
-    -- else (Crystal met that one first -- `ENGINE.xmap.rebaseEntry`'s comment says so in as many
-    -- words). Above the cache check, so a cache built before the crossing cannot outlive it.
+    -- Apply a seam's shift to the tile-valued anchor before anything reads it. The origin and the Still pair are screen
+    -- positions, continuous across a seam, so they stay.
     local shift = genderFrames.xmapAnchorShift
     if shift then
         genderFrames.xmapAnchorShift = nil
@@ -10343,21 +5643,8 @@ function anchorFrame(localAreaId, playerScreenX, playerScreenY, playerMapX, play
     local camPixY = rs16(GTOTALCAMERAPIXELOFFSETY_ADDR + (genderFrames.camOffset or 0))
     if sb1 ~= 0 then
         local camX, camY = camPixX, camPixY
-        -- ONLY CALIBRATE WHILE THE PLAYER IS STANDING STILL.
-        --
-        -- Measured with both ghosts logged per frame: the spawned ghost moves a clean -2.0 px
-        -- every frame while ours went -0.67, -0.67, -0.67, +2.0, -0.67 -- oscillating -- even
-        -- though the glide itself was perfectly smooth at -0.167 tiles a frame throughout. So the
-        -- jitter was never in the ghost; it was in this anchor.
-        --
-        -- The cause is the tile counter's other habit: moving in the positive direction it flips
-        -- to the DESTINATION tile the instant a step begins, a whole tile ahead of the picture.
-        -- Calibrating whenever the camera happened to be tile-aligned sometimes sampled exactly
-        -- that moment, and put a one-tile spike into the anchor once per step.
-        --
-        -- A stationary player cannot have a step in flight, so the two cannot disagree. The
-        -- constant only has to be caught once per map -- it does not decay -- and standing still
-        -- for four frames happens constantly in normal play.
+        -- Calibrate only after four frames on one tile: moving in the positive direction, the tile counter flips to the
+        -- destination as a step begins, a tile ahead of the picture.
         local tx, ty = rs16(sb1 + 0x00), rs16(sb1 + 0x02)
         if tiering.lastTileX ~= tx or tiering.lastTileY ~= ty then
             tiering.lastTileX, tiering.lastTileY, tiering.tileStill = tx, ty, 0
@@ -10366,47 +5653,11 @@ function anchorFrame(localAreaId, playerScreenX, playerScreenY, playerMapX, play
         end
         local settled = (tiering.tileStill or 0) >= 4
         local fresh = tiering.anchorX == nil or tiering.anchorArea ~= localAreaId
-        -- playerScreenY READS pos2, which while anyone is surfing is the BOB. Anything that wants
-        -- a fixed tile grid has to have that term removed, or the grid rises and falls with the
-        -- character a few pixels at a time -- which is what cut the drawn reflection two or three
-        -- rows early. Captured here, at the same moment as the anchor it belongs to, because pos2
-        -- is only knowable then; the bobbing copy is left exactly as it was, since placing a ghost
-        -- against the player's actual sprite is what it is for.
-        -- TWO terms have to come off this before it can anchor a TILE GRID, and both are
-        -- properties of the player's current GRAPHIC rather than of the map.
-        --
-        -- pos2 is the first: while anyone is surfing it carries the bob, so the grid rises and
-        -- falls with the character.
-        --
-        -- centerToCornerVec is the second, and it is the one that survived a whole investigation.
-        -- playerScreenPos returns the FRAME's top-left, which is the anchor plus -(width/2). A
-        -- walking player is 16 wide so that term is -8; a SURFING one is 32 wide, so it is -16.
-        -- The grid was therefore 8px too far left for exactly as long as the player was surfing,
-        -- which is exactly when a reflection is being judged -- and it let the mask permit 8px of
-        -- ledge and grass down the left of a shoreline tile. Measured 2026-08-19: the grid put
-        -- metatile 184 at x 72..87 while the screen has it at 80..95.
-        --
-        -- Vertically the same term is -16 for both graphics, which is why the vertical edge was
-        -- correct throughout and only the side ever looked wrong -- and why this hid so well.
-        --
-        -- Normalised to the walker's own centring so the grid means the same thing whatever the
-        -- player happens to be riding.
+        -- The Still origin drops pos2 (the surf bob) and the graphic's centring (-8 for the 16-wide walker, -16 for a
+        -- 32-wide frame), so the tile grid stays fixed whatever the player rides.
         local pspr = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
-        -- NORMALISE THE ORIGIN TO THE WALKER'S CENTRING, or every ghost moves when the LOCAL
-        -- player changes graphic (2026-09-13).
-        --
-        -- `playerScreenPos` returns the FRAME's top-left, and the engine centres a sprite by
-        -- `centerToCornerVec = -(width >> 1)`: -8 for the 16-wide walker, -16 for a 32-wide bike,
-        -- surf or fishing frame. The painted tier positions every peer from this origin, so the
-        -- moment the LOCAL player mounts a bike the origin slides 8px and every ghost on screen
-        -- slides with it -- the user: *"why does the ghost snap to the side, when the player gets
-        -- on a bike?"*. Nothing about the peers changed; the ruler did.
-        --
-        -- This file already learned it for the tile grid a few lines below (`originXStill`, the
-        -- surfing reflection, 2026-08-19) and the paint origin never got the same treatment.
-        -- Adding the centring back makes the origin mean "where a WALKER-sized frame would sit",
-        -- which is what a peer's own frame is measured against -- and a peer whose graphic is
-        -- itself 32 wide gets its own `cx` correction in the peer-graphic path.
+        -- The paint origin adds the centring back, so it means where a walker-sized frame sits; otherwise every ghost
+        -- slides 8px when the local player mounts a bike. A 32-wide peer gets its own correction.
         local ctcX = memory.read_s8(pspr + 0x28) + (FRAME_WIDTH_PX // 2)
         local ctcY = memory.read_s8(pspr + 0x29) + (FRAME_HEIGHT_PX // 2)
         if fresh or (settled and camX % 16 == 0) then
@@ -10428,71 +5679,21 @@ function anchorFrame(localAreaId, playerScreenX, playerScreenY, playerMapX, play
     return camPixX, camPixY, playerMapX, playerMapY
 end
 
--- ================= TIER TWO: HARDWARE SPRITES THE PPU DRAWS FOR US =================
+-- ================= Tier two: hardware sprites the PPU draws =================
 --
--- A peer the engine had no object slot for is given a real GBA hardware sprite instead of being
--- painted over the finished frame. The emulated PPU then draws it, which is where every advantage
--- comes from: background priority (a house roof and a text box hide it, for free), the live OBJ
--- palette (it dims with fades, caves and weather, for free), and real compositing.
---
--- WHERE THE ENTRIES GO, and why this is not a trick played on the engine.
--- Emerald keeps a shadow copy of all 128 hardware sprite entries inside gMain, rebuilds it once a
--- frame, and transfers the WHOLE thing to the hardware every VBlank. Its layout pass stops at
--- gOamLimit -- 64 on the overworld -- and so does the tail loop that blanks what it did not use, so
--- entries 64..127 are never written or cleared by the per-frame path while still being transferred.
--- The game itself relies on that: its wireless-link indicator lives at entry 125 for exactly this
--- reason. documentation.md describes the pipeline; the 2026-08-21 ADR in architecture.md records why
--- this and not per-scanline multiplexing (short version: BizHawk has no scanline hook, and with 5
--- entries used on a normal map there is no sprite-count limit to beat).
---
--- MEASURED, standing still with the crowd on screen (verified.md 2026-08-21): 56 hardware sprites
--- cost nothing against a bare-emulator control -- 60.0 avg either way -- while painting the same 56
--- costs 39.6. Spawned at its cap AND this tier at its ceiling together, 67 characters, still 60.0.
---
--- WHAT IT DOES NOT GET, so nobody expects it: no collision, no engine animation, no walking, and it
--- loses overlap ties to the engine's own sprites because those sit at lower entry numbers. It
--- replaces the DRAWN tier, never the spawned one.
--- ON THE TABLE, NOT IN LOCALS -- and this is not a style choice. Five constants and one helper as
--- file-scope locals pushed this chunk past Lua's hard ceiling of 200 locals per function, which does
--- not misbehave at runtime: the script fails to PARSE. Caught by bizhawk-syntax-check.lua the first
--- time this tier was compiled, 2026-08-21, exactly as the tiering table's own header warns.
+-- A peer with no object slot gets a real hardware sprite in gMain's OAM buffer, entries 64..119: the engine's layout
+-- pass stops at gOamLimit (64 on the overworld), yet all 128 entries go to the hardware every VBlank. The PPU gives it
+-- background priority and the live palette; it has no collision, engine animation or walking, and it loses overlap ties
+-- to the engine's own sprites. On the table, not in locals: this chunk is at Lua's 200-local ceiling.
 tiering.hw = {
-    -- ON BY DEFAULT since 2026-09-02 (user's call, the same day: "we have watched OAM a lot" --
-    -- its two limits, underwater and fog, are the stand-downs recorded in VERIFIED.md). "0" turns it off.
-    -- **OFF BY DEFAULT SINCE 2026-09-11 (the user's call): the shipped ladder is DRAWN ONLY.**
-    -- It was on from 2026-09-02. Set the flag to "1" to bring it back, which is how it stays a dev
-    -- tool. Same reason as the spawn cap above: this tier borrows the live palette, so it cannot
-    -- show a peer of the other gender either, and the painted tier can. Note this flag is read at
-    -- FILE LOAD (see FLAGS.md), so a loader script must set it BEFORE the adapter.
+    -- Off by default, a dev tool ("1" turns it on): it borrows the live palette, so it cannot show a peer of the other
+    -- gender. Read at file load, so a loader script sets it before the adapter.
     on = (MESHGHOST_EMERALD_HW_OVERFLOW or os.getenv("MESHGHOST_EMERALD_HW_OVERFLOW") or "0") == "1",
-    base = 0x030022f8 + 64 * 8, -- gMain.oamBuffer[64]; gMain 0x030022c0 + 0x038 (verified.md)
+    base = 0x030022f8 + 64 * 8, -- gMain.oamBuffer[64]; gMain 0x030022c0 + 0x038
     slots = 56,                 -- entries 64..119. 120..127 is margin: 125 is the game's own.
-    -- THREE POOLS, BECAUSE DEPTH HERE IS THE ENTRY NUMBER AND NOTHING ELSE.
-    --
-    -- A raw OAM entry has no subpriority: the hardware draws a lower-numbered entry IN FRONT. The
-    -- engine expresses the same order with subpriorities on its own sprites -- landing dust 135,
-    -- the character, then its shadow at 148, measured 2026-08-21 -- and back-to-front is exactly
-    -- shadow, character, dust. So the slot a thing gets IS its depth, and the pools have to be laid
-    -- out in that order rather than handed out first-come.
-    --
-    -- The engine's own back-to-front order, measured 2026-08-21 from the subpriorities it gives
-    -- these sprites: reflection 152, surf blob 150, shadow 148, the character, landing dust 135.
-    -- Five pools, laid out in that order, because the slot number IS the depth here.
-    --
-    -- The cost is honest, and it is a real cost: bodies hold 26 of the 56 entries, so this tier
-    -- tops out at 26 peers rather than 56. Every one of these ceilings is LOGGED when it bites
-    -- rather than silently truncated, which is how the ripple pool was sized correctly.
-    --
-    -- TWELVE RIPPLES, NOT EIGHT, and that number came from the game rather than from taste. The
-    -- measurement is one ripple per tile stepped with an 80-frame life, and surfing crosses a tile
-    -- in 8 frames -- so a steady trail is TEN live at once. Eight was tried first and the pool
-    -- reported itself full at nine within a minute of real surfing; the user saw exactly what the
-    -- arithmetic predicts: *"the OAM is leaving a gap in its ripples, when going in 1 distance for
-    -- a while."* Twelve leaves two of headroom over the steady state. A second surfer still
-    -- overflows it, and still says so in the log.
-    --
-    -- Still above what has been measured for bodies: the fill-the-screen run put 56 characters up
-    -- and OBJ TILES ran out long before entries did.
+    -- Pools back to front, because a raw OAM entry's depth is its number (lower draws in front): reflection, ripple,
+    -- blob, shadow, the character, dust. Twelve ripples: one per tile, an 80-frame life and a tile every 8 frames
+    -- surfing is ten live at once. Each pool logs when it runs out.
     dustFirst = 0, dustLast = 3,        -- in front of everything of ours
     bodyFirst = 4, bodyLast = 29,
     shadowFirst = 30, shadowLast = 33,
@@ -10502,24 +5703,10 @@ tiering.hw = {
     fxTiles = {},               -- "shadow:<size>" / "dust:<frame>" -> { start, tiles }
     puffs = {},                 -- live dust-trail puffs: { at, bx, by, slot }
     ripples = {},               -- live water-trail ripples: { at, bx, by, slot }
-    -- gDummyOamData, the engine's own "hidden" encoding: off-screen, 8x8, priority 3. Releasing with
-    -- the engine's value rather than zeroes leaves a slot indistinguishable from one never used.
+    -- gDummyOamData, the engine's hidden encoding (off screen, 8x8, priority 3): a released slot looks never used.
     d0 = 0x00a0, d1 = 0x0130, d2 = 0x0c00,
-    -- Compare-mode nudge, in tiles, relative to the SPAWNED ghost -- which is the reference the
-    -- other two tiers are judged against.
-    --
-    -- Default -6,0: these are relative to the SPAWNED ghost, which stands at (+2, 0) from the
-    -- player, and the PAINTED copy is at (-2, 0) -- so this puts the hardware copy two tiles to
-    -- the LEFT of the painted one, all three in the player's own row.
-    --
-    -- It was 0,-2 -- stacked directly over the spawned ghost -- until the surf blob and the
-    -- reflection landed on this tier (2026-08-21) and there was suddenly something UNDER each
-    -- character to look at: two tiles of separation put every copy's blob and reflection on top
-    -- of the one below it. Three tiles up was tried next and read fine on its own; a ROW is what
-    -- makes the two self-drawn tiers comparable to each other, which is the comparison that
-    -- actually matters now that they carry the same effects. The user, on the water at
-    -- Sootopolis: *"can you move the OAM to be 2 tiles to the left, of the drawn ghost. easier to
-    -- spot the reflection change there"*.
+    -- Compare-mode nudge in tiles from the spawned ghost (+2,0 from the player): -6,0 puts the hardware copy two tiles
+    -- left of the painted one (-2,0), all three tiers in the player's row.
     cmpDX = tonumber(MESHGHOST_EMERALD_HW_COMPARE_DX or "") or -6,
     cmpDY = tonumber(MESHGHOST_EMERALD_HW_COMPARE_DY or "") or 0,
     byPeer = {},   -- player_id -> { slot, tileStart, tileCount, gfx, animNum, animIdx }
@@ -10528,13 +5715,9 @@ tiering.hw = {
     placed = 0,    -- how many were actually written last frame, for the status line
 }
 
--- RELEASE IS NOT OPTIONAL. Nothing in the engine's per-frame path clears entries 64..127, so one
--- left behind is a body frozen on screen until the next scene change -- the same leak class this
--- file already documents for the bridge socket, spawned ghosts and the log handle.
---
--- freeTiles is false on a map change: the engine's own ResetSpriteData has already run
--- FreeSpriteTileRanges by then, and clearing bits we no longer own would free somebody else's
--- sprite. Same identity-first rule despawnGhost follows, for the same reason.
+-- Release is not optional: nothing in the engine's per-frame path clears entries 64..127, so a stale one stays on
+-- screen. freeTiles is false on a map change: ResetSpriteData has already freed every range, and clearing bits we no
+-- longer own would free somebody else's sprite.
 function hwRelease(playerId, freeTiles)
     local rec = tiering.hw.byPeer[playerId]
     if not rec then return end
@@ -10544,18 +5727,13 @@ function hwRelease(playerId, freeTiles)
     w16(a + 2, tiering.hw.d1)
     w16(a + 4, tiering.hw.d2)
     if freeTiles ~= false and rec.tileStart then
-        -- DEFERRED, like the spawned tier's swap frees, for the same measured reason: the
-        -- hardware OAM shows the old tile number for ~2 more frames after a release, so an
-        -- immediate free lets the next allocation write into tiles still on screen -- the
-        -- user's *"oam & its reflection is glitching when going back to land"*, where the
-        -- dismount's graphic change is exactly a release-and-reacquire. Entries are stamped
-        -- with the tier's area; the service point frees them only while that area still
-        -- stands, the same forget-don't-free rule as everywhere else.
+        -- Deferred: the hardware still shows the old tile number for a couple of frames after a release, so an
+        -- immediate free lets the next allocation overwrite tiles on screen. Freed only while the stamped area stands.
         queueTileFree({ hwArea = tiering.hw.area, start = rec.tileStart,
             count = rec.tileCount, at = frameCounter })
     end
-    -- The shadow and dust entries go back with the body. Their TILES do not: those ranges are
-    -- shared by every peer on this tier and only the area change below owns them.
+    -- The shadow and dust entries go back with the body; their tiles are shared by every peer on this tier, and only
+    -- the area change below frees them.
     for which, slot in pairs(rec.fx or {}) do
         hwFxHide(rec, which)
         tiering.hw.slotUsed[slot] = nil
@@ -10566,8 +5744,7 @@ end
 
 function hwReleaseAll(freeTiles)
     for playerId in pairs(tiering.hw.byPeer) do hwRelease(playerId, freeTiles) end
-    -- Same rule the per-peer ranges follow: on a map change the engine's ResetSpriteData has
-    -- already freed every range, so the records are dropped without clearing bits we no longer own.
+    -- On a map change ResetSpriteData has freed every range already, so the records are dropped without clearing.
     if freeTiles ~= false then
         for _, t in pairs(tiering.hw.fxTiles) do
             if t.start and not genderFrames.rangeDrawnByLiveSprite(t.start, t.tiles, nil) then
@@ -10576,12 +5753,7 @@ function hwReleaseAll(freeTiles)
         end
     end
     tiering.hw.fxTiles = {}
-    -- BLANK THE ENTRY, not just the bookkeeping. Nothing in the engine's per-frame path touches
-    -- entries 64..127, so a puff slot released without writing the dummy encoding leaves a puff
-    -- painted on screen until the next scene change -- which is exactly the leak this tier's own
-    -- header warns about, and it showed the first time every ghost was dropped at once (user,
-    -- 2026-08-21: *"the 'dust' from the OAM got stuck on the screen when you unloaded all
-    -- ghosts"*). Freeing a slot and clearing its entry are one action, never two.
+    -- Blank each puff's entry too: the engine never touches 64..127, so a freed slot left unblanked stays on screen.
     for _, puff in ipairs(tiering.hw.puffs) do
         if puff.slot then
             local a = tiering.hw.base + puff.slot * 8
@@ -10597,14 +5769,8 @@ function hwReleaseAll(freeTiles)
     tiering.hw.placed = 0
 end
 
--- Claim a slot and a VRAM tile range for one peer. Tiles come from the GAME's own allocation bitmap
--- (allocSpriteTiles above, which imitates the engine's AllocSpriteTiles against the same bytes), so
--- nothing here depends on a hardcoded VRAM address -- which is precisely the fragility that had this
--- whole approach filed as too risky until 2026-08-21.
---
--- Returns nil when OBJ VRAM has no run long enough, and that is a real outcome on a busy map rather
--- than a theoretical one: it is the fall-through that hands the peer to the painted tier.
--- A GLOBAL, for the 200-local reason above.
+-- Claims a body slot and an OBJ tile range from the game's own allocation bitmap. nil when no run is long enough, which
+-- hands the peer to the painted tier. A global, for the 200-local ceiling.
 function hwAcquire(playerId, info)
     local slot
     for i = tiering.hw.bodyFirst, tiering.hw.bodyLast do
@@ -10619,85 +5785,24 @@ function hwAcquire(playerId, info)
     }
     tiering.hw.slotUsed[slot] = playerId
     tiering.hw.byPeer[playerId] = rec
-    -- One line per acquire (rare: spawns and graphic changes only). Exists because the
-    -- water-to-grass savestate glitch outlived the blind OAM sweep, so which tiles this tier
-    -- holds AFTER a load, and when it took them, has to be readable next to the probe logs.
+    -- One line per acquire (spawns and graphic changes only), so the tiles held after a state load can be read.
     logFile(string.format("hw acquire: %s slot=%d tiles=%d..%d f=%d emu=%d",
         tostring(playerId), slot, tileStart, tileStart + info.tileCount - 1,
         frameCounter, emu.framecount()))
     return rec
 end
 
--- A SHADOW AND LANDING DUST FOR THE HARDWARE TIER.
---
--- It had neither, and the user said so with all three renderers side by side (2026-08-21: *"OAM
--- don't have a shadow at all, or dust"*). The spawned tier gets both from the engine; the painted
--- tier draws both itself. This tier writes OAM entries, so it does what an OAM entry can do: two
--- more entries, pointed at the field effect's own artwork in ROM.
---
--- ONE TILE RANGE PER EFFECT FRAME, SHARED BY EVERY PEER. A shadow has one frame and the dust has
--- three, so four ranges of two tiles each cover the whole tier no matter how many peers are
--- hopping -- a peer's entry just points at whichever frame its own puff is up to. Per-peer ranges
--- would be the obvious build and would cost tiles proportional to the crowd for pixels that are
--- byte-for-byte identical.
---
--- THE PALETTE IS RESOLVED, NOT COPIED FROM A NEIGHBOUR. The painted tier reads its dust palette off
--- a live dust sprite, which works only because the engine happens to have one up at the same
--- moment; an overflow peer landing with nobody else on screen has no such neighbour. The engine's
--- own answer is `IndexOfSpritePaletteTag`, a scan of `sSpritePaletteTags` for the template's tag,
--- and that array is readable:
---   sSpritePaletteTags 03000CF0, 16 x u16   (pokeemerald.sym; a static, so no .map entry)
---   0x1004, taken as the dust's tag (FLDEFF_PAL_TAG_GENERAL_0 in the decompilation; a pointer,
---   not read off the template)
--- For the shadows, this code copies the template's first two halfwords, which carries whatever
--- palette the OAM template holds. That the engine does the same for a TAG_NONE template is the
--- decompilation's reading (`CreateSpriteAt`, a pointer), not measured.
--- WHAT PRIORITY OUR ENTRIES NEED TO BE SEEN AT ALL.
---
--- This tier holds OAM entries 64+, and among sprites of the SAME priority the lower entry number
--- wins -- so it loses every overlap to the engine's own sprites. Underwater that becomes fatal:
--- the game lays a full-screen grid of 64x64 semi-transparent sprites over the scene (measured
--- live: entries 4..23, five columns by four rows, priority 2, covering every pixel), and the
--- engine's characters sit at entries 0..3, ABOVE it by the same index rule. Our entries sit
--- below it, so nothing this tier drew could appear -- the user, after a long hunt: *"OAM shows
--- while surfing, its only invisible underwater"*.
---
--- RAISING OUR PRIORITY MAKES US VISIBLE AND UGLY, so this tier stands down underwater instead.
---
--- Priority is compared before the index, so priority 1 (or 0) does put our entries above the fog
--- and the ghost appears. It also drags a 32x32 WHITE BOX with it, at either priority: a
--- semi-transparent sprite blends with the layer beneath it, cannot blend against another SPRITE,
--- and gives up and draws OPAQUE wherever ours is in the way -- so the fog turns solid over our
--- sprite's whole rectangle. The user, on sight: *"has a weird square/outline around it... looks
--- like a fog/smoke background, a square that follows the OAM ghost"*.
---
--- Nothing available from entries 64+ wins this: the fog is the engine's own, at indices we cannot
--- get beneath (its 4..23 are rebuilt from the engine's sprite list every frame). So underwater
--- this tier declines and its peers fall to the PAINTED one, which is drawn after the frame and
--- subject to none of this. Coverage is unchanged; only which renderer draws them changes.
--- MESHGHOST_EMERALD_HW_PRIORITY (probe) overrides it, and also suppresses the stand-down below, so
--- the "raise the priority above the sheet" option can be LOOKED AT rather than argued about. The
--- underwater measurement that closed it off was taken underwater; fog is a second configuration of
--- the same idea and does not have to behave the same way. Never ship it set.
+-- This tier's entries sit at 64+, so at equal priority they lose to every engine sprite. Underwater and in fog the
+-- engine covers the screen with semi-transparent sprites at lower entries, which then draw over ours; a higher priority
+-- shows the ghost but turns that sheet opaque over its rectangle, so the tier stands down there instead.
+-- MESHGHOST_EMERALD_HW_PRIORITY (a probe, never shipped set) overrides the priority and suppresses the stand-down.
 function hwSpritePriority()
     return tonumber(MESHGHOST_EMERALD_HW_PRIORITY or "") or 2
 end
 
--- IS THE ENGINE CURRENTLY LAYING A SEMI-TRANSPARENT SHEET OVER THE SCREEN?
---
--- The condition that defeats this tier, asked directly rather than inferred from where the player
--- is. A sprite in objMode 1 (attr0 bits 10-11) is semi-transparent, and the engine only ever uses
--- a lot of them at once to cover the screen -- fog, and the underwater haze. Two separate bugs
--- came from testing for the PLACE instead: underwater was fixed by name, and Mt Pyre's fog then
--- reproduced it exactly on dry land.
---
--- COST, because a per-frame scan of OAM is the shape this project has been bitten by before
--- (`_template/probes.md`): attr0 ONLY, so 64 halfword reads rather than 192, and only every 8th
--- frame with the answer latched between. Weather fades in over seconds; nothing needs it sooner,
--- and the tier switch itself is a whole frame's work when it happens.
---
--- The threshold is 4. The engine's own incidental semi-transparent sprites are one or two at a
--- time; a screen cover is twelve or more (measured: 12 in Mt Pyre's fog, 20 underwater).
+-- Is the engine covering the screen with semi-transparent sprites (objMode 1: fog, the underwater haze)? Asked of the
+-- screen, not the place. attr0 only, every 8th frame, latched. Four or more means covered: incidental ones come one or
+-- two at a time, and a cover is twelve or more.
 genderFrames.semiTransparentScanAt, genderFrames.semiTransparentCover = -100, false
 genderFrames.screenCoveredBySemiTransparentSprites = function()
     if frameCounter - genderFrames.semiTransparentScanAt < 8 then
@@ -10715,6 +5820,7 @@ genderFrames.screenCoveredBySemiTransparentSprites = function()
     return genderFrames.semiTransparentCover
 end
 
+-- The engine's own tag lookup: the palette slot whose sSpritePaletteTags entry (0x03000CF0, 16 halfwords) is tag.
 function hwPaletteSlotForTag(tag)
     for i = 0, 15 do
         if r16(0x03000cf0 + i * 2) == tag then return i end
@@ -10722,18 +5828,9 @@ function hwPaletteSlotForTag(tag)
     return nil
 end
 
--- Load one frame of a field effect into OBJ VRAM once, and hand back the tiles it lives in.
--- A FAILURE IS CACHED TOO, and that is not a detail -- it is what stopped this costing the frame
--- rate. `allocSpriteTiles` imitates the engine's own allocator: it walks the 1024-tile OBJ bitmap
--- looking for a free run, so a FAILED call is the most expensive call it can make. Uncached, a
--- tier that cannot get two tiles retried that full walk for every live puff and every jumping
--- ghost, every frame -- and OBJ tiles are exactly what runs out first with three tiers up, so the
--- failing case is the normal case on a busy map, not a rare one. The user, with tonight's build:
--- *"feels like its chugging at like 1fps"*; the committed build with none of it was smooth, which
--- is the A/B that placed it here rather than in any of the drawing.
---
--- Negative entries are retried on a slow clock so a map that frees tiles later still gets its
--- effects, and cleared wholesale on the area change like the positive ones.
+-- Loads one frame of a field effect into OBJ VRAM once and returns its first tile; one shared range per effect frame
+-- serves every peer. A failure is cached too and retried after 300 frames: a failed allocation walks the whole bitmap,
+-- and failing is the normal case on a busy map.
 function hwFxTiles(key, imagesPtr, frameIdx)
     local rec = tiering.hw.fxTiles[key]
     if rec then
@@ -10742,8 +5839,7 @@ function hwFxTiles(key, imagesPtr, frameIdx)
     end
     local e = imagesPtr + frameIdx * 8
     local src, bytes = r32(e), r16(e + 4)
-    -- The same range check the shadow sprite got, for the same reason: a wrong SpriteFrameImage
-    -- read turns the copy below into a write over somebody else's tiles.
+    -- A wrong SpriteFrameImage read would turn the copy below into a write over somebody else's tiles.
     if not isRomPtr(src) or bytes == 0 or bytes > 1024 or bytes % 32 ~= 0 then return nil end
     local nTiles = bytes // 32
     local start = allocSpriteTiles(nTiles)
@@ -10757,14 +5853,12 @@ function hwFxTiles(key, imagesPtr, frameIdx)
     return start
 end
 
--- An entry from the pool that puts this effect at the right depth. Held for as long as the peer is
--- on this tier: the alternative is claiming and releasing one every hop, and a slot that changes
--- number changes depth, which is the one thing these pools exist to keep still.
+-- An entry from the pool that puts this effect at its depth, held while the peer is on this tier: a slot that changes
+-- number changes depth.
 function hwFxSlot(playerId, rec, which)
     rec.fx = rec.fx or {}
     if rec.fx[which] then return rec.fx[which] end
-    -- Each effect draws from the pool that puts it at the right depth; dust is the exception and
-    -- belongs to the puff pool in hwPuffTick, which is per-puff rather than per-peer.
+    -- Dust is per puff, from its own pool in hwPuffTick.
     local first, last = tiering.hw.shadowFirst, tiering.hw.shadowLast
     if which == "blob" then
         first, last = tiering.hw.blobFirst, tiering.hw.blobLast
@@ -10790,60 +5884,14 @@ function hwFxHide(rec, which)
     w16(a + 4, tiering.hw.d2)
 end
 
--- WHAT A SURFING PEER IS BESIDES A RIDER: the Pokemon underneath, and the reflection in the water.
---
--- The user, comparing all three tiers on the water at Sootopolis, 2026-08-21: *"OAM is missing
--- water reflections & the water blob."* Both were built for the painted tier and neither reached
--- this one -- a rider on this tier sat on open water casting nothing. The spawned tier has always
--- had both, because the engine makes them: `FldEff_SurfBlob` spawns a real companion sprite and
--- `SetUpReflection` a real reflection sprite, and a spawned ghost is just another object event.
---
--- Both are ONE OAM ENTRY EACH here, which is what makes them cheap enough to want:
---
---   THE BLOB is the field effect's own sprite template read out of ROM -- four animations, one
---   frame each, one per facing, east being west mirrored (the provenance is with
---   `runsForSurfBlob`, which resolves the same frame for the painted tier). Its tiles are copied
---   once per image and SHARED by every peer riding one, because hwFxTiles caches on the key. It
---   sits at the rider's position plus (0, +8), measured against the game's own pair rather than
---   guessed (probes/surfblob_probe.lua, 2026-08-19).
---
---   THE REFLECTION costs no tiles at all: it is the body's own frame, already in VRAM, drawn a
---   second time through a different palette. That is exactly what the engine does -- same tiles,
---   vertically flipped, priority 3, and `gReflectionEffectPaletteMap` for the colours -- and it
---   is why this tier gets for free the one thing the painted tier had to work for: PRIORITY. A
---   priority-3 entry is clipped by the water for us, so there is no reflectiveSpans lookup here
---   and no reflection creeping onto the bank.
---
---   THE RIPPLE IS THE HARDWARE'S, not ours. SetUpReflection does not use the flip bits: it makes
---   the reflection an AFFINE sprite through OAM matrix 0, or matrix 1 when the character is
---   mirrored (SetUpReflection is the pointer). Those matrices hold d = -256 (the vertical flip)
---   and an `a` breathing between 252 and 260, which is the sideways shimmer. The engine keeps
---   them updated every frame, so pointing our entry at the same matrix is not an imitation of the
---   ripple -- it IS the ripple, with no phase of our own to drift.
---
---   Guarded, because those matrices are only maintained while the engine has a reflection of its
---   own up. If matrix 0 is not holding a vertical flip, the entry falls back to the plain flip
---   bit: a reflection that does not shimmer, rather than a sprite drawn through a stale matrix.
+-- A surfing peer's blob and reflection, one OAM entry each. The blob is the field effect's own template, its tiles
+-- shared by every peer, seated at the rider plus (0, +8). The reflection reuses the body's tiles at priority 3 with the
+-- reflection palette, through OAM matrix 0 (1 when mirrored), so the engine's own shimmer drives it; when that matrix
+-- holds no vertical flip, the plain flip bit instead.
 function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
-    -- THE BLOB -- surfing only, because a blob IS surfing.
     if peerIsSurfing(remote) then
-        -- PARKED DURING A JUMP, like the game's own. On a dismount the engine sets the blob to
-        -- BOB_JUST_MON and it stops following the rider (filmed on the player's own blob, see
-        -- the dismount note; UpdateBobbingEffect is the pointer) --
-        -- the rider arcs ashore, the blob stays in the water. This tier rebuilt the blob at the
-        -- body's position every frame, so it rode the arc onto the grass (*"the blob follows
-        -- them onto land"*). While the peer's action is a JUMP_SPECIAL, the blob is drawn at the
-        -- position it held on the last non-jumping frame -- camera-anchored the way the ripple
-        -- trail already is, since the camera moves during the jump.
-        -- STICKY once the jump begins: the action ends a beat before the graphic flips (the
-        -- wire's pair debounce), and releasing the park in that gap drew the blob at the body's
-        -- landing tile for those frames -- the user's *"blob flash slightly at the landing"*.
-        -- The park holds until the surf graphic itself ends, exactly when the game's blob dies.
-        -- Bob-with-the-rider outside a jump, park through both kinds of jump: a dismount holds
-        -- the pre-jump park, a MOUNT parks at the destination (body-sans-arc plus one tile along
-        -- the jump's direction). The painted tier carries the same logic; an earlier edit patched
-        -- only that tier -- its two-part patch failed after the first half -- and the user's
-        -- next report named the missed one exactly: *"the blob is still following the OAM"*.
+        -- Park the blob through a surf jump, like the game's: a dismount holds its pre-jump spot, a mount parks at the
+        -- destination (one tile along the jump). Sticky once set: the action ends a beat before the graphic flips.
         local jumping = remote.act and remote.act >= 0x3a and remote.act <= 0x3d
         if jumping and not rec.blobParkHold then
             if rec.blobPark then
@@ -10862,11 +5910,7 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
                 end
             end
         end
-        -- A MOUNT'S PARK ENDS WITH ITS JUMP -- body and blob are at the same tile then, so the
-        -- handover is seamless -- while a DISMOUNT'S holds until the graphic flips (that beat is
-        -- the flash the hold exists for). Releasing both on the graphic was the first version,
-        -- and after a mount it simply never released: *"the blob is not following OAM and DRAWN
-        -- while surfing now"*, the blob left parked at the mount tile.
+        -- A mount's park ends with its jump, when body and blob share the tile; a dismount's lasts until the graphic.
         if not jumping and rec.blobParkHold and rec.blobParkKind == "mount" then
             rec.blobParkHold, rec.blobParkKind = nil, nil
         end
@@ -10899,20 +5943,12 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
         hwFxHide(rec, "blob")
     end
 
-    -- THE REFLECTION -- for ANY peer standing on reflective ground, which is the engine's own
-    -- rule and not a surfing one. Gating it on surfing was the painted tier's mistake too, and
-    -- the user found the case both of them excluded on the same day: a ghost on the grass at the
-    -- water's edge casts no reflection while the player beside it does.
-    --
-    -- The tile is asked WHERE THIS TIER DRAWS, not where the peer is -- in compare mode the two
-    -- are deliberately several tiles apart, and asking about the peer authorises a reflection on
-    -- dry land. Its own previous-tile store, rather than the painted tier's: the two tiers are
-    -- drawing the same peer in different places, so they cannot share an answer about ground.
+    -- A reflection for any peer on reflective ground, asked at the tile this tier draws on, with its own previous-tile
+    -- store: in compare mode the copies stand on different ground.
     local rpal, rkind
     local gbX, gbY = genderFrames.gridBase()
     if gbX then
-        -- The painted tier's formula, unchanged, because that one is calibrated and confirmed on
-        -- screen: the frame's own left edge, and the tile below its middle.
+        -- The painted tier's formula: the frame's left edge, and the tile below its middle.
         tiering.hwLastTile = tiering.hwLastTile or {}
         local hgx = math.floor((sx - gbX) / TILE)
         local hgy = math.floor((sy - arcY + TILE - gbY) / TILE)
@@ -10921,16 +5957,10 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
             ((info.width or FRAME_WIDTH_PX) + 8) >> 4,
             ((info.height or FRAME_HEIGHT_PX) + 8) >> 4,
             info.paletteSlot)
-        -- Published for the painted tier's log, which runs later in the same frame: the two tiers
-        -- ask the SAME function, so when their answers differ the difference is in the inputs, and
-        -- these are the inputs.
+        -- Published for the painted tier's log later this frame: both tiers ask the same function, so a difference
+        -- between them is in these inputs.
         if COMPARE_TIERS then
-            -- WHAT THE PAINTED TIER'S CLIP WOULD SAY AT THIS TIER'S OWN POSITION. The two copies
-            -- stand in different columns, so comparing their reflections directly compares two
-            -- pieces of shoreline as much as two renderers. This asks the painted tier's mask
-            -- about the HARDWARE copy's tile -- where the framebuffer can be read for what the
-            -- hardware actually drew -- so mask and hardware are finally answering about the same
-            -- ground. Compare mode only, and it costs one span build for one peer.
+            -- What the painted tier's mask says at this tier's tile, so mask and hardware answer about the same ground.
             local hry = sy + (info.height or FRAME_HEIGHT_PX) - 2 - 2 * arcY
             local hwet = genderFrames.reflectiveSpans(sx, hry,
                 info.width or FRAME_WIDTH_PX, info.height or FRAME_HEIGHT_PX, "reflection", genderFrames.scHwet())
@@ -10943,11 +5973,7 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
                     end
                 end
             end
-            -- THE HARDWARE'S OWN ART ROWS, read back out of the tiles this tier copied into
-            -- VRAM. The painted tier decodes the same picture from ROM; if the two disagree about
-            -- which rows of the frame carry ink, then one of the two decodes is wrong, and that
-            -- is a different bug from anything about reflections. 16 wide = 2 tiles across,
-            -- 32 tall = 4 down, 4bpp, 32 bytes a tile, tiles in reading order.
+            -- The art rows in VRAM, against the painted tier's ROM decode (16x32, 4bpp, tiles in reading order).
             local firstRow, lastRow = nil, nil
             if rec.tileStart then
                 for row = 0, 31 do
@@ -10978,9 +6004,7 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
                 tostring(lo), tostring(hi))
         end
     end
-    -- A RIPPLE PER TILE STEPPED. The store above stamps the frame the tile changed on, so the
-    -- reflection's own bookkeeping answers "did this peer just step" for free -- and it answers it
-    -- about the tile THIS tier drew on, which is the one the trail belongs to.
+    -- A ripple per tile stepped, from the tile store above, about the tile this tier drew on.
     if genderFrames.rippleDue(tiering.hwLastTile or {}, playerId,
         peerIsSurfing(remote)) then
         local w = info.width or FRAME_WIDTH_PX
@@ -10997,25 +6021,15 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
         hwFxHide(rec, "refl")
         return
     end
-    -- GetReflectionVerticalOffset is the graphic's own height minus two, and the engine negates
-    -- the main sprite's y2 for the reflection -- so the gap between a character and its image is
-    -- that offset MINUS TWICE the bob, and the two separate as the rider rises. `sy` already
-    -- carries the bob, which is why it comes off twice here and not once.
+    -- Height minus 2 below the body, mirrored about the bob: sy carries the bob once, so it comes off twice.
     local ry = sy + (info.height or FRAME_HEIGHT_PX) - 2 - 2 * arcY
     local t0, t1 = 0x8000, 0x8000
     if info.oam ~= 0 then t0, t1 = r16(info.oam + 0x00), r16(info.oam + 0x02) end
     local a = tiering.hw.base + rslot * 8
-    -- gOamMatrices entry: a +0, b +2, c +4, d +6. d is the vertical flip the engine keeps there.
-    --
-    -- ON ICE THE ENGINE TAKES THE PLAIN-FLIP PATH ITSELF, so the matrix is not ours to borrow:
-    -- (SetUpReflection's still-reflection path is where the decompilation places it). Pointing an ice
-    -- reflection at matrix 0 gave it the water shimmer, which the user saw straight away in
-    -- Shoal Cave: *"the OAM & DRAWN ghost reflections are wobbling/moving. they are supposed to
-    -- stay static while on ice"*. Same else-branch the stale-matrix guard already falls back to.
+    -- gOamMatrices entry: a +0, b +2, c +4, d +6 (d holds the vertical flip). Ice uses the plain flip: no shimmer.
     local m = hFlip and 1 or 0
     if rkind ~= "ice" and rs16(genderFrames.oamMatricesAddr + m * 8 + 6) < -128 then
-        -- ST_OAM_AFFINE_NORMAL: attr0 bits 8-9 = 01, attr1 bits 9-13 = the matrix index. The
-        -- flip bits do not exist in this mode -- the matrix carries both flips.
+        -- ST_OAM_AFFINE_NORMAL: attr0 bits 8-9 = 01, attr1 bits 9-13 = the matrix, which carries both flips.
         w16(a + 0, (t0 & 0xfc00) | 0x0100 | (ry & 0xff))
         w16(a + 2, (t1 & 0xc000) | (m << 9) | (sx & 0x1ff))
     else
@@ -11023,16 +6037,12 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
         w16(a + 2, (t1 & 0xc000) | (hFlip and 0x1000 or 0) | 0x2000 | (sx & 0x1ff))
     end
     w16(a + 4, (rec.tileStart & 0x3ff) | (3 << 10) | ((rpal & 0x0f) << 12))
-    -- Published for the painted tier's comparison log, which runs later in the same frame. The
-    -- two tiers use the same formula; if their reflections do not land on the same row, one of
-    -- them is not being given the same inputs, and that is a different bug from a wrong formula.
+    -- Published for the painted tier's comparison log later this frame.
     if COMPARE_TIERS then tiering.hwBodyY, tiering.hwReflY = sy, ry end
 end
 
--- `sx`,`sy` are the body entry's top-left as written this frame, and `arcY` is the hop the body is
--- carrying: both effects belong on the GROUND the peer left, so the arc comes back off. That is
--- the same term the engine drops by driving its shadow from pos1 while the character rides pos2,
--- and the same one the painted tier subtracts.
+-- sx, sy are the body entry's top-left this frame and arcY the hop it carries: both effects belong on the ground the
+-- peer left, so the arc comes back off.
 function hwDrawFx(playerId, rec, remote, info, sx, sy, arcY, hFlip)
     local w, h = info.width or FRAME_WIDTH_PX, info.height or FRAME_HEIGHT_PX
     local groundY = sy - arcY
@@ -11047,8 +6057,7 @@ function hwDrawFx(playerId, rec, remote, info, sx, sy, arcY, hFlip)
     local slot = start and hwFxSlot(playerId, rec, "shadow")
     if slot then
         local o = r32(tmpl + 0x04)
-        -- shadowTopFor's arithmetic, in top-left terms: the character's own half-height, less the
-        -- graphic's shadow offset, less the shadow sprite's 4px half-height.
+        -- shadowTopFor's arithmetic: the graphic's height, less the size's drop, less the shadow's 4px half-height.
         local hy = groundY + h - (genderFrames.shadowDrop[size] or 4) - 4
         local hx = sx + (w >> 1) - 8
         local a = tiering.hw.base + slot * 8
@@ -11059,9 +6068,8 @@ function hwDrawFx(playerId, rec, remote, info, sx, sy, arcY, hFlip)
         hwFxHide(rec, "shadow")
     end
 
-    -- The same landing latch both other tiers read, so all three puff on the same frame -- and
-    -- like the painted tier's, the puff is a TRAIL entry: it is born on the landing edge, records
-    -- where the ground was, and hwPuffTick below plays it out on that spot while the body hops on.
+    -- The same landing latch the other tiers read, so all three puff on the same frame; the puff stays where the ground
+    -- was and hwPuffTick plays it out there.
     local _, landedNow = genderFrames.noteLanding(playerId, jumping, remote.act)
     if landedNow then
         tiering.hw.puffs[#tiering.hw.puffs + 1] = {
@@ -11072,11 +6080,8 @@ function hwDrawFx(playerId, rec, remote, info, sx, sy, arcY, hFlip)
     end
 end
 
--- Play out every live puff at its own recorded spot, camera-anchored the same way the painted
--- trail is. Slots come from the dust pool ON DEMAND, one per live puff rather than one per peer:
--- a 24-frame animation against a 16-frame bounce means two puffs overlap briefly, and per-peer
--- ownership could only ever show one. More live puffs than pool slots drops the OLDEST -- it has
--- the least animation left to show.
+-- Play out every live puff at its recorded spot, camera-anchored. One dust slot per live puff, not per peer: a 24-frame
+-- puff against a 16-frame bounce overlaps. Too many drops the oldest, which has the least left to show.
 function hwPuffTick()
     local puffs = tiering.hw.puffs
     if #puffs == 0 then return end
@@ -11122,14 +6127,8 @@ function hwPuffTick()
     end
 end
 
--- Play out every live ripple where it was dropped, camera-anchored exactly as the dust trail is.
--- Slots come from the ripple pool ON DEMAND, one per live ripple rather than one per peer: an
--- 80-frame life against a tile stepped every 8 frames means ten are alive at a steady pace, and
--- per-peer ownership could only ever show one of them.
---
--- MORE LIVE RIPPLES THAN POOL SLOTS DROPS THE OLDEST -- it has the least animation left to show --
--- AND SAYS SO. A tier that quietly shows eight of ten reads as "covered everything" when it did
--- not, which is the one thing a ceiling must never do.
+-- Play out every live ripple where it was dropped, one slot per live ripple: an 80-frame life against a tile every 8
+-- frames is ten alive. Too many drops the oldest and says so: a ceiling must never read as full coverage.
 function hwRippleTick()
     local list = tiering.hw.ripples
     if #list == 0 then return end
@@ -11174,10 +6173,7 @@ function hwRippleTick()
                 local dx, dy = rip.bx + offX, rip.by + offY
                 if dx + genderFrames.rippleFramePx <= 0 or dx >= 240
                     or dy + genderFrames.rippleFramePx <= 0 or dy >= 160 then
-                    -- GIVE THE SLOT BACK, not just the pixels. A ripple that has scrolled off
-                    -- screen is invisible either way, but holding its entry starves the ones still
-                    -- in view -- and a trail is exactly the thing whose oldest members leave the
-                    -- screen first while newer ones are still being made.
+                    -- Off screen gives the slot back, not just the pixels: a trail's oldest leave the screen first.
                     w16(a + 0, tiering.hw.d0) w16(a + 2, tiering.hw.d1) w16(a + 4, tiering.hw.d2)
                     tiering.hw.slotUsed[rip.slot] = nil
                     rip.slot = nil
@@ -11191,9 +6187,7 @@ function hwRippleTick()
     end
 end
 
--- How many more peers this tier can take right now. Entries are never the binding limit (56 of them
--- against a handful of peers); OBJ TILES are, which is why exhaustion is discovered at acquire time
--- rather than predicted here.
+-- How many more peers this tier can take now. OBJ tiles, not entries, are the binding limit, found at acquire time.
 tiering.hwBudget = function()
     if not tiering.hw.on then return 0 end
     local free = 0
@@ -11201,12 +6195,8 @@ tiering.hwBudget = function()
     return free
 end
 
--- THE LADDER'S MIDDLE RUNG. Given the peers the engine could not take, pick the nearest ones this
--- tier has room for; everyone left over is the painted tier's problem.
---
--- Same nearest-wins ranking and same hysteresis as chooseSpawned, and for the same reason: without
--- the band two peers at nearly equal distance swap tiers every few frames -- and here a swap costs a
--- tile reallocation and a VRAM copy rather than merely a different renderer.
+-- The ladder's middle rung: the nearest peers the engine could not take, as far as this tier has room. Same ranking and
+-- hysteresis as chooseSpawned: without the band near-equal peers swap tiers, and here a swap costs a VRAM copy.
 tiering.chooseHardware = function(localAreaId, playerX, playerY, spawnSet)
     local set = {}
     if not tiering.hw.on then return set end
@@ -11214,42 +6204,19 @@ tiering.chooseHardware = function(localAreaId, playerX, playerY, spawnSet)
     if genderFrames.loadQuietUntil and frameCounter < genderFrames.loadQuietUntil then
         return set
     end
-    -- WHERE THE ENGINE HAS TILED THE SCREEN WITH SEMI-TRANSPARENT SPRITES, THIS TIER CANNOT DRAW
-    -- CLEANLY -- see hwSpritePriority for the full reasoning and the measurements. Its peers become
-    -- the painted tier's, which is drawn after the frame and unaffected by any of it.
-    --
-    -- ASKED AS A QUESTION ABOUT THE SCREEN, NOT ABOUT THE PLACE. This began as an underwater test,
-    -- because underwater was where it was found. Mt Pyre's fog then did exactly the same thing on
-    -- dry land -- the user: *"the OAM ghost is invisible as soon as the fog appears"*, and no white
-    -- box, because here we are simply behind it rather than fighting it. Measured on the exterior
-    -- (`dev-scripts/fog2.log`, 2026-08-21): entries 3..17 hold twelve 64x64 sprites in objMode 1
-    -- at priority 2, on a 64px grid covering the screen, with the player at entry 1 and ours at 68.
-    -- Same priority, so the tie goes to the lower entry: the fog draws over us and under the
-    -- player. Identical in shape to the underwater grid, which makes "underwater" the wrong
-    -- predicate -- weather is not a place, and the next such effect would have been a third bug.
+    -- Under a semi-transparent screen cover this tier cannot draw cleanly (hwSpritePriority), so its peers go to the
+    -- painted tier. Asked of the screen, not the place: fog and sandstorm do it on dry land.
     if not MESHGHOST_EMERALD_HW_PRIORITY
         and genderFrames.screenCoveredBySemiTransparentSprites() then
-        -- RELEASE AND FREE. This was hwReleaseAll(false) -- the map-change form, which keeps the
-        -- tile bitmap untouched because the engine's ResetSpriteData has already reclaimed it --
-        -- and under weather the map has NOT changed: the bitmap is still ours, so every stand-down
-        -- leaked one body's worth of OBJ tiles per peer. Walking in and out of the Route 111
-        -- sandstorm with a 24-peer crowd (2026-09-02): the third swap ran OBJ VRAM dry, spawned
-        -- ghosts logged "no run of free OBJ tiles" thousands of times a second, the game fell to
-        -- 6fps, and the sandstorm's own sprite corrupted because it was fighting us for tiles.
-        -- `true` takes the deferred, area-stamped free that every other same-map release uses.
+        -- Release and free: weather is not a map change, so the tile bitmap is still ours to free.
         if next(tiering.hw.byPeer) then hwReleaseAll(true) end
         return set
     end
     local ranked = {}
     for playerId, remote in pairs(remotes) do
-        -- The loopback ghost is the one peer allowed into every tier at once, and only in compare
-        -- mode -- that is the whole point of compare mode. Everyone else lands here exactly when the
-        -- engine had no room for them.
+        -- In compare mode the loopback ghost may hold every tier; others land here when the engine had no room.
         local alsoSpawned = COMPARE_TIERS and playerId:match("%-ghost$") ~= nil
-        -- Same rule the painted tier takes, and a slot saved rather than a slot wasted: a peer the
-        -- engine has stopped drawing is not ranked for a hardware slot at all, so the budget goes
-        -- to peers who are actually on the map. See the painted tier's own note for why neither
-        -- self-drawn tier attempts the boat or the bird.
+        -- A peer the engine stopped drawing (invisible, the boat, the bird) is not ranked, as on the painted tier.
         if remote.areaId == localAreaId
             and not (remote.invis or remote.boat or remote.fly == 2)
             and (alsoSpawned or not (spawnSet and spawnSet[playerId]))
@@ -11282,9 +6249,7 @@ end
 -- tier can be told to skip whoever landed here.
 function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
     tiering.hw.placed = 0
-    -- THE EARLY RETURNS BELOW MUST NOT STRAND A LIVE PUFF. A trail outlives the bounce that made
-    -- it, so switching the tier off -- or crossing onto a ROM it does not engage on -- can happen
-    -- with puffs still on screen, and every path out of this function has to leave OAM clean.
+    -- Every early return leaves OAM clean: a puff outlives its bounce.
     if not tiering.hw.on or avatarAddrOffset ~= 0 then
         if #tiering.hw.puffs > 0 then hwReleaseAll(true) end
         return
@@ -11294,39 +6259,20 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
         tiering.hw.lastEmpty = frameCounter
         logFile("hw tier: on, but no peer was assigned to it this frame")
     end
-    -- (VANILLA ONLY: gMain's address comes from our own build of the decomp and an Archipelago ROM
-    -- relocates code and data -- the same gate the fishing hook uses. Checked at the top, with the
-    -- puff cleanup, so a patched ROM cannot strand one.)
+    -- Vanilla only (the avatarAddrOffset test above): gMain's address is from our build of the decomp, and an
+    -- Archipelago ROM relocates it.
 
-    -- A MAP CHANGE INVALIDATES EVERY TILE ALLOCATION. The engine runs ResetSpriteData on a map load,
-    -- which frees all sprite tile ranges and hands them to the new map's NPCs. Ours went with them,
-    -- so the records are dropped WITHOUT clearing bits we no longer own.
+    -- A map change runs ResetSpriteData, which frees every tile range for the new map's NPCs, so the records are
+    -- dropped without clearing bits we no longer own.
     if tiering.hw.area ~= localAreaId then
-        -- A SEAM IS NOT A WARP. Crossing a map CONNECTION changes the area id while the engine
-        -- keeps every sprite and its tile bitmap exactly as they were -- only a warp runs
-        -- ResetSpriteData. Forgetting the tiles here on a seam therefore leaked one body's worth
-        -- per peer per crossing: measured 2026-09-02 with a 24-peer crowd on Route 111, the bitmap
-        -- read 1020/1024 bits set with 8 live sprites after a few crossings, and nothing --
-        -- ours or the sandstorm's own sprite -- could get tiles again until the next warp.
-        -- xmapRebase runs earlier in this same frame (genderFrames.xmapTick, before this tier)
-        -- and only ever fires for a connection, so it is the seam signal: free on a seam, forget
-        -- on a warp. The area is stamped BEFORE the seam release so the deferred frees carry the
-        -- area that now stands and the service point honours them.
-        -- Two seam signals, either suffices: the rebase (which needs the cross-map table armed,
-        -- and it is not yet on the FIRST crossing after a script load -- measured 2026-09-02,
-        -- "rebase never", 12 bodies forgotten), or any spawned ghost of ours still alive across
-        -- the change -- the engine keeps every object across a connection and clears them all on
-        -- a warp, so one survivor is proof the bitmap survived too.
+        -- A seam is not a warp: a connection keeps every sprite and the tile bitmap, only a warp runs ResetSpriteData.
+        -- So free on a seam and forget on a warp, stamping the area first so the deferred frees carry the area that now
+        -- stands. A recent rebase, or a spawned ghost alive across the change, means a seam.
         local survivor = false
         for _, g in pairs(ghosts) do
             if ghostAlive(g) then survivor = true break end
         end
-        -- The third signal is the one that needs nothing armed and no ghost spawned: the
-        -- game never left the overworld between the two areas. A warp fades through frames
-        -- outside CB2_Overworld; a seam does not. Measured 2026-09-02: before the cross-map
-        -- table armed, every crossing read "rebase never, survivor=false" (the spawned tier
-        -- despawns and respawns everything at a seam, so no survivor exists at this instant)
-        -- and 10-12 bodies were forgotten per crossing.
+        -- The signal that needs nothing armed: a warp fades out of CB2_Overworld, and a seam never leaves it.
         local stayedInOverworld = tiering.lastNonOverworldAt == nil
             or (frameCounter - tiering.lastNonOverworldAt) > 30
         local seam = tiering.hw.area ~= nil
@@ -11338,19 +6284,13 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
             tostring(survivor), tostring(stayedInOverworld),
             (function() local n = 0 for _ in pairs(tiering.hw.byPeer) do n = n + 1 end return n end)()))
         if seam then
-            -- Frees still pending from BEFORE the crossing carry the old area's stamp and would
-            -- be dropped as "not ours" by the service point -- the last of the seam leaks, 16
-            -- tiles per pending release, caught by the SKIPPED instrument on 2026-09-02. The
-            -- bitmap survived the seam, so those ranges are ours exactly as much as they were.
+            -- Frees pending from before the crossing carry the old area: restamp them, since the bitmap survived.
             for _, e in ipairs(genderFrames.deferredTileFrees) do
                 if e.hwArea == tiering.hw.area then e.hwArea = localAreaId end
             end
             tiering.hw.area = localAreaId
             hwReleaseAll(true)
-            -- hwReleaseAll ends by blanking the area. Left blank, the NEXT frame reads "nil ->
-            -- this area", takes the warp branch and forgets whatever re-acquired in between --
-            -- measured 2026-09-02: "seam=true records=2" followed one frame later by "nil -> 0:27
-            -- seam=false records=2", two bodies leaked per crossing.
+            -- hwReleaseAll blanks the area; left blank, next frame takes the warp branch and forgets the re-acquired.
             tiering.hw.area = localAreaId
         else
             hwReleaseAll(false)
@@ -11358,7 +6298,6 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
         end
     end
 
-    -- Anyone no longer in the set gives their slot and tiles back this frame, not eventually.
     for playerId in pairs(tiering.hw.byPeer) do
         if not hwSet[playerId] or not remotes[playerId] then hwRelease(playerId, true) end
     end
@@ -11378,19 +6317,13 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
         local info = remote and graphicsInfo(remote.gfx or 0)
         if info then
             local rec = tiering.hw.byPeer[playerId]
-            -- A GRAPHIC CHANGE IS A DIFFERENT TILE COUNT. A walker is 8 tiles and a bike or a surf
-            -- blob is 16, so keeping the old range would either waste half of it or overrun the
-            -- neighbour's. Release and re-acquire, which is cheap here precisely because there is no
-            -- engine state to rebuild -- the expensive version of this is what
-            -- swapGhostGraphicInPlace exists to avoid on the SPAWNED tier.
+            -- A graphic change is a different tile count (walker 8, bike or surf 16): release and re-acquire.
             if rec and rec.gfx ~= nil and rec.gfx ~= remote.gfx then
                 hwRelease(playerId, true)
                 rec = nil
             end
             if not rec then rec = hwAcquire(playerId, info) end
-            -- WHY NOTHING APPEARED, said once every 5 seconds rather than never. A tier that
-            -- silently renders nobody is indistinguishable from one that is switched off, and that
-            -- cost a whole test cycle on 2026-08-21. Throttled to the file, never the console.
+            -- Why nothing appeared, to the file every 5 seconds: a tier that renders nobody looks switched off.
             if not rec and (not tiering.hw.lastWhy
                 or frameCounter - tiering.hw.lastWhy > 300) then
                 tiering.hw.lastWhy = frameCounter
@@ -11399,27 +6332,11 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                     tostring(playerId), tiering.hwBudget(), info.tileCount, tostring(remote.gfx)))
             end
             if rec then
-                -- WHERE ON SCREEN. The same origin + delta + camera-pixel form the painted tier
-                -- uses, and it is already the sprite's TOP-LEFT in screen pixels -- which is exactly
-                -- what a hardware entry's x/y mean, so no conversion is involved.
+                -- Where on screen: the painted tier's origin + delta + camera form, already the top-left in pixels.
                 local glideX = remote.gX or remote.x
                 local glideY = remote.gY or remote.y
-                -- PINNED TO THE SPAWNED GHOST IN COMPARE MODE -- the same rule the painted copy has
-                -- always had, adopted 2026-08-21 after not having it produced a false verdict
-                -- against this tier twice in one evening.
-                --
-                -- WHY PINNING IS THE ONLY HONEST COMPARISON. The glide pipeline carries a
-                -- DELIBERATE trailing delay (genderFrames.drawnDelay -- it reproduces the distance
-                -- the engine's own step machine trails by), so a compare copy placed from the glide
-                -- is 8 frames behind the reference BY DESIGN. Standing still the two align to the
-                -- pixel; moving, the gap opens to the delay times the speed -- measured on the ride
-                -- as 0px for 1243 frames and up to ~30px mid-run, which the user, twice, correctly
-                -- reported as *"trailing behind/not following properly"*. That is the POSITION
-                -- pipeline showing through, not the renderer under test -- the painted copy hides
-                -- the identical behaviour by never using its own position at all in compare mode.
-                -- Pinning both copies to the spawned sprite removes position from the comparison
-                -- entirely, which is the point: what remains different on screen is the RENDERER --
-                -- facing, pose, palette, occlusion -- and nothing else.
+                -- Compare mode pins this copy to the spawned ghost's sprite, so position leaves the comparison and only
+                -- the renderer differs: the glide trails by genderFrames.drawnDelay by design.
                 local cmpPin = COMPARE_TIERS and playerId:match("%-ghost$") and ghosts[playerId]
                 if cmpPin then
                     local gs = sprAddr(cmpPin.sprId)
@@ -11455,46 +6372,17 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                     w16(a + 2, (t1 & 0xfe00) | (sx & 0x1ff) | flip)
                     w16(a + 4, (rec.tileStart & 0x3ff) | (hwSpritePriority() << 10)
                         | ((info.paletteSlot or 0) << 12))
-                    -- The pin copies the spawned sprite's pos2, so the hop arc is in `sy` here and
-                    -- has to come back off for the two ground effects.
+                    -- sy carries the pinned sprite's pos2, so the hop arc comes back off for the two ground effects.
                     hwDrawFx(playerId, rec, remote, info, sx, sy, rs16(gs + 0x26), flip ~= 0)
                     tiering.hw.placed = tiering.hw.placed + 1
                     if COMPARE_TIERS then tiering.hwLastX, tiering.hwLastY = sx, sy end
                     goto hwNextPeer
                 end
-                -- THE LOOPBACK GHOST STANDS BESIDE THE PLAYER, NOT ON THEM. Same offset the other
-                -- two tiers apply, and it exists for the same reason: a dev ghost echoing the
-                -- player's own state renders exactly on top of them, where nothing about it can be
-                -- judged. Two tiles to the side and it can be compared frame by frame -- and, the
-                -- reason it was needed on 2026-08-21, it can be WALKED somewhere: a fixed synthetic
-                -- peer cannot be taken behind a building to check occlusion, and the loopback one
-                -- goes wherever the player goes.
+                -- The loopback ghost stands beside the player, not on them, so it can be judged and walked anywhere.
                 if playerId:match("%-ghost$") then
                     if COMPARE_TIERS then
-                        -- THREE-WAY COMPARE: the same peer rendered by all three tiers at once --
-                        -- spawned 2 tiles right, painted 2 tiles left, and this one wherever the
-                        -- offsets below put it. The user's call, 2026-08-21: *"i want to compare all
-                        -- 3 to each other. only testing OAM alone is dumb"*, and they are right --
-                        -- "is it choppy" is not a question a single renderer can answer, because the
-                        -- peer's position pipeline is shared by all three and would look identical
-                        -- in each.
-                        --
-                        -- DEFAULT: two tiles ABOVE the spawned ghost -- same column, one body up.
-                        -- The spawned copy is the reference every other tier is judged against, so
-                        -- this one is parked directly over it: same x, so a horizontal difference
-                        -- is a misalignment rather than the offset, and clear vertical air so both
-                        -- are fully visible at once.
-                        --
-                        -- OVERLAPPING THEM EXACTLY WAS TRIED AND IS WRONG, 2026-08-21. The idea was
-                        -- that a hardware entry always loses an overlap tie, so a matched pair would
-                        -- show one ghost and a mismatch would peek out. The user, immediately: *"no
-                        -- its sitting right on top of the spawned one... useless for testing if they
-                        -- are directly on top of each other"*. They are right and the reasoning was
-                        -- backwards -- a renderer you cannot SEE cannot be compared, and the failure
-                        -- being looked for (choppiness, a frame of lag, a wrong pose) is a property
-                        -- of motion that a peek-out cannot express.
-                        --
-                        -- tiering.hw.cmpDX/cmpDY move it from a loader script without restarting.
+                        -- Three-way compare: the hardware copy sits tiering.hw.cmpDX/cmpDY tiles from the spawned one,
+                        -- and a loader script can move it without a restart.
                         glideX = glideX + LOOPBACK_GHOST_OFFSET_TILES_X + (tiering.hw.cmpDX or 0)
                         glideY = glideY + LOOPBACK_GHOST_OFFSET_TILES_Y + (tiering.hw.cmpDY or 0)
                     else
@@ -11507,21 +6395,12 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                 local sy = (tiering.originY or playerScreenY)
                     + (glideY - (tiering.anchorY or playerMapY)) * TILE + camPixY
                 sx, sy = math.floor(sx + 0.5), math.floor(sy + 0.5)
-                -- THE PEER'S OWN HOP, off the wire (2026-08-21). The glide pipeline above carries
-                -- position and nothing else, so an overflow peer used to SLIDE over a ledge with
-                -- its shadow pinned under its feet, while the pinned compare copy a few lines up
-                -- arced correctly from the spawned sprite -- which is exactly why compare mode
-                -- could never show it. `soy` is the peer's sprite pos2.y, already on the wire for
-                -- the surf bob; the same number is the jump arc, and the painted tier now takes it
-                -- from the same place. Taken verbatim here, fishing included: this tier draws the
-                -- peer's own frame from its own OAM template and re-derives no alignment of its
-                -- own, so the engine's whole vertical offset is exactly what it wants.
+                -- The peer's own hop: soy is its sprite pos2.y (the surf bob and the jump arc), taken verbatim, since
+                -- this tier draws the peer's own frame from its own template.
                 local arc = remote.soy or 0
                 sy = sy + arc
 
-                -- OFF SCREEN GETS THE HIDDEN ENTRY, NOT A WRAPPED ONE. An entry's x is 9 bits and
-                -- its y is 8, so a peer at x = -900 does not vanish, it reappears somewhere absurd.
-                -- The engine's own dummy encoding is what "not drawn" looks like here.
+                -- Off screen gets the hidden entry, not a wrapped one: x is 9 bits and y 8, so a far peer reappears.
                 local a = tiering.hw.base + rec.slot * 8
                 if sx + (info.width or FRAME_WIDTH_PX) <= 0 or sx >= 240
                     or sy + (info.height or FRAME_HEIGHT_PX) <= 0 or sy >= 160 then
@@ -11531,17 +6410,11 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                     hwFxHide(rec, "shadow")
                     hwFxHide(rec, "dust")
                 else
-                    -- THE GRAPHIC'S OWN OAM TEMPLATE, copied rather than reconstructed. Its first
-                    -- two halfwords already carry the correct shape and size for this character;
-                    -- building them by hand would be re-deriving something the ROM states. Same move
-                    -- spawnSurfBlob makes with the same pointer.
+                    -- The graphic's own OAM template carries the right shape and size, as in spawnSurfBlob.
                     local t0, t1 = 0x8000, 0x8000 -- 16x32, the walker's shape/size, as the fallback
                     if info.oam ~= 0 then t0, t1 = r16(info.oam + 0x00), r16(info.oam + 0x02) end
 
-                    -- THE PIXELS, only on a change: a frame copy is info.size/4 read+write pairs,
-                    -- cheap once and ruinous per frame. The peer's own animation number and frame
-                    -- index are used directly, so what is on screen is the frame the peer's game is
-                    -- actually showing rather than one this adapter re-derived.
+                    -- The pixels, only on a change: a frame copy is cheap once and ruinous per frame.
                     local an, ai = remote.sanim or 0, remote.sidx or 0
                     if rec.gfx ~= remote.gfx or rec.animNum ~= an or rec.animIdx ~= ai then
                         loadGhostFrameNow(rec, info, an, ai)
@@ -11556,17 +6429,8 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                         rec.gfx, rec.animNum, rec.animIdx = remote.gfx, an, ai
                     end
 
-                    -- FACING IS IN THE ANIMATION COMMAND, NOT IN THE FRAME. Emerald has no
-                    -- east-facing artwork: east is the WEST frames with the hardware's horizontal
-                    -- flip set, which is why animNum 2 serves both directions. The flip lives at
-                    -- bit 22 of the animation command word -- the same bit the painted tier reads
-                    -- for the same reason -- and an entry that ignores it shows a character facing
-                    -- the wrong way exactly half the time. User, 2026-08-21, comparing the three
-                    -- tiers: *"OAM is facing left, whenever i face right"*.
-                    --
-                    -- Bit 12 of the second halfword is hFlip when the entry is not affine, which is
-                    -- ours: the template's affine bits are copied unchanged and overworld characters
-                    -- are never affine.
+                    -- Facing is in the animation command: east is the west frames flipped, bit 22 of the command word.
+                    -- Bit 12 of attr1 is hFlip for a non-affine entry, which an overworld character always is.
                     local flip = 0
                     local aptr = r32(info.anims + an * 4)
                     if isRomPtr(aptr) and ((r32(aptr + ai * 4) >> 22) & 1) == 1 then
@@ -11574,23 +6438,16 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                     end
                     w16(a + 0, (t0 & 0xff00) | (sy & 0xff))
                     w16(a + 2, (t1 & 0xfe00) | (sx & 0x1ff) | flip)
-                    -- Priority and palette buy the occlusion and the fades. Priority 2 is ordinary
-                    -- ground, which is what the engine gives its own overworld characters; the
-                    -- palette slot comes from the graphic's own descriptor, not from anything ours.
+                    -- Priority 2 is the engine's own for overworld characters; the palette slot is the graphic's own.
                     w16(a + 4, (rec.tileStart & 0x3ff) | (hwSpritePriority() << 10)
                         | ((info.paletteSlot or 0) << 12))
-                    -- The arc is in `sy` now, so it comes back off for the two ground effects --
-                    -- the same contract the pinned path above uses.
+                    -- The arc is in sy now, so it comes back off for the two ground effects.
                     hwDrawFx(playerId, rec, remote, info, sx, sy, arc, flip ~= 0)
                     tiering.hw.placed = tiering.hw.placed + 1
-                    -- Published for the three-way compare log in drawRemotes, which runs after this
-                    -- in the same frame. Where the OTHER two tiers put the same peer is already on
-                    -- that line; without this one there is no way to tell "the hardware tier lags"
-                    -- from "the peer's position pipeline lags and all three inherit it".
+                    -- Published for the three-way compare log in drawRemotes, so a lag can be pinned on one tier.
                     if COMPARE_TIERS then
                         tiering.hwLastX, tiering.hwLastY = sx, sy
-                        -- The formula's four inputs, so a drift can be attributed to one of them
-                        -- rather than argued about. Compare mode only.
+                        -- The formula's four inputs, so a drift can be attributed.
                         tiering.hwDbg = string.format("gX=%.3f anch=%s orig=%s cam=%d",
                             glideX, tostring(tiering.anchorX), tostring(tiering.originX), camPixX)
                     end
@@ -11601,90 +6458,41 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
     end
 end
 
--- skipSpawned, when given, names the peers the ENGINE is already drawing as real object events.
--- Drawing those again would paint a flat copy on top of the engine's own animated one -- so the
--- drawn tier renders exactly the peers the spawned tier could not take.
--- compareOnly: draw NOTHING except the loopback ghost. That is the MESHGHOST_COMPARE_TIERS case
--- where the overflow tier itself is off -- the comparison ghost is wanted, a painted crowd is not.
--- ===== SORTING A PAINTED GHOST AGAINST THE PLAYER =====
---
--- A spawned ghost gets this for free: it is a real object event, and the engine sorts objects by
--- where they STAND, so a character one tile above you is drawn behind you. A painted one is put on
--- the finished frame, so it covers everything it overlaps -- including the player. The user,
--- 2026-09-12: *"drawn ghosts can draw on top of the player itself"*, and asked for the game's own
--- sorting rather than a blanket "never cover the player", so the two tiers agree.
---
--- WHAT THIS CODE DOES: the character standing lower on the screen is drawn in front, compared in
--- 16px bands of its bottom edge (sortBand, below); both halves of the comparison go through the
--- same banding. That this matches the engine's sort is the decompilation's reading
--- (`SetObjectSubpriorityByElevation`, a pointer) and is NOT measured on the game -- a question for
--- UNVERIFIED.md.
---
--- ELEVATION IS NOT IN IT YET, and that is a real limitation rather than an oversight: the
--- decompilation has elevation shift whole bands (`sElevationToSubpriority`, a pointer; unmeasured)
--- and the peer's elevation is not on the wire. On one elevation -- every ordinary route and town -- this is exact; across a bridge or
--- a ledge band it can sort the wrong way. Noted in UNVERIFIED.md rather than guessed at.
--- ON `genderFrames`, NOT A NEW FILE-SCOPE LOCAL: this chunk sits at Lua's 200-local ceiling, and
--- crossing it is a hard parse failure at load ("too many local variables"), not a warning.
+-- A painted ghost against the player: the one standing lower draws in front, by 16px bands of the bottom edge, as the
+-- game sorts on one elevation (the peer's elevation is not on the wire). On genderFrames: 200-local ceiling.
 genderFrames.sortBand = function(bottomY)
     return (math.floor(bottomY + 8) & 0xFF) >> 4
 end
 
--- The player's OPAQUE pixels, in screen coordinates, as one span list per row -- built from the
--- player's CURRENT graphic and animation frame, so a bike, a surf blob or a fishing rod masks with
--- its own shape rather than a walker's box. Cached per frame: several peers can overlap the player
--- at once and the decode is the expensive half.
---
--- Returns rows, top, bottom, left, right -- the box so a caller can reject a non-overlapping ghost
--- without touching the rows at all, which is the common case and has to stay free.
+-- The player's opaque pixels in screen coordinates, one span list per row, from its current graphic and
+-- frame so a bike or a rod masks with its own shape. Cached per frame: the decode is the expensive half.
+-- Returns rows, top, bottom, left, right; the box lets a caller reject a non-overlapping ghost for free.
 genderFrames.playerMask = function()
     if genderFrames.pmAt == frameCounter then
         return genderFrames.pmRows, genderFrames.pmT, genderFrames.pmB, genderFrames.pmL, genderFrames.pmR
     end
-    -- Cleared with the rows, not just set beside them: every `return nil` below leaves this
-    -- function early, and a frame bottom left over from the previous frame would be a plausible
-    -- number from the wrong frame -- the failure mode this repo files under "never trust a reading
-    -- an instrument did not take this frame".
+    -- Cleared up front: an early return must not leave the previous frame's bottom behind.
     genderFrames.pmAt, genderFrames.pmRows, genderFrames.pmFrameBottom = frameCounter, nil, nil
     local gfx = localGraphicsId()
     if not gfx then return nil end
     local pd = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
-    -- THE THIRD RETURN IS THE FLIP, and dropping it is a mask that is mirrored against the pixels
-    -- it is supposed to cover. Emerald draws EAST as the west art with the OAM flip bit set
-    -- (`sAnim_FaceEast/GoEast/RunEast`, hFlip at bit 22 of the anim command), so the player's own
-    -- mask has to be mirrored exactly the way `drawRunList` mirrors a run it draws. The user, on
-    -- the first version: *"except when facing to the right (weird mask specifically for 1 tile
-    -- below and facing right)"* -- three of the four facings were right, which is what a dropped
-    -- flip looks like from the outside.
-    -- IN PHASE IF THE HOOK IS ARMED, the boundary read otherwise. `pmSnapAt` is stamped inside
-    -- BuildOamBuffer, so it belongs to the frame whose picture this overlay lands on; the live read
-    -- below belongs to the frame after it. Both are kept so the trace can say whether they actually
-    -- disagreed -- a fix that changes nothing because the two were equal all along is the kind this
-    -- repo has shipped before.
+    -- The animation sampled inside BuildOamBuffer when fresh (the frame this overlay lands on); the live read
+    -- is the next frame's. Both are kept so the trace can say whether they disagreed.
     local liveNum, liveIdx = r8(pd + 0x2a), r8(pd + 0x2b)
     local useNum, useIdx = liveNum, liveIdx
     if genderFrames.pmSnapAt and (frameCounter - genderFrames.pmSnapAt) <= 1 then
         useNum, useIdx = genderFrames.pmSnapNum, genderFrames.pmSnapIdx
     end
     genderFrames.pmLive, genderFrames.pmUsed = liveNum .. "/" .. liveIdx, useNum .. "/" .. useIdx
-    -- TWO SOURCES FOR THE FLIP, and only one of them is what the hardware obeys. `runsForPeerGfx`
-    -- reports the hFlip bit of the ANIMATION COMMAND (bit 22); the PPU draws from the sprite's OAM
-    -- attribute 1 (bit 12). In the steady state they agree -- a facing is a facing -- but a TURN is
-    -- exactly where an engine is free to set one before the other, and the reported fault lives in
-    -- those few frames: *"the small transition from facing left to right has some green in it"*.
-    -- Logged rather than acted on: which one to trust is a question the disagreement itself
-    -- answers, and there is no point swapping sources on a hunch.
+    -- The PPU draws OAM attribute 1's flip, runsForPeerGfx reports the anim command's: both are logged.
     genderFrames.pmOamFlip = (r16(pd + 0x02) & 0x1000) ~= 0
+    -- The third return is the flip: east is the west art mirrored, so the mask mirrors as drawRunList does.
     local ok, runs, pinfoRet, pflip = pcall(genderFrames.runsForPeerGfx, gfx, useNum, useIdx)
     if not ok or not runs or #runs == 0 then return nil end
     local px, py = playerScreenPos()
     if not px then return nil end
-    -- THE FRAME'S BOTTOM, NOT THE INK'S. The sort has to compare like with like: a peer's bottom is
-    -- its FRAME bottom (top + height), so the player's must be too. Taking it from the lowest
-    -- opaque pixel instead made the player read 15px below the ghost rather than 16 -- the art has
-    -- transparent rows under the feet -- and two characters a tile apart then landed in the SAME
-    -- 16px band, where the tie rule lets the ghost paint over. That is exactly the screenshot the
-    -- user sent (2026-09-12): ghost one tile up, still on top.
+    -- The frame's bottom, not the ink's, to compare like with a peer's frame bottom: the art has empty rows
+    -- under the feet, and an ink bottom puts two characters a tile apart in one band.
     local pinfo = pinfoRet or graphicsInfo(gfx)
     local pw = (pinfo and pinfo.width) or FRAME_WIDTH_PX
     genderFrames.pmFrameBottom = py + ((pinfo and pinfo.height) or FRAME_HEIGHT_PX)
@@ -11709,27 +6517,14 @@ genderFrames.playerMask = function()
     return rows, t, b, l, r
 end
 
--- Cut the player's pixels out of one peer's keep-span mask, or hand back the mask untouched.
---
--- `keepSpans` is STRICT in drawRunList -- a row missing from the table paints NOTHING on that row
--- -- so this has to emit a span list for every row the ghost covers, not just the rows the player
--- touches. That asymmetry is the whole reason this is a function rather than three lines at the
--- call site; the first version of it lost the ghost's head and shoulders to rows it never wrote.
+-- Cuts the player's pixels out of one peer's keep-span mask, or returns the mask untouched. keepSpans is
+-- strict in drawRunList (a missing row paints nothing), so every row the ghost covers gets a span list.
 genderFrames.maskBehindPlayer = function(occl, left, top, width, height)
-    -- MESHGHOST_EMERALD_NO_SORT (dev): hand back the caller's own mask and do nothing else, so a
-    -- session can be run with the draw-order work subtracted out. "Re-run with the probe off before
-    -- believing a result" applies to a FEATURE too: with a ghost missing from the screen and the
-    -- mask's own log saying it kept every row, the only honest next step is to remove the suspect
-    -- and look again.
+    -- MESHGHOST_EMERALD_NO_SORT (dev): return the caller's mask, to run with the draw-order work subtracted.
     if MESHGHOST_EMERALD_NO_SORT then return occl end
     local rows, pt, pb, pl, pr = genderFrames.playerMask()
-    -- WHY IT DECIDED WHAT IT DECIDED, once a second while a peer is on screen. The first version of
-    -- this sort shipped without it and the user's screenshot could only say "still on top" -- which
-    -- is three different failures wearing the same face: no player mask, no overlap, or a band
-    -- comparison that came out backwards. Throttled, and it prints the numbers it decided FROM.
-    -- ONCE A SECOND FOR THE STEADY STATE, AND EVERY FRAME THE TWO READINGS DISAGREE. The
-    -- disagreement is the rare event and the whole question, so it is never sampled away: a
-    -- throttle that only fires on round numbers is how a transition-only fault stays invisible.
+    -- Why it decided, with the numbers it decided from: once a second, and every frame the two animation
+    -- reads or the two flips disagree, since a transition-only fault is never on a round frame.
     if MESHGHOST_EMERALD_SORT_TRACE
         and (frameCounter % 60 == 0 or genderFrames.pmLive ~= genderFrames.pmUsed
              or genderFrames.pmCmdFlip ~= genderFrames.pmOamFlip) then
@@ -11748,28 +6543,16 @@ genderFrames.maskBehindPlayer = function(occl, left, top, width, height)
             .. " oam=" .. tostring(genderFrames.pmOamFlip)))
     end
     if not rows then return occl end
-    -- No overlap: the overwhelmingly common case, and it costs four compares.
+    -- No overlap, the common case: four compares.
     if math.floor(top + height - 1) < pt or math.floor(top) > pb
         or left + width - 1 < pl or left > pr then return occl end
-    -- WHO IS IN FRONT. Both bottom edges through the engine's own banding; the ghost is behind only
-    -- when it stands strictly higher up the screen. A TIE keeps today's behaviour (the ghost paints
-    -- over), because on the same band the engine's answer comes from OAM slot order, which is not
-    -- ours to reproduce -- and two characters sharing a band are overlapping so heavily that either
-    -- answer reads the same.
-    -- A TIE PUTS THE GHOST BEHIND, so the player is never hidden by one.
-    --
-    -- This is the one place the engine cannot be copied, because the situation does not exist in
-    -- the game it came from: two characters never share a tile in vanilla -- collision prevents it
-    -- -- so there is no rule to reproduce, only an OAM slot order that means nothing here. Ghosts
-    -- are walk-through by default, so sharing a tile is ordinary in MeshGhost, and the user found
-    -- what the old tie did: *"still fully hidden by the drawn ghosts if standing on the same tile
-    -- as it"*. A cosmetic layer may never take the player off their own screen.
+    -- Both bottoms through the engine's banding; the ghost is in front only when strictly lower. A tie puts it
+    -- behind: vanilla never puts two characters on one tile, ghosts are walk-through, and a ghost may never
+    -- hide the player.
     if genderFrames.sortBand(top + height)
         > genderFrames.sortBand(genderFrames.pmFrameBottom or (pb + 1)) then return occl end
-    -- INTEGER ROWS, because drawRunList looks its spans up as `keepSpans[math.floor(y)]` and `top`
-    -- is a FLOAT here -- it comes off the sub-tile glide. Keyed by the raw float this table would
-    -- answer nil for every lookup, and a nil row paints NOTHING: the ghost would have vanished
-    -- outright instead of sorting. Same class as the `math.floor, NOT a shift` note in drawRunList.
+    -- Integer rows: drawRunList looks spans up by math.floor(y) and `top` is a float off the glide, so a
+    -- float key would answer nil, and a nil row paints nothing.
     local out = {}
     local yTop, yBot = math.floor(top), math.floor(top + height - 1)
     for y = yTop, yBot do
@@ -11801,10 +6584,7 @@ genderFrames.maskBehindPlayer = function(occl, left, top, width, height)
             end
         end
     end
-    -- WHAT THE MASK ACTUALLY EMITTED, for the rows the ghost covers. A mask is a claim about every
-    -- row, and the failure that matters is a row that came back EMPTY where the player has no
-    -- pixels at all -- invisible in any log of the inputs, and on screen it is the ghost being
-    -- eaten rather than sorted. Counted, with the first empty row named, under the probe flag.
+    -- What the mask emitted: an empty row where the player has no pixels is the ghost eaten, not sorted.
     if MESHGHOST_EMERALD_SORT_TRACE and frameCounter % 60 == 0 then
         local nEmpty, firstEmpty, nFull = 0, nil, 0
         for y = yTop, yBot do
@@ -11816,10 +6596,7 @@ genderFrames.maskBehindPlayer = function(occl, left, top, width, height)
                 nFull = nFull + 1
             end
         end
-        -- AND THE EXTENTS, not just the count. "32 rows kept" says nothing about WHERE they were
-        -- kept: a span list of {0,0} on every row counts as kept and paints nothing. Three sample
-        -- rows -- above the player's ink, inside it, and at the ghost's foot -- with the ghost's
-        -- own x range beside them, so a span that cannot intersect the sprite is visible as such.
+        -- And three sample rows' spans beside the ghost's x range: a span outside the sprite counts as kept.
         local function sp(y)
             local l = out[y]
             if not l or #l == 0 then return "-" end
@@ -11837,67 +6614,24 @@ genderFrames.maskBehindPlayer = function(occl, left, top, width, height)
     return out
 end
 
+-- skipSpawned names the peers another tier already draws (spawned or hardware), which a flat copy would cover;
+-- compareOnly paints only the loopback ghost.
 local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, compareOnly)
-    -- The GBA's visible display. Hardware geometry, identical on every cartridge -- not a fact
-    -- about this game. Declared inside this function on purpose: the main chunk is at Lua's hard
-    -- ceiling of 200 locals, and a local inside a function is counted against the function.
+    -- GBA display size; declared in here because the main chunk is at Lua's 200-local ceiling.
     local SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX = 240, 160
-    -- Where the painted comparison copy goes: the other side of the player from the spawned one.
-    -- Where the painted comparison copy stands, in tiles from the player. Settable, because the
-    -- three copies stand in three columns and a shoreline is not a straight line: to tell "this
-    -- renderer is wrong" from "this copy is standing further from the water", the two copies have
-    -- to be put on the SAME TILE and compared there. -4 lines it up with the hardware copy.
+    -- The painted compare copy's column, in tiles from the player: settable so two copies can be compared on
+    -- one tile (-4 lines it up with the hardware copy).
     local COMPARE_DRAWN_OFFSET_TILES_X =
         tonumber(MESHGHOST_EMERALD_DRAWN_COMPARE_DX or "") or -2
-    -- THE ENGINE HIDES ITS OWN PLAYER DURING A DOOR/WARP TRANSITION -- so we hide ours, but only
-    -- once the fade has actually finished.
-    --
-    -- Entering a house, the engine sets the invisible bit (0x04) on the PLAYER's own sprite flags
-    -- (+0x3e) for the whole transition -- 44 frames before the map id even changes, cleared once
-    -- the new map is up (probes/turn_and_door_probe.lua). Cutting the ghost on that alone worked,
-    -- and looked worse than the exit case, which the scene-brightness scaling below carries: the
-    -- user, comparing them, *"leaving the house even looks better than entering the house"* --
-    -- because leaving FADES the ghost out with everything else while entering snapped it away.
-    --
-    -- So the hard cut is kept as a backstop for the part of the transition where there is nothing
-    -- on screen at all, and the fade does the visible work. Same rule as ever: while the game will
-    -- not draw its own player, there is nobody for a ghost to stand beside.
+    -- The engine hides its own player through a door transition; with no player there is nobody for a ghost
+    -- to stand beside. Only a backstop (below): the scene fade does the visible work.
     local playerSprite = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
     local playerHidden = (r8(playerSprite + 0x3e) & 0x04) ~= 0
 
-    -- HOW BRIGHT IS THE SCENE RIGHT NOW? Measured from the hardware palette, once per frame.
-    --
-    -- The pixels this tier draws were decoded from the CARTRIDGE's palette and cached, so they are
-    -- always full brightness -- while everything the PPU draws is dimmed by whatever fade, cave or
-    -- night the game has applied to palette RAM. That is why the drawn ghost shone through a house
-    -- EXIT (the fade-in) even after the entry case was fixed: leaving, the engine leaves the
-    -- player's sprite visible and simply fades the screen, so there is no invisible flag to catch.
-    --
-    -- The comparison is like for like: the LIVE OBJ palette the player's own sprite is using
-    -- (palette RAM at 0x05000200, GBA hardware, the same footing as the BGnCNT read that finds the
-    -- tilemaps) against the ROM palette that same character was decoded from. What the hardware
-    -- did to those sixteen colours is what it did to every character on screen, so doing the same
-    -- to ours is what "the same lighting" means. It costs 32 reads a frame and nothing per peer.
-    --
-    -- A RATIO IS THE WRONG SHAPE, and that is a fix rather than a refinement (2026-08-21).
-    -- The engine's fades move every colour part of the way toward one target colour (`BlendPalette`
-    -- is the pointer; the fade to white is measured below). A scalar
-    -- brightness ratio can only ever express the case where that target is BLACK -- and a cave
-    -- mouth fades to WHITE. Measured across a real cave entry with probes/cavewarp_probe.lua: the
-    -- OBJ palette's channel sum climbs 747 -> 1488 (sixteen colours, all channels at 31: pure
-    -- white) over fourteen frames and stays there for the ~65 frames of the transition, while the
-    -- ratio reads 1.99, clamps to 1, and reports a perfectly normal scene. So the painted copy
-    -- kept drawing at full colour over a screen that had washed out to white, which is what the
-    -- user saw: *"when going inside a cave, the drawn ghost stays on the screen for a bit too
-    -- long."* The spawned and hardware tiers were unaffected because both are drawn by the PPU
-    -- from that same live palette.
-    --
-    -- So fit the BLEND instead of a ratio: live = a*rom + b over all 48 channel values, a line that
-    -- covers fading to black and to white with one expression (tints, weather and night are
-    -- expected to fit it too; not measured).
-    -- `dim` keeps its meaning as the multiplier; `genderFrames.tintAdd` carries the additive term
-    -- (that table, not `tiering`, because drawRunList is defined above `local tiering` and would
-    -- otherwise resolve it to a nil global -- the trap this file already carries a note about).
+    -- The scene's lighting, since the cached runs are cartridge colours: fit live = a*rom + b over the player's
+    -- live OBJ palette against its ROM palette, which covers fades to black and to white (a ratio sees only
+    -- black). 32 reads a frame, nothing per peer. The additive term lives on genderFrames, not tiering:
+    -- drawRunList is defined above `local tiering`.
     local dim = 1
     do
         local ps = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
@@ -11927,17 +6661,13 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
         end
         local a, b
         if syy < 1e-6 then
-            -- Every live colour is the same one: the fade has run all the way to its target, so
-            -- the ghost is that flat colour too -- white on white, black on black, invisible
-            -- either way, which is precisely what the player sees of everything else.
+            -- Every live colour is one: the fade reached its target, and the ghost is that flat colour too.
             a, b = 0, my
         elseif sxx > 1e-6 and sxy * sxy > 0.9 * sxx * syy then
             a = sxy / sxx
             b = my - a * mx
         end
-        -- No affine relation at all means the slot is not holding the palette we think it is --
-        -- mid-map-load, or reallocated to something else. Trust the cartridge rather than paint a
-        -- ghost in colours nothing on screen is using.
+        -- No fit: the slot is not holding this palette (mid-load, or reused), so trust the cartridge.
         if not a then
             a, b = 1, 0
         end
@@ -11947,9 +6677,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
         if b > 255 then b = 255 elseif b < 0 then b = 0 end
         dim, genderFrames.tintAdd = a, b
     end
-    -- The backstop: hidden player AND a screen that has already gone dark. Either alone is a
-    -- state the ghost should still be drawn in -- a dark cave is dim with the player visible, and
-    -- the first frames of a door are hidden while the scene is still bright and fading.
+    -- The backstop needs both: a dark cave is dim with the player visible, a door's first frames hidden but bright.
     if playerHidden and dim < 0.15 then
         tiering.painted = 0
         return
@@ -11960,46 +6688,17 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     local panelRows = tiering.scanPanel()
     if __panelT0 then MG_PANEL_T = (MG_PANEL_T or 0) + (os.clock() - __panelT0) end
 
-    -- ANCHOR ON THE ENGINE'S OWN SCROLL, NOT ON OUR ESTIMATE OF THE PLAYER.
-    --
-    -- A drawn ghost is placed relative to the local player, and it used to be placed against the
-    -- adapter's SMOOTHED estimate of the player while being drawn at the player's real pixel
-    -- position -- a mismatch the file has carried a note about since 2026-08-14. It is invisible
-    -- until the player moves, which is why three attempts at fixing the GHOST's movement all
-    -- failed: the ghost's movement was never the problem.
-    --
-    -- MEASURED, over ~1000 frames of running in every direction (probes/turn_and_door_probe.lua):
-    --
-    --   * The player NEVER MOVES ON SCREEN. Its screen position is constant and its sprite's own
-    --     sub-tile offset (pos2) is 0 in every single sample. All the motion is the camera's.
-    --   * gTotalCameraPixelOffset moves exactly 2px per frame while running, DOWN as the player
-    --     moves right/down and UP as it moves left/up. So the player's continuous position is
-    --     C - camPix/16 for some per-map constant C, exactly, with nothing estimated.
-    --   * The TILE COUNTER cannot supply the sub-tile part, and this is where the first attempt
-    --     went wrong in one direction only. Moving negative the counter flips 2px into the step;
-    --     moving POSITIVE it flips to the DESTINATION tile immediately, a whole tile ahead of what
-    --     is on screen. Reconstructing the phase from it was therefore right going one way and a
-    --     full tile out going the other -- the user, exactly: *"looks horrible when running up or
-    --     right, down/left seems fine"*.
-    --
-    -- So the tile counter is used for one thing only: calibrating C at a moment when the two
-    -- cannot disagree -- when camPix is a whole number of tiles, the player is aligned on its tile
-    -- and the counter is unambiguous. That happens once per tile of movement, so C is never stale.
-    -- The shared anchor (function above): same numbers the hardware tier places against.
+    -- Anchored on the engine's camera offset, not an estimate of the player, who never moves on screen: the
+    -- position is C - camPix/16, with the tile counter only calibrating C when aligned (it leads moving
+    -- right or down). The same anchor the hardware tier places against.
     local camPixX, camPixY, pmX, pmY = anchorFrame(localAreaId, playerScreenX, playerScreenY,
         playerMapX, playerMapY)
     playerMapX, playerMapY = pmX, pmY
 
-    -- Counted and published (tiering.painted) rather than inferred: "assigned to the drawn tier"
-    -- and "actually painted this frame" differ by everyone the off-screen cull skipped, and only
-    -- the second one answers "is every peer I can see actually being shown".
+    -- Counted, not inferred: assigned to this tier and painted this frame differ by the off-screen cull.
     local painted = 0
     for playerId, remote in pairs(remotes) do
-        -- The loopback ghost is the one peer allowed to be in BOTH tiers at once, and only in
-        -- compare mode: everyone else is painted exactly when the engine had no room for them.
-        -- Cached on the peer: a Lua pattern match per peer per frame answers a question whose
-        -- answer is fixed for the life of the id. `false` is stored, not nil, so a negative
-        -- result caches too.
+        -- Only the loopback ghost may be in both tiers, in compare mode. Cached per peer; false caches too.
         local isLoopback = remote.__lb
         if isLoopback == nil then
             isLoopback = playerId:match("%-ghost$") ~= nil
@@ -12011,75 +6710,26 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
         else
             wanted = (COMPARE_TIERS and isLoopback) or not (skipSpawned and skipSpawned[playerId])
         end
-        -- THE ENGINE HAS STOPPED DRAWING THIS CHARACTER, so neither do we. A peer hidden by a
-        -- script (Briney's ride) or lifted off the map entirely (a Fly) is not somewhere else on
-        -- screen -- there is nobody to paint, and painting anyway is a character standing on open
-        -- water or on the tile they left from.
-        --
-        -- This tier gets the ABSENCE and not the spectacle: the boat and the bird are engine
-        -- sprites the spawned tier builds, and this one has no engine behind it. That is the
-        -- standing gap between the two renderers rather than anything new (`phases/phase8.md`),
-        -- and it is recorded rather than papered over -- a painted boat would be a second
-        -- implementation of a thing the hardware already does correctly two tiles away.
+        -- The engine has stopped drawing this character (a script hide, a boat ride, a Fly), so neither do we.
+        -- The boat and the bird are engine sprites only the spawned tier can show.
         if remote.invis or remote.boat or remote.fly == 2 then wanted = false end
         if remote.areaId == localAreaId and wanted then
-            -- Tile-paced, not sample-paced: the peer's TILE is the target, and the walk between
-            -- tiles is the game's own 16/8 frames rather than however far the last packet moved.
-            -- RAW, not rounded to a tile: the core hands us a continuous position and rounding
-            -- it here was the first step in every model that then had to re-invent the motion.
+            -- The core's continuous position, unrounded; the glide paces tile to tile at the game's frame counts.
             local glideX, glideY = glideRemote(remote, remote.x, remote.y)
-            -- ONE CAMERA COUNTER, NOT TWO. The obvious form of this line -- the player's screen
-            -- position plus the tile delta -- mixes gSpriteCoordOffset (inside playerScreenPos)
-            -- with gTotalCameraPixelOffset (inside the anchor), and the two are not written at
-            -- the same point in the frame. Measured: that put a ±2px flip on the ghost EVERY
-            -- FRAME, which is exactly one camera step, oscillating 40 -> 42 -> 40 -> 42.
-            --
-            -- The player's screen position never changes while walking (measured: constant to the
-            -- pixel over 240 frames), so it does not need reading per frame at all. Captured with
-            -- the anchor, at the same standing-still moment, it becomes a constant origin -- and
-            -- then the only thing that moves per frame is the camera, on its own clock, alone.
-            -- COMPARE MODE: pin the painted copy to the SPAWNED one's own position.
-            --
-            -- The two renderers cannot be made to move identically, and chasing that was costing
-            -- the user run after run. The spawned ghost's timing comes from the engine's step
-            -- scheduler -- when it starts a step, how long it holds it -- and we do not drive that
-            -- scheduler; ours comes from when packets land. Average lag can be matched (and is),
-            -- smoothness can be matched (and is), the walk cadence can be matched (and is), but
-            -- the SHAPE of the engine's starts and stops cannot be, short of reimplementing its
-            -- scheduler and hoping it stays in phase -- which five separate attempts say it will
-            -- not.
-            --
-            -- So in compare mode the painted copy is placed from the spawned ghost's own sprite,
-            -- mirrored to the other side. The two are then pixel-locked BY CONSTRUCTION, and every
-            -- difference that remains is a RENDERING difference -- occlusion, a cave's darkness, a
-            -- water reflection, palette, clipping -- which is what this mode exists to show, and
-            -- what the user asked for when they asked for it. Real overflow peers, which have no
-            -- spawned copy by definition, keep the filter above.
+            -- Placed from one camera counter: gSpriteCoordOffset and gTotalCameraPixelOffset are written at
+            -- different points in the frame, so the origin is captured with the anchor rather than read per frame.
+            -- Compare mode pins the painted copy to the spawned sprite, mirrored: the engine's step scheduler
+            -- cannot be matched from packet timing, and pinned, what differs is rendering alone.
             local screenX, screenY
             local pinned = COMPARE_TIERS and ghosts[playerId]
-            -- HOW FAR OFF THE GROUND THIS PEER IS, in pixels, negative upward -- a ledge hop, a
-            -- side hop, a bunny hop, or the surf blob's bob. Kept separately from the position so
-            -- the shadow and the dust below can be put on the GROUND the character left rather
-            -- than under its feet in mid-air.
-            --
-            -- IT HAS TWO SOURCES AND USED TO HAVE ONE, which is why nobody saw this (2026-08-21).
-            -- A pinned copy reads it from the spawned sprite the engine is arcing for us. An
-            -- OVERFLOW peer -- one with no spawned counterpart, which is every peer in a real
-            -- crowd -- has no such sprite, and its position comes from the glide pipeline, which
-            -- carries no hop. So this tier drew a peer SLIDING across a ledge, and skipped its
-            -- shadow entirely, in exactly the case compare mode cannot show: compare mode pins.
-            -- The peer's own `pos2.y` has been on the wire as `soy` since the surf bob needed it,
-            -- so the arc was already arriving and only this tier was throwing it away.
+            -- Height off the ground, negative up (a hop, the surf bob), kept apart so the shadow and dust sit on
+            -- the ground: a pinned copy reads the spawned sprite's, any other peer the wire's soy.
             local arc = 0
             if pinned then
                 local gs = sprAddr(pinned.sprId)
                 arc = rs16(gs + 0x26)
-                -- While the spawned sprite wears a fishing graphic, its pos2 is the alignment
-                -- for ITS current frame -- and this tier paints the WIRE's frame, which can be a
-                -- different one. Inheriting that offset re-created today's whole defect class in
-                -- the painted copy: right image, someone else's alignment. So the pinned position
-                -- takes only the sprite's true anchor, and the paint code below adds the shift
-                -- for the exact frame it draws, from the same shared rule.
+                -- A fishing sprite's pos2 aligns its own frame, not the wire's: take only the true anchor, and the
+                -- paint below adds the shift for the frame it draws.
                 local pinnedAlignX = rs16(gs + 0x24)
                 if isFishingGfx(pinned.gfx) then pinnedAlignX, arc = 0, 0 end
                 screenX = rs16(gs + 0x20) + pinnedAlignX + memory.read_s8(gs + 0x28)
@@ -12094,119 +6744,52 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
             local unpinnedY = (tiering.originY or playerScreenY)
                 + (glideY - (tiering.anchorY or playerMapY)) * TILE + camPixY
             if not pinned then
-                -- The peer's own pos2.y, straight off the wire: the same quantity the pinned
-                -- branch reads out of the spawned sprite, for a peer that has no spawned sprite.
-                --
-                -- EXCEPT WHILE FISHING, and for the same reason the pinned branch drops it there:
-                -- a rod's pos2 is not a hop, it is the engine's ALIGNMENT for the frame being
-                -- shown, and this tier re-derives that itself a few lines down
-                -- (`fishingFrameShift`) for the exact frame it paints. Taking both would apply the
-                -- alignment twice -- and once with the wrong frame's value, which is the defect
-                -- class the fishing work spent a whole session on.
+                -- Except while fishing: a rod's pos2 is alignment, which fishingFrameShift adds for the painted frame.
                 arc = (not isFishingGfx(remote.gfx)) and (remote.soy or 0) or 0
                 screenX, screenY = unpinnedX, unpinnedY + arc
             end
-            -- The pinned branch already carries the mirror to the other side of the player, so the
-            -- loopback nudge below would apply it twice.
+            -- A pinned position already carries the mirror; the loopback nudge would apply it twice.
             if isLoopback and not pinned then
                 screenX = screenX + (COMPARE_TIERS and COMPARE_DRAWN_OFFSET_TILES_X
                     or LOOPBACK_GHOST_OFFSET_TILES_X) * TILE
                 screenY = screenY + LOOPBACK_GHOST_OFFSET_TILES_Y * TILE
             end
 
-            -- The seam trace's painted column, stamped where the number is FINAL and before the
-            -- off-screen cull below -- a peer culled at x=-900 has a position worth reading, and
-            -- the alternative (stamping after) would report the same blank for "off screen" as
-            -- for "never reached the paint at all". Two assignments on a probe flag, no I/O.
+            -- The seam trace's painted position, stamped before the cull so off screen reads apart from unpainted.
             if tiering.seamTrace or MESHGHOST_EMERALD_SEAM_TRACE then
                 remote.dbgScreenX, remote.dbgScreenY, remote.dbgScreenAt = screenX, screenY, frameCounter
             end
 
-            -- OFF-SCREEN PEERS COST NOTHING. A peer in this area can be anywhere on a map far
-            -- larger than the 240x160 the player can see, and drawing one at x = -900 is work
-            -- whose entire result is clipped away by the emulator. This is what makes the drawn
-            -- tier scale with what is VISIBLE rather than with room size -- the spawned tier gets
-            -- the same for free, because the engine culls its own objects.
-            -- The walk cycle advances only for peers that are actually drawn, which is why the
-            -- cull wraps the animation too rather than just the blit: a peer off screen has no
-            -- frame anyone can see, and stepping its timer would be work with no output.
+            -- Off-screen peers cost nothing, animation included, so the tier scales with what is visible.
             if screenX + FRAME_WIDTH_PX > 0 and screenX < SCREEN_WIDTH_PX
                 and screenY + FRAME_HEIGHT_PX > 0 and screenY < SCREEN_HEIGHT_PX then
-                -- THE DELAYED FACING, to match the delayed position this tier paints (see the ring
-                -- in glideRemote). The live value is the fallback for a peer whose ring has not
-                -- filled yet.
-                -- MOTION FIRST, then the delayed wire facing for a peer that is not moving, then
-                -- the live one before the ring has filled. Never the live one while moving: that is
-                -- the early turn this tier spent a session chasing.
+                -- Facing: from motion, then the delayed wire facing (glideRemote's ring) for a still peer, then the
+                -- live one before the ring fills. Never the live one while moving: it turns early.
                 local dirInfo = DIRECTION_ANIM[remote.gFacing or remote.gOrient or remote.orientation]
                     or DIRECTION_ANIM.south
                 local frameIndex, pose
-                -- MOVEMENT IS A POSITION FACT, NOT A TAG. A forced move -- a cutscene, an NPC
-                -- pushing you, a scripted walk -- does not put the game in runningState 2, so the
-                -- anim tag says "idle" while the peer is plainly crossing tiles. The engine walks
-                -- a spawned ghost from the movement itself and does not care what we called it;
-                -- the drawn tier believed the tag, so it slid. User, 2026-08-19, watching both:
-                -- *"the drawn one was sliding"*, *"normal ghost was walking properly"*.
-                --
-                -- The glide already knows: it is mid-step exactly while the peer is crossing from
-                -- one tile to the next, which is the same question with an answer that cannot be
-                -- mislabelled.
+                -- Moving comes from the glide, not the anim tag: a forced move (cutscene, scripted walk) reads idle.
                 local gliding = remote.gMoved
-                -- AND IT OUTLASTS THE PEER'S OWN FLAG, because this tier is not where the peer is.
-                --
-                -- The wire says "unfrozen" the instant the player's slide ends, but the painted
-                -- copy is still GLIDING across the ground that slide covered. Releasing on the
-                -- flag handed those catch-up frames back to the derived cycle, which duly played a
-                -- stride the player never played -- the user, watching the stop: the drawn ghost
-                -- *"is doing like 1 extra animation or something when stopping after gliding on
-                -- the ice"*. It is conspicuous here and nowhere else precisely because the player
-                -- animates through an ordinary stop and does not animate through this one.
-                --
-                -- So the freeze is latched to the GLIDE rather than to the flag, and the frame it
-                -- holds is remembered at the same moment: by the time the ghost is finishing the
-                -- slide, the peer has already moved on to its idle frame, and that is not the
-                -- picture this copy should be wearing while it is still moving.
+                -- The no-animate freeze is latched to the glide, not the wire flag, holding the frame from when it
+                -- began: this copy is still sliding after the peer has stopped and gone idle.
                 if remote.noanim then
                     remote.noanimImg = genderFrames.peerImageIndex(remote) or remote.noanimImg
                 elseif not gliding then
                     remote.noanimImg = nil
                 end
                 if remote.noanim or remote.noanimImg then
-                    -- A MOVEMENT THAT DOES NOT ANIMATE, so the derived cycle is the wrong source.
-                    --
-                    -- This tier works out its own frame from distance travelled, which is right
-                    -- whenever moving and animating are the same thing. On an ice slide they are
-                    -- not: the peer crosses tiles holding ONE frame. Derived, that reads as
-                    -- walking -- and the user saw exactly that next to a correct hardware copy.
-                    --
-                    -- Freezing whatever frame this tier was on would swap one wrong picture for
-                    -- another; the peer's own is the only right one. Measured mid-slide,
-                    -- 2026-08-21: the peer held anim 11/0, which resolves to image 7 -- east's
-                    -- steps[1] -- while this tier was drawing image 2, the standing frame. Same
-                    -- index space, so the peer's number drops straight in and the existing
-                    -- east/west hFlip still applies.
+                    -- A movement that does not animate (an ice slide): the peer's own frame, which shares this
+                    -- tier's index space, rather than one derived from distance.
                     pose = "walk"
                     frameIndex = remote.noanimImg or dirInfo.idle
                     remote.lastAnim = remote.anim
                     remote.lastOrientation = remote.orientation
-                    -- The derived cycle is measured in distance travelled, and none of the
-                    -- distance covered while frozen was walked. Left standing, it hands the next
-                    -- ordinary step a cycle already part-way through -- the same extra stride,
-                    -- moved one step later instead of removed.
+                    -- None of the frozen distance was walked; reset it so the next step starts its own cycle.
                     remote.gDist = 0
                 elseif remote.anim == "walking" or remote.anim == "running" or gliding then
                     pose = (remote.anim == "running") and "run" or "walk"
-                    -- BY DISTANCE, NOT BY TIME. advanceAnim counts frames, which is right for a
-                    -- peer whose movement we are not also interpolating -- but a drawn ghost's
-                    -- glide can take longer than a tile's worth of frames whenever it is catching
-                    -- up, and a time-driven cycle then plays extra strides for a single step. The
-                    -- user, watching one tile at a time next to the engine's own ghost: the drawn
-                    -- one is *"moving/animating a bit too much when walking single tiles"*.
-                    --
-                    -- The engine advances a pose every 8 pixels -- half a tile -- so tying the
-                    -- cycle to distance travelled makes one tile exactly two poses, always, and
-                    -- makes a catching-up ghost animate faster rather than longer, which is what
-                    -- covering more ground actually looks like.
+                    -- By distance, not time: a pose every half tile, so one tile is always two poses and a ghost
+                    -- catching up animates faster rather than longer.
                     if remote.lastOrientation ~= remote.orientation then
                         remote.gDist = 0
                         remote.lastOrientation = remote.orientation
@@ -12215,20 +6798,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     frameIndex = dirInfo.steps[
                         (math.floor((remote.gDist or 0) * 2) % #dirInfo.steps) + 1]
                 else
-                    -- A TURN IN PLACE IS AN ANIMATION, NOT A NEW STATIC FRAME.
-                    --
-                    -- The user, comparing the two renderers side by side (2026-08-19): the drawn
-                    -- one *"only faces the direction, it does not animate/move the legs"*. The
-                    -- engine gives a spawned ghost a dedicated turn animation -- probe numbers
-                    -- 8-11, one per direction, against 0-3 standing and 4-7 walking -- and it
-                    -- lasts **exactly 8 frames, 92 times out of 92, zero variance**
-                    -- (probes/turn_and_door_probe.lua). Eight frames is also exactly one
-                    -- WALK_POSE_DURATIONS hold, so what the engine plays is one stride of the new
-                    -- direction before settling: that is what is reproduced here.
-                    --
-                    -- The turn arrives as `anim=idle` with a new orientation, because the game
-                    -- reports runningState 1 for it and the classifier calls anything that is not
-                    -- 2 idle. That is why this lives in the idle branch rather than the walk one.
+                    -- A turn in place plays one stride of the new direction, the engine's turn animation being one
+                    -- pose hold; it arrives as idle because the game reports runningState 1 for it.
                     if remote.lastOrientation ~= remote.orientation then
                         remote.turnUntil = frameCounter + WALK_POSE_DURATIONS[1]
                     end
@@ -12244,11 +6815,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     end
                 end
 
-                -- COMPARE_TIERS measurement: the two renderers of the SAME peer, side by side,
-                -- to a FILE, buffered, flushed once a second (a per-frame console.log lagged the
-                -- game once already). Five attempts at the drawn tier's movement have each been
-                -- judged by eye; this logs where each ghost actually is, per frame, so the sixth
-                -- is aimed at a number. Off unless the compare flag is set.
+                -- Compare mode: both renderers of one peer, per frame, to a buffered file flushed once a second.
                 local g = ghosts[playerId]
                 if COMPARE_TIERS and g and tiering.moveLog then
                     local gs = sprAddr(g.sprId)
@@ -12263,12 +6830,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         screenX, screenY, remote.x, remote.y,
                         remote.gX or -1, remote.gY or -1, playerMapX, playerMapY,
                         tostring(remote.gStepping))
-                    -- WHICH FRAME THIS TIER CHOSE, and the distance it chose it from. The drawn
-                    -- tier's cycle is driven by distance travelled rather than by time, so "it is
-                    -- not animating over one tile" is a question about `gDist` -- and without both
-                    -- numbers on the line there is no way to tell a cycle that never advanced from
-                    -- one that advanced and picked the same frame twice. Added 2026-08-20, when the
-                    -- user found the drawn ghost still for a single tile at half speed.
+                    -- And the frame chosen with the gDist it came from: a cycle that never advanced reads apart from
+                    -- one that picked the same frame twice.
                     tiering.moveLog[#tiering.moveLog] = tiering.moveLog[#tiering.moveLog]
                         .. string.format(" | pose=%s frame=%s gDist=%.3f gMoved=%s gfx=%s "
                             .. "sanim=%s/%s hw=%s,%s",
@@ -12278,104 +6841,36 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             tostring(tiering.hwLastX), tostring(tiering.hwLastY))
                         .. " | " .. tostring(tiering.hwDbg)
                 end
-                -- THE SHADOW GOES DOWN FIRST, because paint order IS depth on this tier.
-                --
-                -- The engine's own shadow is a sprite at subpriority 148, which puts it UNDER the
-                -- character. Ours is painted onto the finished frame, so drawing it after the
-                -- character put it in front of one -- *"the shadow should be below the drawn &
-                -- spawn, right now it shows infront for both of them unlike the player"* (user,
-                -- 2026-08-20). For a painted ghost the fix is only the order; for the SPAWNED one
-                -- it is not fixable this way at all, since no overlay can go behind a hardware
-                -- sprite -- that needs a real shadow sprite, the way the surf blob is real.
-                --
-                -- screenX/screenY are the FRAME's top-left, so the character's own anchor is
-                -- +8,+16 from it, and the arc comes off because a shadow belongs on the ground the
-                -- character left rather than under its feet in mid-air.
+                -- The shadow first, since paint order is depth on this tier; the arc comes off so it stays on the
+                -- ground, centred on the graphic's own width (a bike or a rod is 32 wide).
                 if isJumpAction(remote.act) then
-                    -- CENTRED ON THE GRAPHIC, not on a walker. screenX + 8 is the middle of the
-                    -- 16-wide gender frame, and a bike, a surfboard or a rod is 32 wide -- so on
-                    -- any of those the shadow sat 8px left of the character (user, 2026-08-20:
-                    -- *"its a bit to the left"*). The same half-width that centres the character's
-                    -- own frame centres its shadow.
-                    --
-                    -- The arc comes off so the shadow stays on the ground the character left, and
-                    -- the drop is the graphic's own rather than a constant.
                     local sgi = remote.gfx and graphicsInfo(remote.gfx) or nil
                     local halfW = (sgi and sgi.width or FRAME_WIDTH_PX) >> 1
-                    -- screenX, not screenX + cx: cx belongs to the peer-graphic branch further
-                    -- down and is not in scope here -- referencing it read a nil GLOBAL and threw
-                    -- once per frame. In the pinned case it is zero in any event.
+                    -- Not screenX + cx: cx is the peer-graphic branch's, and here it would read a nil global.
                     drawOneShadow(screenX + halfW,
                         shadowTopFor(sgi, screenY - arc), dim)
                 end
 
-                -- A peer wearing its OWN graphic -- bike, surf, fishing -- is drawn from that
-                -- graphic's own frames. Only when it differs from the plain walker (0), so the
-                -- ordinary case keeps the cached gender path and costs nothing extra.
+                -- A peer wearing its own graphic (bike, surf, rod) draws from it; the walker (0) keeps the cached path.
                 local drew = false
-                -- A PEER'S CURRENT FRAME IS THE WRONG FRAME WHILE THIS TIER IS STILL CROSSING.
-                --
-                -- This path paints whatever animation the peer is on right now, which is correct
-                -- for a state they hold -- fishing, surfing, standing. It is wrong for a single
-                -- step: the peer crosses the tile in about six frames and is back to standing long
-                -- before the drawn ghost, whose glide takes ~23, has finished the same tile. So it
-                -- glides across wearing the standing frame and never animates at all. The user,
-                -- 2026-08-20, watching at half speed: *"the drawn ghost is not doing the animation
-                -- when moving 1 tile"*. Measured in probes/tier_compare.log: the peer sent 9/0,
-                -- 9/1 for six frames and then 5/1, while `gMoved` stayed true for 23 more.
-                --
-                -- The cached gender path never had this problem because it drives its cycle from
-                -- DISTANCE rather than from the peer's tag -- the same fix, applied here. The
-                -- moving animation NUMBER cannot be hardcoded, though: it is 8..11 on the Acro
-                -- Bike against 4..7 for a walker, and every graphic may differ. So the peer's own
-                -- last moving number is remembered and re-used, which needs no table at all.
+                -- The peer's last moving animation, re-used while this tier is still crossing a tile the peer has
+                -- finished: the moving number differs per graphic, so it is remembered rather than tabled.
                 if (remote.anim == "walking" or remote.anim == "running") and remote.sanim then
                     remote.lastMoveAnim = remote.sanim
                 end
-                -- FROM THE START OF THIS STEP, not from an absolute distance. The rate was right
-                -- first time -- half a tile per pose, two poses per tile, which is what the player
-                -- does -- but the PHASE was whatever the running total happened to land on. A ride
-                -- animation is four poses alternating a neutral frame with two different pedal
-                -- frames, so a tile beginning on an odd index shows two pedal frames back to back:
-                -- *"the drawn ghost wiggle twice for a single tile, its only supposed to do it
-                -- once"*. Measured on the player, one tile is index 0 then 1 -- it always starts
-                -- from the beginning of the cycle, so the ghost must too.
-                -- EVERY CHANGE OF THE PEER'S GRAPHIC ON THE WIRE. The fallback log below covers a
-                -- peer whose graphic could not be DECODED; it says nothing about a peer whose
-                -- graphic arrived as the walker in the first place, and those look identical on
-                -- screen -- a rider suddenly on foot. Ruling the second one out needs the value
-                -- itself, per change, which is cheap.
+                -- Compare mode: every wire graphic change, which tells a peer sent as the walker from one that failed
+                -- to decode.
                 if COMPARE_TIERS and remote.gfxWas ~= remote.gfx then
                     logFile(string.format("WIRE gfx %s -> %s (anim=%s sanim=%s/%s act=%s)",
                         tostring(remote.gfxWas), tostring(remote.gfx), tostring(remote.anim),
                         tostring(remote.sanim), tostring(remote.sidx), tostring(remote.act)))
                     remote.gfxWas = remote.gfx
                 end
+                -- The phase counts from the step's start: a tile always begins at index 0 of the ride cycle.
                 if remote.gMoved and not remote.gMovedPrev then remote.gDistBase = remote.gDist end
                 remote.gMovedPrev = remote.gMoved
-                --
-                -- ONLY WHEN THE PEER HAS ALREADY STOPPED. This exists for the gap between a peer
-                -- finishing a step and this tier finishing the same step; while the peer is still
-                -- moving, or hopping, its own frame is the truthful one and substituting a
-                -- remembered riding number throws away whatever it is really doing. Worse, an
-                -- animation number and an index that were never paired may not resolve at all, and
-                -- an unresolved frame falls through to the cached WALKER below -- a Brendan on
-                -- foot. The user, hopping along on the Acro Bike: *"the drawn ghost is getting of
-                -- their bike all the time visually"*.
-                --
-                -- ONE CYCLE PER STEP, not the peer's own frames and then a second cycle. Limiting
-                -- the substitution to "the peer has stopped" split a single tile in two: the peer's
-                -- indices played while it was still moving, and the distance-driven cycle then
-                -- started over for the rest of the glide -- *"the drawn ghost = double animatin,
-                -- supposed to be 1"*. Distance drives the whole step, which is what the cached
-                -- walker path has always done and why it never had this.
-                --
-                -- A HOP OR A JUMP IS EXEMPT, and that is the reason the narrower condition was
-                -- tried first: those have their own animation that distance cannot stand in for,
-                -- and substituting over them is what made a hopping peer look like it dismounted.
-                -- The families are the peer's own action ids (per the decompilation's numbering, a
-                -- pointer; unmeasured):
-                -- 0x46..0x4D jump in place, 0x70..0x7B wheelie hop and jump.
+                -- While the glide moves, distance drives the whole step's frame; hops and jumps (jump in place,
+                -- wheelie hop and jump) keep the peer's own animation.
                 local drawAnim, drawIdx = remote.sanim, remote.sidx
                 if remote.gMoved and remote.lastMoveAnim
                     and not (remote.act and ((remote.act >= 0x46 and remote.act <= 0x4d)
@@ -12385,130 +6880,48 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     drawIdx = math.floor(((remote.gDist or 0) - (remote.gDistBase or 0)) * 2) % 4
                 end
                 if genderFrames.peerGfxDrawn and remote.gfx and remote.gfx ~= 0 and remote.sanim then
-                    -- PINNED MEANS PINNED, animation included. The pin locks POSITION to the
-                    -- spawned sprite while the frame index still came from the wire at delivery
-                    -- rate -- so at Mach top speed the painted twin strobed across pedal frames
-                    -- the spawned one plays at 60fps, and ride frames sit a pixel or two taller
-                    -- than their neighbours: *"the top of the hat goes away ... especially
-                    -- noticable when riding fast downwards"*. Every other suspect measured
-                    -- innocent first: occlusion kept all 384 top pixels, the screen edge was
-                    -- never nearer than y=28, the ROM art has full hats, and the walker fallback
-                    -- never fired. In compare mode the spawned sprite's LIVE animation fields are
-                    -- the same source its pixels come from, so the twin shows the exact frame.
+                    -- A pinned copy takes the spawned sprite's live animation too, or it strobes at wire rate.
                     if pinned then
                         local ps2 = sprAddr(pinned.sprId)
                         drawAnim, drawIdx = r8(ps2 + 0x2a), r8(ps2 + 0x2b)
                     end
                     local runs, info, gfxFlip, imgIdx =
                         genderFrames.runsForPeerGfx(remote.gfx, drawAnim, drawIdx)
-                    -- NEVER LET A SUBSTITUTED FRAME COST THE GRAPHIC. Falling through to the
-                    -- cached walker is the right answer when a peer's graphic cannot be decoded at
-                    -- all; it is the wrong one when only the frame we substituted failed, because
-                    -- the peer's own frame was there the whole time. Retry with it before giving
-                    -- up, so the worst case is a stale pose rather than a peer who appears to
-                    -- dismount.
+                    -- A substituted frame that fails retries the peer's own before the walker (a dismount).
                     if not runs and drawAnim ~= remote.sanim then
                         runs, info, gfxFlip, imgIdx =
                             genderFrames.runsForPeerGfx(remote.gfx, remote.sanim, remote.sidx)
                     end
                     if runs and info then
-                        -- CENTRE IT LIKE THE ENGINE DOES. A fishing or biking frame is 32 wide
-                        -- where a walker is 16, and the engine does not shift its position for
-                        -- that -- it sets centerToCornerVec = -(width >> 1) and lets the hardware
-                        -- draw from the centre. Painting a wider frame from the walker's top-left
-                        -- puts it half the difference off, which is what the user saw: the drawn
-                        -- ghost *"moves back a bit"* on casting while the player does not move.
-                        -- Same arithmetic, applied where we draw.
-                        -- The centring is only ours to do when the position was computed from
-                        -- TILES. A pinned position is copied from the spawned sprite and already
-                        -- carries that sprite's centerToCorner -- which IS the engine's centring
-                        -- for a wide frame -- so applying it again put the painted copy 8px left
-                        -- of the spawned one, in steady state, for every wide graphic.
+                        -- A wide frame is centred as the engine does (centerToCorner = -(width >> 1)); a pinned
+                        -- position already carries the spawned sprite's.
                         local cx, cy = 0, 0
                         if not pinned then
                             cx = (FRAME_WIDTH_PX >> 1) - (info.width >> 1)
                             cy = (FRAME_HEIGHT_PX >> 1) - (info.height >> 1)
                         end
-                        -- The shift for the frame THIS tier paints, from the shared rule --
-                        -- image and alignment from the same wire sample, atomically, which is
-                        -- what the game itself guarantees on screen.
+                        -- The fishing shift for the frame painted: image and alignment from one wire sample.
                         if isFishingGfx(remote.gfx) and remote.sanim and remote.sidx then
                             local fx2, fy2 = fishingFrameShift(info.anims, remote.sanim,
                                 remote.sidx, remote.orientation == "west")
                             cx, cy = cx + fx2, cy + fy2
                         end
 
-                        -- BEHIND THE CHARACTER, IN PAINT ORDER: the engine expresses depth with
-                        -- priority and subpriority, and this tier has neither -- what it has is
-                        -- the order the calls are made in. Reflection first (priority 3,
-                        -- subpriority 152), then the blob (150), then the rider. Getting this
-                        -- backwards would put a reflection over the character that casts it.
-
-                        -- THE REFLECTION IN THE WATER. The same frame, decoded once more in the
-                        -- mapped palette, drawn upside down height-2 pixels lower --
-                        -- SetUpReflection and GetReflectionVerticalOffset, cited where
-                        -- reflectionPalette is defined.
-                        --
-                        -- FOR ANY PEER ON REFLECTIVE GROUND, not only a surfing one (2026-08-21).
-                        -- This used to be inside the surfing gate, with a note saying a peer
-                        -- standing beside water is reflected too but that the tile lookup did not
-                        -- exist yet. It does exist -- `hasReflection` below is the engine's own
-                        -- test and was written for this block -- so the gate was simply left too
-                        -- tight, and the user found the case it excluded: *"the drawn ghost, and
-                        -- probably the OAM, don't have a reflection in the water while standing on
-                        -- grass/next to water."* The ground test is the whole gate now; surfing
-                        -- keeps only what is genuinely surfing-specific, which is the blob.
+                        -- Paint order is depth: the reflection, then the blob, then the rider, the engine's subpriority
+                        -- order. The reflection is the same frame in the mapped palette, upside down, height-2 lower,
+                        -- for any peer on reflective ground.
                         do
-                            -- THE BOB, WHICH IS ONE TERM AND EXPLAINS TWO SYMPTOMS.
-                            --
-                            -- A surf blob set to surfBlob.bobMode moves its RIDER's pos2 as
-                            -- well as its own -- measured equal on the same frame, `blob.pos2=0,-3
-                            -- | rider.pos2=0,-3` (probes/surfblob_probe.lua) -- and the engine
-                            -- is taken to give the reflection the NEGATED value (the
-                            -- decompilation's reading, field_effect_helpers.c -- a pointer;
-                            -- unmeasured on a reflection). So the gap between a
-                            -- character and its reflection is not the vertical offset alone, it is
-                            -- that offset MINUS TWICE the bob: they separate as the rider rises
-                            -- and close as it falls.
-                            --
-                            -- Leaving the term out therefore drew the reflection both slightly
-                            -- too high AND perfectly still -- *"the reflection is slightly
-                            -- offset/does not wobble"*, which reads as two faults and is one.
-                            --
-                            -- Where the bob comes from depends on which position this tier is
-                            -- painting at. A pinned copy takes it from the spawned sprite, where
-                            -- the engine has already applied it; an overflow peer has no spawned
-                            -- counterpart, so its own sample carries it and the rider (and its
-                            -- blob, which bobs by the same amount) is shifted here to match.
-                            -- The position above already carries this on BOTH paths, so it is
-                            -- not added again here; it stays named because the reflection's
-                            -- separation is the offset MINUS TWICE the bob, below.
+                            -- Rider and blob bob together and the reflection takes the bob negated, so its gap is the
+                            -- offset minus twice the bob. The position above already carries the bob.
                             local bob = arc
 
-                            -- DOES THIS GHOST HAVE A REFLECTION AT ALL -- the engine's own test,
-                            -- on the tiles below the character rather than the one it is on.
-                            --
-                            -- ASKED WHERE THE GHOST IS DRAWN, not where the peer is, and that
-                            -- distinction is the whole of the last bug. In compare mode the
-                            -- painted copy is deliberately offset a couple of tiles from the peer,
-                            -- so a peer out on a pond has its drawn twin standing on the grass
-                            -- beside it -- and the gate, asked about the PEER, happily authorised a
-                            -- reflection there. It then showed wherever the bank's art happened to
-                            -- live in the bottom layer, which reads as *"still showing a bit
-                            -- outside the water"*.
-                            --
-                            -- What settled it was moving the SPAWNED ghost onto that same grass and
-                            -- photographing it (a spawned ghost is engine-drawn, so a screenshot
-                            -- sees it): the engine gave it no reflection at all. Not a clipped one
-                            -- -- none. `hasReflection` is false off reflective ground, so the
-                            -- sprite is never created.
+                            -- The engine's own ground test, asked where the ghost is drawn rather than where the peer
+                            -- is: off reflective ground the engine creates no reflection at all.
                             local gbX, gbY = genderFrames.gridBase()
                             local rpal, rkind2
                             if gbX then
                                 local ggx = math.floor((screenX - gbX) / TILE)
                                 local ggy = math.floor((screenY - bob + TILE - gbY) / TILE)
-                                -- The ground test, the expiring previous tile and the palette
-                                -- map all live in reflectPalFor now -- three callers share them.
                                 tiering.lastTile = tiering.lastTile or {}
                                 rpal, rkind2 = genderFrames.reflectPalFor(tiering.lastTile, playerId,
                                     remote.areaId, ggx, ggy,
@@ -12533,34 +6946,17 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                         info.height, bob, arc, cy))
                                 end
                             end
-                            -- ONLY OVER WATER. The engine gets this from OAM priority; we have to
-                            -- ask the map. Computed here rather than inside the draw so it is one
-                            -- lookup grid for the whole reflection instead of one per run.
+                            -- Only over water: the engine has OAM priority, we ask the map, once per reflection.
                             local wet = rruns and genderFrames.reflectiveSpans(
                                 screenX + cx, rtop, info.width, info.height, "reflection", genderFrames.scWet())
-                            -- Once a second: where this ghost stands, and every tile its
-                            -- reflection is allowed to paint over, with that tile's behaviour.
-                            -- Painting over a non-water behaviour is a bug; painting only over
-                            -- water behaviours means the leak is art INSIDE a water tile, which is
-                            -- a different problem with a different answer.
                             if rruns then
                                 drawRunList(rruns, info.width, gfxFlip, screenX + cx, rtop,
                                     panelRows, dim, info.height,
                                     genderFrames.reflectionXScale(rkind2), wet)
                             end
-                            -- THE WATER TRAIL, behind the rider and in front of the reflection,
-                            -- which is the engine's own order (subpriority 151 against 152 and
-                            -- 150). A ripple per tile stepped; the reflection's previous-tile
-                            -- store above has already stamped the frame the tile changed on, so
-                            -- that is what "did this peer just step" is read from -- and it is
-                            -- about the tile THIS tier drew on, which is the one the trail
-                            -- belongs to.
-                            --
-                            -- A TRAIL ENTRY, not a follower: a ripple is born where the character
-                            -- was, stays there while the character rides on, and is anchored on
-                            -- gSpriteCoordOffset -- position minus the offset at birth, plus the
-                            -- offset at draw -- so it stays glued to its water through any scroll.
-                            -- Exactly the landing dust's arithmetic, for exactly its reason.
+                            -- The water trail, between the reflection and the rider: a ripple per tile this tier drew
+                            -- the peer stepping onto (reflectPalFor's previous-tile stamp), born where the character
+                            -- was and anchored on gSpriteCoordOffset so it stays on its water through a scroll.
                             tiering.ripples = tiering.ripples or {}
                             local rlist = tiering.ripples[playerId]
                             if not rlist then rlist = {} tiering.ripples[playerId] = rlist end
@@ -12586,12 +6982,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                 end
                             end
 
-                            -- AND THE POKEMON BEING RIDDEN -- this part IS surfing-only, which is
-                            -- why the gate moved down here rather than away. Measured against the
-                            -- game's own pair rather than guessed: the blob's sprite sits at the
-                            -- rider's position plus (0, +8), with the same centerToCorner, so in
-                            -- top-left terms it is eight pixels lower and not moved sideways at
-                            -- all (probes/surfblob_probe.lua, 2026-08-19).
+                            -- The surf blob, surfing only: eight pixels below the rider, same centre.
                             local bruns, bflip
                             if not peerIsSurfing(remote) then
                                 remote.blobParkPx, remote.blobParkHold, remote.blobParkKind =
@@ -12602,11 +6993,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                     genderFrames.dirOf[remote.orientation] or 1)
                             end
                             if bruns then
-                                -- Parked during a JUMP_SPECIAL, mirroring the game's
-                                -- BOB_JUST_MON -- full reasoning at the hardware tier's twin.
-                                -- Sticky like the hardware tier's, one comment up there.
-                                -- Bob-with-the-rider and the mount park: the hardware tier's
-                                -- twin comment carries the reasoning.
+                                -- Parked through a JUMP_SPECIAL, mirroring the game's BOB_JUST_MON; the hardware
+                                -- tier's twin carries the reasoning.
                                 local bjumping = remote.act
                                     and remote.act >= 0x3a and remote.act <= 0x3d
                                 if bjumping and not remote.blobParkHold then
@@ -12648,19 +7036,12 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             end
                         end
 
-                        -- HIDDEN BY THE MAP, the way a spawned ghost is for free. A painted
-                        -- character is put on top of the finished frame, so without this it walks
-                        -- OVER the roof edges and tree tops that the engine draws above sprites --
-                        -- reported on screen 2026-08-20: *"the drawn ghost not hiding behind
-                        -- buildings"*. The mask is the same machinery as the reflection's, asked
-                        -- the question for a priority-2 sprite instead of a priority-3 one.
+                        -- Hidden by roofs and tree tops like a spawned ghost: the reflection's mask, asked for a
+                        -- priority-2 sprite.
                         local occl = genderFrames.reflectiveSpans(screenX + cx, screenY + cy,
                             info.width, info.height, "sprite", genderFrames.scOccl())
-                        -- THE HAT ROWS' VERDICT, on change only (COMPARE_TIERS): how many pixels
-                        -- of the frame's top 8 rows survive occlusion, and which metatile the top
-                        -- row overlaps. The hat vanishing intermittently at speed is either this
-                        -- mask eating those rows (position-correlated: the id says over WHAT) or
-                        -- it is not occlusion at all -- one number decides.
+                        -- Compare mode, on change: pixels of the frame's top 8 rows that survive occlusion, and the
+                        -- metatile over them, which tells the mask eating a hat from something upstream.
                         if COMPARE_TIERS then
                             local topKept = -1
                             if occl then
@@ -12707,16 +7088,10 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                     genderFrames.clippedRuns or 0))
                             end
                         end
-                        -- INVISIBLE PAINTS ARE THE VANISH. The gap detector proved the body is
-                        -- PAINTED on every frame of the user-reported disappearance -- so the
-                        -- question is not "did we paint" but "did any span survive the clips".
-                        -- Snapshot the span counter around the body's own paint; zero survivors
-                        -- logs the frame with what the panel scanner believed, on the emulator's
-                        -- frame clock so it lays against the screenshots.
+                        -- A paint can run and keep no span: zero survivors around the body's paint logs the frame
+                        -- with the panel scanner's rows, on the emulator's frame clock.
                         local spansBefore = MG_SPANS or 0
-                        -- BEHIND THE PLAYER WHEN THE ENGINE WOULD PUT IT THERE. Hands back `occl`
-                        -- untouched unless this peer both overlaps the player and stands higher up
-                        -- the screen, so the ordinary case pays four compares and nothing else.
+                        -- maskBehindPlayer returns occl untouched unless this peer overlaps the player from higher up.
                         drawRunList(runs, info.width, gfxFlip, screenX + cx, screenY + cy,
                             panelRows, dim, nil, nil,
                             genderFrames.maskBehindPlayer(occl, screenX + cx, screenY + cy,
@@ -12740,12 +7115,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     end
                 end
                 if not drew then
-                    -- SAY WHEN THIS HAPPENS. Falling back to the cached walker while the peer is
-                    -- on a bike, surfing or fishing IS the peer appearing to dismount, and it is
-                    -- silent -- the tier simply paints a different character and carries on. Two
-                    -- separate guesses were made at which state triggers it before this line
-                    -- existed; the log names the state instead. COMPARE_TIERS only, throttled,
-                    -- because a fallback that fires every frame must not also write every frame.
+                    -- Compare mode, throttled: a fallback to the walker for a peer with a graphic is a silent dismount
+                    -- on screen, so name its state.
                     if COMPARE_TIERS and remote.gfx and remote.gfx ~= 0
                         and (not remote.fellBackAt or frameCounter - remote.fellBackAt >= 30)
                     then
@@ -12757,18 +7128,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             tostring(remote.anim), tostring(remote.act), tostring(remote.gMoved),
                             tostring(remote.lastMoveAnim), tostring(remote.orientation)))
                     end
-                    -- (The MASK/RUNS instrumentation that lived here found the seam-crossing
-                    -- frame-killer and came out once the lesson was in pitfalls.md -- every stage
-                    -- of this paint path measured innocent; the tick was dying before it ran.)
-
-                    -- THE REFLECTION, FIRST, because paint order is depth on this tier.
-                    --
-                    -- A peer on foot with no special graphic comes down this path, and until
-                    -- 2026-08-21 it had no reflection code at all -- the whole of *"the drawn
-                    -- ghost don't have its reflection when standing on grass, close to water"*.
-                    -- Everything here is the peer-graphic path's, with the walker's own frame:
-                    -- the ground test, the flip, the vertical offset of height-2, the ripple from
-                    -- the engine's own matrix, and the clip to water.
+                    -- The walker's reflection first, as the peer-graphic path does it with the walker's own frame.
                     local wgi = graphicsInfo(remote.gfx or 0)
                     local wgbX, wgbY = genderFrames.gridBase()
                     if wgbX and wgi then
@@ -12782,49 +7142,22 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         local wruns = wpal and genderFrames.walkerReflectRuns(
                             remote.gender, pose, frameIndex, wpal)
                         local wtop = screenY + FRAME_HEIGHT_PX - 2 - 2 * arc
-                        -- The water clip, computed once so the log below can report what it kept.
-                        -- This tier has no OAM priority, so where the hardware tier is clipped by
-                        -- the water for free, this one has to ask the map -- and "the reflection
-                        -- vanishes entirely one tile from the shore, where the other tiers still
-                        -- show the hat" is exactly the shape of a clip that kept nothing.
-                        -- **ONLY WHEN THERE IS A REFLECTION TO CLIP (2026-09-11).** This ran for
-                        -- every peer on every frame, including indoors where no water exists and
-                        -- `wruns` is nil, so the answer was computed and thrown away: measured at
-                        -- 64 wasted occlusion calls a frame in a house, one per peer. Every other
-                        -- reader of `wwet` is either inside `if wruns then` or inside the
-                        -- REFL_TRACE gate, and that gate already handles nil.
+                        -- The water clip, only with a reflection: indoors it would be thrown away for every peer.
                         local wwet
                         if wruns then
                             wwet = genderFrames.reflectiveSpans(screenX, wtop,
                                 FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "reflection", genderFrames.scWwet())
                         end
-                        -- MESHGHOST_EMERALD_REFL_TRACE only (it was COMPARE_TIERS until
-                        -- 2026-09-02), on CHANGE only: what the ground test decided and where it
-                        -- was asked. A reflection that does not appear is either a gate that said
-                        -- no or a decode that returned nothing, and those two have different
-                        -- fixes -- this line says which, without another guess. Moved off the
-                        -- compare flag because compare mode is the dev DEFAULT, and with a crowd
-                        -- walking, "on change" is every peer's every tile: ~150 lines a second
-                        -- with 31 peers even after the per-peer key fix below, all of it
-                        -- string.format on the emulator's thread while the drawn tier was being
-                        -- judged for cost (adapters/CLAUDE.md: probes come off when they are not
-                        -- answering a question).
+                        -- MESHGHOST_EMERALD_REFL_TRACE: what the ground test decided and where, which tells a gate that
+                        -- said no from a decode that returned nothing.
                         if MESHGHOST_EMERALD_REFL_TRACE or os.getenv("MESHGHOST_EMERALD_REFL_TRACE") then
                             local wk = string.format("%s:%s:%s:%s:%d,%d", tostring(playerId),
                                 tostring(wpal), tostring(wruns ~= nil),
                                 tostring(wwet and next(wwet) ~= nil),
                                 math.floor((screenX - wgbX) / TILE),
                                 math.floor((screenY - arc + TILE - wgbY) / TILE))
-                            -- On CHANGE, and also once every two seconds regardless: a
-                            -- change-keyed line can only ever catch the moment something moved,
-                            -- and the question here is what the STEADY state looks like while a
-                            -- ghost stands still.
-                            -- PER PEER, not one shared key: with one key, a crowd of N peers
-                            -- changes it N times a frame and this line fires N times a frame --
-                            -- ~1100 lines a second with 31 peers on 2026-09-02, which was the
-                            -- "performance is chugging" the user saw while judging the drawn
-                            -- tier. The instrument was the cost (CLAUDE.md: a diagnostic can
-                            -- break the thing it measures).
+                            -- Per peer, on change and every two seconds (the steady state): one shared key would
+                            -- fire for every peer every frame.
                             genderFrames.wRefl = genderFrames.wRefl or {}
                             local wr = genderFrames.wRefl[playerId]
                             if not wr then wr = { key = nil, at = 0 }; genderFrames.wRefl[playerId] = wr end
@@ -12840,16 +7173,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                     math.floor((screenX - wgbX) / TILE),
                                     math.floor((screenY - arc + TILE - wgbY) / TILE),
                                     tostring(remote.gfx),
-                                    -- The painted tier's OWN frame choice against the peer's
-                                    -- actual one, which is what the hardware tier draws. If these
-                                    -- differ the two tiers are showing different pictures, and a
-                                    -- picture whose art sits a row higher loses the bottom row of
-                                    -- its reflection to the shore.
-                                    -- The painted tier's own frame INDEX against the image the
-                                    -- peer's animation command actually resolves to. The other two
-                                    -- tiers draw the peer's picture; this one derives its own, and
-                                    -- two pictures of the same walk cycle do not have their art on
-                                    -- the same rows -- which is one row of reflection at a shore.
+                                    -- This tier's own frame against the image the peer's animation resolves to:
+                                    -- two frames of one cycle put their art on different rows, a reflection row.
                                     tostring(pose) .. "/" .. tostring(frameIndex)
                                         .. " peerAnim=" .. tostring(remote.sanim)
                                         .. "/" .. tostring(remote.sidx)
@@ -12882,11 +7207,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                     (FRAME_WIDTH_PX + 8) >> 4, (FRAME_HEIGHT_PX + 8) >> 4,
                                     tostring(tiering.hwReflDbg))
                                     .. (function()
-                                        -- WHICH rows survive, not how many. A reflection is
-                                        -- flipped, so the box's BOTTOM rows carry the hat -- the
-                                        -- sliver that should still show one tile from the shore.
-                                        -- A count cannot tell "kept the wrong half" from "kept
-                                        -- too little", and those have different fixes.
+                                        -- Which rows survive, not how many: a reflection is flipped, so the bottom rows
+                                        -- carry the hat.
                                         if not wwet then return " | wetRange=nil" end
                                         local lo, hi = nil, nil
                                         for y2, l in pairs(wwet) do
@@ -12904,12 +7226,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                                 if not ihi or yy > ihi then ihi = yy end
                                             end
                                         end
-                                        -- AND THE TILES THEMSELVES. Everything above says the
-                                        -- mask is the thing that is wrong; this says WHICH tile
-                                        -- and by how much, which is the only question left.
-                                        -- Per grid row of the reflection box: the metatile id,
-                                        -- its layerType, and how many of its sixteen rows the
-                                        -- mask calls open.
+                                        -- Per grid row of the box: the metatile id, its layerType, and the rows
+                                        -- the mask calls open.
                                         local tiles = {}
                                         local gbx2, gby2 = genderFrames.gridBase()
                                         if gbx2 then
@@ -12937,10 +7255,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                                     openRows)
                                             end
                                         end
-                                        -- HOW MANY PIXELS ACTUALLY SURVIVE, run by run against
-                                        -- the kept spans. Ranges overlapping is not the same as
-                                        -- pixels landing: the ink's last row and the water's first
-                                        -- row can be the same row and still share no COLUMN.
+                                        -- Pixels that land, run by run: ink and water can share a row and no column.
                                         local painted = 0
                                         if wruns and wwet then
                                             for _, rr in ipairs(wruns) do
@@ -12980,16 +7295,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         end
                     end
 
-                    -- THE WALKER FALLBACK NEEDS THE PLAYER SORT TOO, and forgetting it here is why
-                    -- the first version changed nothing on screen: the peer-graphic path above was
-                    -- masked, this one was not, and a peer with no `gfx` on the wire paints through
-                    -- THIS call. The trace said so in one line -- `maskBehindPlayer` was never
-                    -- reached at all -- which is the whole reason it prints when it decides nothing.
-                    -- DID THE BODY ACTUALLY REACH THE SCREEN? `MG_SPANS` counts the pixel runs
-                    -- drawRunList really emits, so the delta across this one call separates "the
-                    -- paint ran" from "the paint drew something" -- the distinction the drawn
-                    -- tier's own gap detector exists for, and the one that decides whether a ghost
-                    -- nobody can see was masked away or never painted at all.
+                    -- The walker fallback needs the player sort too: a peer with no gfx on the wire paints here. The
+                    -- MG_SPANS delta tells a paint that drew from one that drew nothing.
                     local __sp0 = MG_SPANS or 0
                     drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX,
                         screenY, panelRows, dim,
@@ -13005,107 +7312,26 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     end
                     MG_BODY_PAINTED = true -- gap detector: the walker-fallback body counts too
                 end
-                -- OVER the character, which is the whole point: the engine's grass sprite sits
-                -- above the object it belongs to. Drawn on the ghost's OWN tile -- the bottom tile
-                -- of its frame -- for both draw paths, since a peer in grass may be on foot or on
-                -- a bike.
+                -- Grass over the character, as the engine's grass sprite sits above its object, on both draw paths.
                 do
-                    -- ON THE TILE GRID, not on the ghost. A grass sprite belongs to a TILE and a
-                    -- character walks through it; drawing it at the ghost's own frame made it
-                    -- travel along with them, so mid-step it sat across the character in the wrong
-                    -- place -- *"not being drawn properly when moving in tall grass"*. Standing
-                    -- still it looked right, which is exactly why it survived the first check.
-                    --
-                    -- The character's feet span two tiles mid-step, so both are considered: each
-                    -- grass tile the ghost's bottom row overlaps is drawn at ITS OWN screen
-                    -- position, and the ghost passes through whichever it is actually on.
+                    -- On the tile grid, not on the ghost: grass belongs to a tile and the character walks through it.
                     local gbX2, gbY2 = genderFrames.gridBase()
                     if gbX2 then
                         local footY = screenY + FRAME_HEIGHT_PX - TILE
-                        -- The rustle belongs to the tile the ghost has just STEPPED ON, so the
-                        -- clock starts when its tile changes. Every other grass tile it overlaps
-                        -- is settled, which is what standing grass looks like.
                         local onX = math.floor((screenX + (FRAME_WIDTH_PX >> 1) - gbX2) / TILE)
                         local onY = math.floor((footY + (TILE >> 1) - gbY2) / TILE)
-                        -- THE TILE BEING ENTERED **AND** THE ONE BEING LEFT.
-                        --
-                        -- Neither extreme was right. Painting every tile the frame overlapped hid
-                        -- the ghost from both sides while it walked (*"popping in/out"*); painting
-                        -- only the tile it stands on made the grass jump from one tile to the next
-                        -- at the midpoint of every step (*"it moves between tiles weird"*). The
-                        -- engine does neither: stepping into grass spawns a NEW sprite on the new
-                        -- tile while the old one stays where it is and finishes settling, so for
-                        -- the length of a step there are two.
-                        --
-                        -- Each carries its own entry frame, so the one being entered rustles while
-                        -- the one being left completes its own animation and is dropped once it has
-                        -- settled. Oldest first, so the newer grass paints over it.
-                        -- COVER THE TILES THE FEET ACTUALLY OVERLAP, one row only.
-                        --
-                        -- Three versions and each failed differently, which is what finally named
-                        -- the rule. Locking the grass to the ghost made it travel along (*"not
-                        -- drawn properly when moving"*). Every tile the whole 16x32 FRAME touched
-                        -- covered the character from above as well (*"popping in/out"*). One tile
-                        -- chosen by the ghost's centre jumps at the midpoint of a step, leaving the
-                        -- leading half bare -- *"shown slightly when going between the tall grass
-                        -- tiles"*, because the engine puts grass on the tile being ENTERED at the
-                        -- START of the step while a centre-based test flips halfway through.
-                        --
-                        -- The feet are what stands in grass, so the span of the FOOT BOX is the
-                        -- honest answer: one tile row, however many columns those 16 pixels reach
-                        -- into. Aligned that is one tile; mid-step it is two, side by side, exactly
-                        -- covering the character.
-                        --
-                        -- Each tile keeps its own entry time, so a tile just stepped onto rustles
-                        -- while one being left is further through its own animation.
                         tiering.grassTiles = tiering.grassTiles or {}
                         local seen = tiering.grassTiles[playerId] or {}
-                        -- EVERY TILE THE CHARACTER STANDS IN, ALL IN FRONT.
-                        --
-                        -- Standing still that is one tile and the head shows above it, which is
-                        -- right. MID-STEP the character spans two, and the grass covers all of
-                        -- them -- the user, after a version that drew only one of the pair in
-                        -- front: *"now i see the bottom/legs when its going up, top/head when going
-                        -- down. the grass is supposed to hide it"*.
-                        --
-                        -- Two earlier readings of this were wrong in opposite directions: "the
-                        -- lower tile is in front" (true only because the capture happened while
-                        -- walking down) and then "the tile being entered is in front" (which still
-                        -- leaves the other half of the character bare). Walking through tall grass
-                        -- obscures a character, and that is the whole of the rule.
+                        -- Every tile the foot box overlaps, one row, all in front: mid-step that is two side by side,
+                        -- and grass never rises above the feet.
                         local r0 = math.floor((footY - gbY2) / TILE)
                         local r1 = math.floor((footY + TILE - 1 - gbY2) / TILE)
-                        -- BOUNDED AT THE FOOT BOX, and this is the confirmed answer rather than a
-                        -- setting: grass never rises above the character's feet, standing or
-                        -- mid-step. Both tiles the feet span are drawn, so nothing shows through
-                        -- between them, and neither can reach the body or the head.
-                        --
-                        -- It was reached as the reference end of a binary test -- deliberately too
-                        -- little coverage, to tell "the clip is not working" from "the clip is set
-                        -- wrong" after adjusting the number twice produced no visible change. It
-                        -- turned out to be correct. Two rounds of reasoning about which pixel rows
-                        -- ought to be covered were beaten by one deliberately-wrong build.
                         genderFrames.drawGrassRows(playerId, gbX2, gbY2, screenX, footY,
                             r0, r1, panelRows, dim, footY)
-                        -- LANDING DUST, after the grass so it is not buried by it.
+                        -- Landing dust, after the grass so it is not buried.
                         do
-                            -- A TRAIL, NOT A FOLLOWER. The engine's dust belongs to the TILE the
-                            -- landing happened on: the character hops away and the puff stays and
-                            -- finishes where it was born. Drawing the puff at the ghost's current
-                            -- position -- what this block did first -- made it travel along under
-                            -- the character, so a peer hopping across the map left no trail at all
-                            -- (user, 2026-08-21). So each landing records where it happened, and
-                            -- every live puff is drawn at ITS OWN spot until its animation ends.
-                            --
-                            -- Anchored on gSpriteCoordOffset, the term the engine itself adds to a
-                            -- coordOffsetEnabled sprite to ride the camera: position minus the
-                            -- offset now, plus the offset at draw time, keeps a puff glued to its
-                            -- tile through any scroll -- the same arithmetic drawGhostShadows uses
-                            -- to place the spawned tier's effects.
-                            --
-                            -- CENTRED ON THE GRAPHIC'S OWN WIDTH, the same fix the shadow needed:
-                            -- at screenX alone the 16-wide puff sat 8px left of a 32-wide bike
-                            -- (user, 2026-08-21: *"off center and to far to the left"*).
+                            -- A trail, not a follower: each landing's puff stays on its tile, anchored on
+                            -- gSpriteCoordOffset like drawGhostShadows' effects, and centred on the graphic's width.
                             local _, landedNow = genderFrames.noteLanding(playerId,
                                 isJumpAction(remote.act) or false, remote.act)
                             local offX = rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0))
@@ -13117,16 +7343,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                 local pgi = remote.gfx and remote.gfx ~= 0
                                     and graphicsInfo(remote.gfx) or nil
                                 local halfW = ((pgi and pgi.width) or FRAME_WIDTH_PX) >> 1
-                                -- THE ARC COMES OFF, the same term the shadow beside it drops.
-                                -- Dust belongs to the GROUND the character landed on, and a
-                                -- pinned copy carries the spawned sprite's hop in pos2 -- so
-                                -- recording the puff at the raw screenY pinned it to wherever the
-                                -- body happened to be in its arc, which is highest at the moment
-                                -- a bounce ends and the next begins. Hopping in place made that
-                                -- obvious because nothing else moved: the user, 2026-08-21,
-                                -- *"the dust is a bit to high up on the drawn ghost when jumping
-                                -- in place without moving"*. Height from the graphic's own
-                                -- descriptor for the same reason the width is.
+                                -- The arc comes off: dust is on the ground, and a pinned copy carries the hop in pos2.
                                 local fullH = (pgi and pgi.height) or FRAME_HEIGHT_PX
                                 plist[#plist + 1] = { at = frameCounter,
                                     bx = screenX + halfW - 8 - offX,
@@ -13145,27 +7362,17 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             end
                         end
 
-                        -- The covered set is rebuilt each frame, so a tile that stops being
-                        -- covered and is stepped onto again rustles afresh.
 
                     end
                 end
-                -- The painted copy gets a shadow too, on the same terms as the spawned one: only
-                -- while the peer reports a jump, and on the ground it left rather than under its
-                -- feet -- which is what subtracting the arc does. Compare mode only, because that
-                -- is where the painted ghost HAS an arc (it copies the spawned sprite's); a real
-                -- overflow peer slides across a ledge and has no ground to separate from.
                 painted = painted + 1
             end
         end
-        -- A remote in a different area is deliberately not drawn at all --
-        -- area_id is opaque and compared by equality only
-        -- (agent_docs/contract.md); this is not the same as despawning it.
+        -- A peer in another area is not drawn (area_id compares by equality only), which is not despawning it.
     end
     tiering.painted = painted
 
-    -- Flush the comparison samples once a second. Buffered on purpose: the writes are what cost,
-    -- not the reads, and this file learned that the expensive way earlier the same day.
+    -- Flush the comparison samples once a second: the writes cost, not the reads.
     if COMPARE_TIERS then
         tiering.moveLog = tiering.moveLog or {}
         if #tiering.moveLog >= 60 then
@@ -13181,10 +7388,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
 end
 
 ----------------------------------------------------------------------------
--- Main loop. The adapter always drives (agent_docs/contract.md's tick
--- model): once per emu frame, try to connect if needed, send local state,
--- drain and apply whatever the core pushed back, then redraw every known
--- remote unconditionally.
+-- Main loop. The adapter always drives: once per emulator frame, connect if needed, send local
+-- state, drain what the core pushed back, then redraw every known remote.
 ----------------------------------------------------------------------------
 
 if not memory.usememorydomain("System Bus") then
@@ -13196,8 +7401,7 @@ end
 console.log("MeshGhost Emerald adapter running.")
 console.log("Decoding Brendan/May sprite frames...")
 loadGenderFrames()
-tryDetectAvatarAddrOffset() -- may not find it yet if loaded during the intro/title sequence --
--- see the main loop below, which keeps retrying every frame until it succeeds.
+tryDetectAvatarAddrOffset() -- may miss during the intro; the main loop retries every frame
 if BRIDGE_PORT_OVERRIDE then
     console.log(string.format("Bridge target %s:%d (MESHGHOST_BRIDGE_PORT is set, so no port walk).",
         BRIDGE_HOST, BRIDGE_PORT_OVERRIDE))
@@ -13209,70 +7413,23 @@ end
 
 local localGender = nil -- resolved lazily, first frame a save is loaded (see readLocalGender)
 
--- One frame's worth of work, pcall-wrapped below so a malformed remote (a bad jsonDecode
--- result reaching handleBridgeLine, an unexpected shape in memory reads, etc.) logs and skips
--- a frame instead of a single Lua error killing the whole adapter for the rest of the session.
--- A SAVESTATE LOAD REPLACES THE WORLD UNDERNEATH US, and nothing in the game says so.
---
--- Everything this adapter holds about the engine -- which object slots our ghosts live in, which
--- OBJ tile ranges we allocated, which hardware OAM entries we own -- describes the machine as it
--- was. A state load rewinds all three at once: the engine's tile-allocation bitmap goes back to
--- what it held when the state was saved, while our record of what we own does not. From that frame
--- on we are writing sprite frames into tiles the engine has since given to something else, and
--- drawing our own from the same range -- which is exactly what the user saw, twice, with the
--- hardware tier: *"the OAM gets weird after save states"*, then *"the OAM sprite broke completely
--- now after a save state"*.
---
--- IT IS A SHIPPED BUG, NOT A DEV ONE. Loading a state is ordinary BizHawk use, not something only
--- an agent driving a test does -- the same reasoning that made despawnGhost's out-of-overworld
--- guard a shipped fix rather than a loader one.
---
--- THE TELL IS THE EMULATOR'S OWN FRAME COUNTER, not anything in the game: this runs once per
--- emulated frame, so the count advances by exactly one. A load makes it jump -- backwards to an
--- earlier state, or forwards to a later one. Anything that is not "one more than last time" means
--- the world was replaced.
---
--- THE RESPONSE IS TO FORGET, NOT TO CLEAN UP. Freeing "our" tiles here would clear bits in a
--- bitmap that is now somebody else's -- the identity-first rule despawnGhost already follows for a
--- map load, for the same reason and with the same silent consequence. So: release the hardware
--- tier without freeing (hwReleaseAll(false)), drop every ghost record (despawnGhost's own identity
--- test then declines to touch a slot that is no longer ours), and throw away the queued tile frees,
--- which name ranges from a world that no longer exists. Everything is re-acquired from scratch on
--- the next frame, against the bitmap the engine actually has now.
--- GLOBAL, like hwRelease and swapGhostGraphicInPlace: this chunk sits at Lua's hard ceiling of 200
--- locals per function, and one more file-scope local here is a PARSE failure, not a slow script.
--- Adding it as a local is exactly how this landed the first time (2026-08-21).
+-- A savestate load replaces the world under us, and the tell is the emulator's frame count jumping instead of
+-- advancing by one. The response is to forget, never to clean up: release the hardware tier without freeing,
+-- drop every ghost record and discard the queued tile frees, since all of them name a bitmap the engine no
+-- longer has. A global, because the main chunk is at Lua's 200-local ceiling.
 function detectStateLoad()
     local fc = emu.framecount()
     local last = genderFrames.lastEmuFrame
     genderFrames.lastEmuFrame = fc
     if last == nil or fc == last + 1 then return end
-    -- A small forward jump is ordinary (a dropped tick, the emulator catching up); a big one, or
-    -- any backwards step, is a different world.
+    -- A small forward jump is a dropped tick; a big one, or any backwards step, is a different world.
     if fc > last and fc <= last + 10 then return end
     logFile(string.format("state load detected: emu frame %d -> %d; dropping every ghost, "
         .. "hardware entry and tile claim rather than freeing them", last, fc))
     pcall(hwReleaseAll, false)
-    -- AND EVERY ENTRY IN OUR OAM RANGE, not only the ones our bookkeeping names. The load rewinds
-    -- gMain.oamBuffer to the SAVE-TIME session's contents, which can hold entries in slots our
-    -- current records never claimed -- nothing of the engine's clears 64..127, so such an entry
-    -- stays on screen drawing from tiles the fresh session reuses: garbage that survives until
-    -- something overwrites that slot. The user's narrowing found it: *"only when using savestate
-    -- from water to grass"* -- the water-time roster used more slots (blob, ripples) than the
-    -- grass-time one re-claims, and the leftovers are the glitch. Sweep the whole range blind.
-    -- **BEHIND THE SAME THREE GATES THE HARDWARE TIER ITSELF ENFORCES (review I32, fixed
-    -- 2026-09-11), and this sweep had none of them.**
-    --
-    -- It writes OAM slots 64..119 blind. Those slots are only OURS while the hardware tier is on,
-    -- on a build whose addresses were confirmed, and in the OVERWORLD -- and the game owns them
-    -- elsewhere: `documentation.md` records the SLOT MACHINE and the confetti effect using
-    -- exactly this range. A savestate loaded inside a slot machine therefore had this blank the
-    -- reels. `MESHGHOST_EMERALD_HW_OVERFLOW=0` did not stop it either, because that flag gates
-    -- `tiering.hw.on` and this path never asked.
-    --
-    -- The sweep is still RIGHT when it applies -- a load rewinds gMain.oamBuffer to the save-time
-    -- session's contents and nothing of the engine's clears this range, so leftovers survive as
-    -- garbage. It just has to be as sure as the tier is that the range is ours to clear.
+    -- Sweep our whole OAM range blind: the load restores save-time entries our records never claimed, and nothing
+    -- of the engine's clears them. Only behind the hardware tier's own gates, since the slot machine and the
+    -- confetti effect use the range outside them.
     if tiering.hw.on and avatarAddrOffset == 0 and inOverworld() then
         pcall(function()
             for slot = 0, tiering.hw.slots - 1 do
@@ -13287,9 +7444,7 @@ function detectStateLoad()
             .. "address is unconfirmed, or the game is not in the overworld, so slots 64..119 "
             .. "are not ours to clear (the slot machine and the confetti effect own them)")
     end
-    -- The sweep may still WRITE the restored orphan objects and sprites -- identity says they are
-    -- ours-shaped and deactivating them is right -- but every tile FREE under it is suppressed:
-    -- the bitmap it would edit belongs to the restored session. See freeGhostTiles.
+    -- The purge deactivates the restored orphans but frees no tiles: that bitmap is the restored session's.
     genderFrames.stateLoadPurge = true
     pcall(despawnAllGhosts)
     genderFrames.stateLoadPurge = nil
@@ -13297,20 +7452,9 @@ function detectStateLoad()
     genderFrames.deferredTileFrees = {}
     tiering.hw.fxTiles, tiering.hw.puffs, tiering.hw.ripples = {}, {}, {}
     tiering.hw.area = nil
-    -- AND THE ORPHAN FIELD-EFFECT SPRITES, which no other sweep can see. pitfalls.md wrote this
-    -- one down this morning as a dev artefact -- "a savestate load orphans field-effect sprites,
-    -- and the orphan sweep cannot see them: a blob has no object event" -- and it stopped being
-    -- an artefact the moment a state was saved MID-SURF with a ghost up: every load of it
-    -- restores that session's ghost blob, alive, following object 15. It rides invisibly under
-    -- the fresh ghost's own blob all surf, and when THAT blob despawns at a dismount the orphan
-    -- keeps following the walker ashore, forever -- the user's *"still keeps its blob on when it
-    -- lands"*, drawn as a 32-wide blob behind a perfectly correct walker while every struct we
-    -- log read clean. Kill every blob/bobber whose followed object is not the PLAYER's -- the
-    -- player's own is the engine's business, and our ghosts' get respawned fresh anyway.
-    -- Same gates, and the same reason: this reads gPlayerAvatar and then WRITES sprite structs,
-    -- and "which sprite is the player's" is only answerable in the overworld on a build whose
-    -- avatar address was confirmed. Outside it, the comparison that decides "foreign" is being
-    -- made against a byte that means something else.
+    -- And the orphan surf blobs, which have no object event for any sweep to find: a state saved mid-surf restores
+    -- that session's ghost blob, still following its object. Kill every blob not following the player. Only in
+    -- the overworld on a confirmed build, where "the player's object" means what it says.
     if avatarAddrOffset == 0 and inOverworld() then
     pcall(function()
         local playerObj = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
@@ -13318,10 +7462,7 @@ function detectStateLoad()
         for sid = 0, 63 do
             local d = sprAddr(sid)
             local cb = r32(d + 0x1c)
-            -- A blob follows an OBJECT id in data[2]; the underwater bobber follows a SPRITE id
-            -- in data[0] (slot meanings per the decompilation, a pointer; unmeasured).
-            -- Blobs only: we no longer create underwater bobbers as sprites, but the PLAYER's
-            -- own is still the engine's and must never be touched.
+            -- Blobs only, by their followed object id; the player's own underwater bobber is the engine's.
             local foreign = (cb == surfBlob.updateCb and r16(d + 0x32) ~= playerObj)
             if (r8(d + 0x3e) & 0x01) == 1 and foreign then
                 w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04)
@@ -13339,8 +7480,7 @@ end
 local function runFrame()
     frameCounter = frameCounter + 1
     detectStateLoad()
-    -- Swap-time tile frees, six frames late -- three times the measured two-frame OAM lag. The
-    -- reasoning and the measurement are at the queue site in swapGhostGraphicInPlace.
+    -- Swap-time tile frees, six frames late: three times the two-frame OAM lag (see swapGhostGraphicInPlace).
     do
         local q = genderFrames.deferredTileFrees
         local keep = nil
@@ -13353,20 +7493,13 @@ local function runFrame()
                 else
                     stillOurs = ghostAlive(e.g)                   -- spawned-tier range
                 end
-                -- NEVER FREE A RANGE THAT IS NOT CURRENTLY ALLOCATED. A double free is not a
-                -- no-op here: the first clears our bits, the ENGINE then allocates that run for
-                -- something of its own, and the second clears the bits out from under it -- so
-                -- the next allocation (ours or the game's) lands on tiles already in use. At a
-                -- surf start the thing being allocated is the show-mon POKEMON PICTURE, which is
-                -- why the user saw both halves of one collision: *"a weird glitched orange
-                -- sprite"* on the ghosts, and the banner showing *"an egg instead of sharpedo"*.
-                -- Several despawn paths can queue the same range (blob, shadow, body, hardware
-                -- release), so idempotence has to be enforced here rather than assumed.
+                -- Never free a range not allocated, or one a live sprite draws: a second free clears bits the engine
+                -- has since given away, and several despawn paths can queue the same range.
                 local drawn = genderFrames.rangeDrawnByLiveSprite(e.start, e.count, e.g and e.g.sprId)
                 if stillOurs and inOverworld() and tileIsAllocated(e.start) and not drawn then
                     for t = e.start, e.start + e.count - 1 do setTileAllocated(t, false) end
                 else
-                    -- INSTRUMENT (2026-09-02): a skipped free is a leak by another name, so say why.
+                    -- A skipped free is a leak by another name, so say why.
                     local why = (not stillOurs) and "notOurs" or (not inOverworld()) and "notOverworld"
                         or (not tileIsAllocated(e.start)) and "alreadyFree" or "drawnByLive"
                     logFile(string.format("tile free SKIPPED %s: %s start=%d count=%d hwArea=%s area=%s",
@@ -13381,15 +7514,9 @@ local function runFrame()
         end
         genderFrames.deferredTileFrees = keep or {}
     end
-    -- CLEAR ONLY WHAT WILL BE REPAINTED. A map transition deliberately returns nil local state
-    -- for a frame or two (mapJustChanged), and the whole render block sits inside `if state` --
-    -- so an unconditional clear here wiped the overlay on exactly the frames nothing repaints,
-    -- which the user saw as both ghosts blinking at every route crossing. Keeping the previous
-    -- frame's paint through those frames costs at most two frames of overlay lag against a
-    -- scrolling camera; a title-screen exit still clears, so nothing lingers after a session.
-    -- ONE state read per frame, up here: getLocalState advances the map-change tracker as a side
-    -- effect, so a second call in the same frame would eat the transition edge the sender pauses
-    -- on. The connected block below uses this same value.
+    -- Clear only what will be repainted: a map transition returns nil state for a frame or two, and clearing
+    -- then blinks every ghost; a title-screen exit still clears. One state read per frame: getLocalState
+    -- advances the map-change tracker, so a second call would eat the transition edge.
     local frameState = getLocalState()
     if not (session.live and frameState == nil) then
         gui.clearGraphics()
@@ -13403,10 +7530,7 @@ local function runFrame()
         tryDetectAvatarAddrOffset()
     end
 
-    -- A connection that never got an answer is not worth keeping: something that accepts and
-    -- then stays silent is far more likely an unrelated program holding a port in our range than
-    -- a core. Dropping it costs nothing (the walk tries elsewhere); committing to it costs the
-    -- whole session.
+    -- A connection that never answers our hello is more likely another program on our port than a core.
     if connected and not ready and helloSentAtFrame
         and frameCounter - helloSentAtFrame > HELLO_ANSWER_FRAMES then
         markPortBusy(currentPort, "never answered our hello, so it is not a core we can use")
@@ -13414,108 +7538,56 @@ local function runFrame()
     end
 
     if not connected then
-        -- BACK-PORTED FROM CRYSTAL 2026-08-28. A core that cannot reach the RELAY is a perfectly
-        -- good core, so walking on finds nothing, marks every port busy, and then starts spawning
-        -- fresh cores at the retry cadence. Crystal has carried this guard since 2026-08-19, and
-        -- its comment cites the measurement that justified it: EMERALD at 5fps doing exactly this
-        -- while a relay was full. The fix was written in the sibling and never brought back here,
-        -- so Emerald kept the defect its own measurement had proven -- and it resurfaced live on
-        -- 2026-08-28 as a console filling four lines per frame with the relay down.
+        -- While the relay is down, wait: a core that cannot reach it is still a good core, and walking on would
+        -- mark every port busy and spawn fresh cores.
         if frameCounter < relayDown.until_ then
             return
         end
-        -- Every 30 frames, not every frame: each probe below is a blocking 50ms connect, and
-        -- sweeping eight ports per frame while nothing answers is the 3fps the user saw on
-        -- 2026-09-02. (The field rides on relayDown -- no spare local, emulator/CLAUDE.md.)
+        -- Every 30 frames: each probe is a blocking 50ms connect. On relayDown for the 200-local ceiling.
         if frameCounter < (relayDown.nextConnect or 0) then
             return
         end
         relayDown.nextConnect = frameCounter + 30
         if coreChild and coreSpawnFrame and coreSpawnFrame.port and not coreSpawnFrame.busy
             and coreStillRunning() then
-            -- OUR OWN CHILD IS ALIVE: wait on its port, never sweep past it. Sweeping is how a
-            -- second instance attaches to a core the first one just started, and the two then
-            -- chase each other's spawns round the range.
+            -- Our own child is alive: wait on its port, or two instances chase each other's spawns.
             tryPort(coreSpawnFrame.port)
         else
             connectBridge()
         end
-        -- Only after a full sweep found nothing. A core that is already running -- started by
-        -- hand, by a dev script, or left by a previous session -- is used as-is and nothing is
-        -- spawned; that ordering is what stops autostart from ever producing a second core.
+        -- Spawn only after a full sweep found nothing, so a running core is always used and never doubled.
         if not connected then
-            -- On the port the sweep just found empty, never a fixed one -- see firstFreePort.
+            -- On the port the sweep just found empty (firstFreePort).
             startCore(firstFreePort)
         end
         if connected then
             console.log(string.format("MeshGhost: bridge connected on %s:%d.", BRIDGE_HOST, currentPort))
             helloSentAtFrame = frameCounter
-            -- Must be the first message on a fresh connection, before any local_state --
-            -- see internal/bridge.Hello. Declares the game so the core can connect to the
-            -- relay without the user typing "game" into config.json themselves.
-            -- render_all_areas: this adapter owns area visibility now. The core's own cross-area
-            -- filter turned every seam crossing into a despawn/respawn pop -- the echoed area_id
-            -- lags a real crossing by a delivery, and the core's equality test cannot know that
-            -- two maps are CONNECTED. This adapter can (the cross-map block above), and it already
-            -- hides what it cannot translate, so the core is asked to deliver everything and
-            -- decide nothing -- which also keeps the core exactly as game-dumb as the user wants
-            -- it: the flag removes an area judgment from the core rather than teaching it one.
-            -- min_protocol_version is the STARTING floor, set by hand 2026-09-11 (the user): the same move the
-            -- wire floor made on 2026-09-08 -- break what came before once, so there is a
-            -- floor to reason from -- applied per adapter. It sits at this number until the
-            -- maintainer raises it, and it is never raised automatically. ADR 0059.
+            -- The first message on a fresh connection (bridge.Hello), declaring the game for the core.
+            -- render_all_areas: this adapter knows which maps are connected and hides what it cannot translate, so
+            -- the core delivers everything and keeps no area judgment. min_protocol_version is raised only by hand.
             sendLine(string.format('{"type":"hello","payload":{"game_id":%s,"game_version":%s,"min_protocol_version":2,"render_all_areas":true}}', jsonString(GAME_ID), jsonString(ADAPTER_VERSION)))
-            -- A fresh bridge connection means a fresh core process on the other end (the
-            -- previous one either restarted or its own connection died) -- any remote it had
-            -- previously told us about is stale, since the despawn_remote for it (if any was
-            -- ever sent) may have been lost during the outage, same failure shape as the
-            -- already-known "gui.* overlay doesn't auto-clear" class of bug: nothing else
-            -- would ever notice and clear a stale entry on its own. Found live 2026-08-11: a
-            -- restarted core process without restarting this script left an old peer's ghost
-            -- on screen alongside the new one.
+            -- A fresh connection is a fresh core: every remote the last one told us about may be stale, its despawn
+            -- lost in the outage, and nothing else would clear it.
             remotes = {}
             despawnAllGhosts()
         end
     end
 
-    -- The orphan sweep WRITES gObjectEvents and gSprites, so it runs only where this adapter is
-    -- allowed to write at all -- the same three conditions the spawn path itself is under, which
-    -- it was silently missing (found by reading, 2026-08-19):
-    --   * avatarAddrConfirmed -- before detection succeeds the object array has not been located,
-    --     so every read here is of an address we have not verified holds gObjectEvents;
-    --     (The third condition here used to be `avatarAddrOffset == 0`, because gSprites'
-    --     Archipelago location was unmeasured and the sweep would have read a relocated
-    --     gObjectEvents while writing the vanilla gSprites. It is measured now -- gSprites does
-    --     NOT move on the Archipelago build, probes/gsprites_scan_probe.lua, verified.md
-    --     2026-08-19 -- so the sweep is correct on both builds and the condition is gone.)
-    --   * inOverworld() -- outside it there is no live object array to sweep, and a ghost of ours
-    --     cannot have been created, so there is nothing this could legitimately find.
-    -- Every second, AND immediately on the way back into the overworld.
-    --
-    -- Coming out of a battle the user saw *"a 3rd ghost temporarily shown right after ending a
-    -- battle, and then went away"* (2026-08-19), which is this sweep doing its job a beat late.
-    -- It is the direct consequence of the despawn guard added the same day: outside the overworld
-    -- we drop a ghost's bookkeeping without writing to the arrays, because a battle has re-used
-    -- the sprite slots -- so an object of ours can outlive its record and the engine will happily
-    -- draw it when the map comes back. Waiting up to 60 frames to notice is what made it visible.
-    -- Sweeping on the transition itself costs one array scan per battle and closes the window.
+    -- The orphan sweep writes gObjectEvents and gSprites, so only with the avatar address confirmed and in the
+    -- overworld; every second, and at once on re-entering it, since a battle can leave an object of ours that
+    -- outlived its record.
     local nowOverworld = inOverworld()
-    -- The seam-versus-warp signal the hardware tier needs (renderHardwareGhosts): a warp always
-    -- passes through frames outside CB2_Overworld (the fade and the load), a connection crossing
-    -- never leaves it. Recorded here, before that tier runs in this same frame.
+    -- A warp passes through frames outside CB2_Overworld and a seam crossing never does: renderHardwareGhosts
+    -- reads this later in the same frame.
     if not nowOverworld then tiering.lastNonOverworldAt = frameCounter end
     if avatarAddrConfirmed and nowOverworld and not tiering.wasOverworld
         and #genderFrames.pendingTileFrees > 0 then
-        -- Back in the overworld: settle anything a battle stopped us freeing. If the slot still
-        -- carries our own localId the range is genuinely still ours and freeing it is right; if it
-        -- does not, the engine has already run its own reset over the bitmap and the range is
-        -- long since somebody else's, so the only safe thing is to forget it.
+        -- Back in the overworld: free what a battle stopped us freeing if the range is still ours, else forget it.
         for i = 1, #genderFrames.pendingTileFrees do
             local p = genderFrames.pendingTileFrees[i]
-            -- The marker on the object slot is not identity for the RANGE: through a warp the
-            -- engine rebuilt everything, a new ghost of ours may sit in the same slot wearing the
-            -- same marker, and this range may now belong to it or to an NPC. Watched 2026-09-02
-            -- after a cave warp: two of our ghosts sharing tiles 132..143, drawn over each other.
+            -- The slot's marker is not identity for the range: a warp rebuilds everything, so no live sprite may
+            -- draw it either.
             if p.tileStart and r8(objAddr(p.objId) + 0x08) == GHOST_LOCAL_ID
                 and not genderFrames.rangeDrawnByLiveSprite(p.tileStart, p.tileCount, nil) then
                 for t = p.tileStart, p.tileStart + p.tileCount - 1 do setTileAllocated(t, false) end
@@ -13529,29 +7601,18 @@ local function runFrame()
     end
     tiering.wasOverworld = nowOverworld
 
-    -- Once every 5s, to the log file only: enough to tell which link in the chain is quiet
-    -- without reading the game. "connected" and "ready" are different questions, and so are
-    -- "a peer is known" and "a ghost exists for it" -- a silent failure looks different in each.
+    -- Every 5s, to the log file only: which link in the chain is quiet (connected against ready, a peer known
+    -- against a ghost drawn).
     if frameCounter % 300 == 0 then
         local nRemotes, nGhosts, nDrawn = 0, 0, 0
         for _ in pairs(remotes) do nRemotes = nRemotes + 1 end
         for _ in pairs(ghosts) do nGhosts = nGhosts + 1 end
-        -- The drawn tier's own count, so "every peer is visible" is a number in the log rather
-        -- than something to squint at: peers here, minus the ones holding an object slot. Counted
-        -- only when that tier is on, so the figure never implies pixels nobody drew.
-        -- COMPARE_TIERS counts too: it paints the loopback ghost with the tier itself off, and a
-        -- status line reading drawn=0 while a painted ghost is on screen is a counter that lies
-        -- about the one thing this mode exists to look at.
+        -- The painted count, whenever anything paints: the tier itself, or compare mode's loopback ghost.
         if tiering.drawn or COMPARE_TIERS then nDrawn = tiering.painted or 0 end
         local nClipped = genderFrames.clippedRuns or 0
         genderFrames.clippedRuns = 0
         logFile(string.format(
-            -- `budget` is HOW MANY OBJECT SLOTS this map has left for ghosts, and it belongs on
-            -- this line because `ghosts=0` has two completely different meanings without it: no
-            -- peer wanted a slot, or the map had none to give. A route full of NPCs puts every
-            -- peer on the painted overflow tier -- which is the tier a session then spends its
-            -- time judging, without anyone noticing it was never the engine-driven one
-            -- (2026-09-12: a "the ghost looks bad" report read against ghosts=0).
+            -- budget is the object slots this map has left: without it, ghosts=0 can mean none wanted or none free.
             "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d budget=%s hw=%d drawn=%d "
                 .. "clipped=%d overworld=%s inGame=%s slide=%d/%d paused=%d",
             frameCounter, tostring(connected), tostring(ready), tostring(currentPort),
@@ -13565,21 +7626,9 @@ local function runFrame()
             (tiering.slide or {}).legs or 0, (tiering.slide or {}).step or 0,
             (tiering.slide or {}).paused or 0))
         tiering.slide = { step = 0, legs = 0, paused = 0 }
-        -- "Peers are known but none of them is being rendered" is its own failure, and the status
-        -- counts above cannot tell which of the two reasons it is: the peer is somewhere else, or
-        -- it is here and the spawn declined. area_id is opaque and compared by equality, so
-        -- printing both sides settles it in one line. Only when the counts actually disagree.
-        -- **AND NOTHING PAINTED EITHER (corrected 2026-09-11).** This asked only whether the
-        -- SPAWNED tier had anyone, which was a fair question while spawned was the primary
-        -- rung — but the shipped ladder is drawn-only now, so `nGhosts` is always 0 and this
-        -- printed "unrendered" for every peer on every status line while the painted tier was
-        -- happily drawing them. A diagnostic that fires when nothing is wrong is worse than
-        -- none: it was read as the explanation for a real fault on another instance and cost
-        -- time before the counts were compared.
+        -- Peers known and none rendered on any tier: both area ids tell a peer elsewhere from one declined here.
         if nRemotes > 0 and nGhosts == 0 and nDrawn == 0 then
-            -- Rebuilt from memory rather than reused: the smoothed area id is a local of the
-            -- block further down and is not in scope here, and this is a once-per-300-frames
-            -- diagnostic, so a fresh read costs nothing.
+            -- A fresh read: the smoothed area id is not in scope here.
             local b = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
             local localArea = b ~= 0
                 and (memory.read_s8(b + 0x04) .. ":" .. memory.read_s8(b + 0x05)) or "nil"
@@ -13589,9 +7638,7 @@ local function runFrame()
                     tostring(r.x), tostring(r.y)))
             end
         end
-        -- Collision follows the object's map coordinates; drawing follows the sprite's screen
-        -- position. A ghost whose hitbox sits away from its picture means those two disagree, so
-        -- both are logged next to the player's own pair as the control.
+        -- Collision follows the object's coordinates, drawing the sprite's position: both, beside the player's pair.
         local sb1 = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
         if sb1 ~= 0 then
             local pObjId = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
@@ -13612,9 +7659,7 @@ local function runFrame()
                     r8(ga + 0x1c), tostring(remotes[playerId] and remotes[playerId].anim)))
                 logFile(string.format("         gfx: ghost drawn as %s, peer reports %s",
                     tostring(g.gfx), tostring(remotes[playerId] and remotes[playerId].gfx)))
-                -- Ghost vs PLAYER, field by field. The player's sprite is the control: it is the
-                -- one that definitely renders, so any field that differs is a candidate and any
-                -- field that matches is ruled out. Beats reasoning about which write was wrong.
+                -- Ghost against player, field by field: the player's sprite is the control that renders.
                 local ps = sprAddr(r8(pa + 0x04))
                 local function spr(tag, a)
                     logFile(string.format(
@@ -13633,42 +7678,27 @@ local function runFrame()
 
     if connected then
         local state = frameState
-        -- The session ended (title screen / soft reset). Announce it by dropping the bridge --
-        -- see the session table's declaration for why going quiet is not enough. Cleared
-        -- unconditionally so a drop is attempted exactly once per edge even if resetBridge
-        -- throws; the next frame reconnects.
+        -- The session ended (title screen, soft reset): drop the bridge, since going quiet is not enough (see
+        -- session). Cleared first, so the drop runs once per edge even if resetBridge throws.
         if session.ended then
             session.ended = false
             console.log("MeshGhost: left the game (title screen) -- dropping the bridge so peers "
                 .. "stop seeing this ghost.")
-            -- Resolved once per session, and the next session may be a different save or a new
-            -- game with the other gender chosen -- keeping the old answer would dress every peer's
-            -- view of this player in the previous save's character for the rest of the emulator
-            -- session, since readLocalGender only ever runs while this is nil.
+            -- The next session may be another save with the other gender; readLocalGender runs only while nil.
             localGender = nil
             resetBridge()
         end
         local smoothX, smoothY, smoothAreaId
         if state then
-            -- inOverworld() gate added 2026-08-14 -- see readLocalGender's header comment for
-            -- why: getLocalState() succeeding alone (gSaveBlock1Ptr non-null) isn't confirmed
-            -- to mean a real save is loaded and the player has actually chosen a gender yet.
+            -- Only in the overworld: a non-null save block alone does not mean a gender has been chosen.
             if not localGender and inOverworld() then
                 localGender = readLocalGender()
                 if localGender then
                     console.log("MeshGhost: local gender = " .. localGender)
                 end
             end
-            -- THE ENGINE'S OWN STEP SPEED, from the player's sprite rather than guessed from the
-            -- animation tag. `NpcTakeStep` indexes its tables by `sprite->data[4]` (MOVE_SPEED_*)
-            -- and spends `sStepTimes[speed]` frames on a tile: 16, 8, 6, 4, 2
-            -- (documentation.md, "A step is a fixed table, one entry a frame"). data[0] is at
-            -- 0x2E, so data[4] is 0x36.
-            --
-            -- This is the one source that describes every gait -- walking, running, both bikes,
-            -- surfing -- because it is what the engine itself steps by. `anim` describes only two
-            -- of them and `gPlayerAvatar.bikeSpeed` reads STANDING on foot AND on the acro bike,
-            -- which is how a bike ended up ramped at walking pace.
+            -- The engine's own step speed, sprite data[4], mapped to frames per tile: the one source covering every
+            -- gait, since anim names two and bikeSpeed reads standing on the Acro Bike.
             local mspd = rs16(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x36)
             if mspd < 0 or mspd > 4 then mspd = nil end
             local stepFrames = mspd and ({ [0] = 16, [1] = 8, [2] = 6, [3] = 4, [4] = 2 })[mspd]
@@ -13685,17 +7715,14 @@ local function runFrame()
                     "MeshGhost DIAG CURVE: frame=%d smoothX=%.4f smoothY=%.4f realScreenX=%d realScreenY=%d realDX=%d realDY=%d",
                     frameCounter, smoothX, smoothY, realX, realY, deltaX, deltaY))
             end
-            -- Not until bridge_ready. "The socket connected" is not "this core is ours", and
-            -- sending state to a core that is about to reject us is state sent to somebody
-            -- else's session (agent_docs/contract.md, PROTOCOL.md's tick loop).
+            -- Not until bridge_ready: a connected socket is not yet a core that accepted us.
             if ready then
                 if MESHGHOST_EMERALD_PROFILE then tiering.profT = os.clock() end
                 -- On the table rather than in locals: this chunk is at Lua's 200-local ceiling.
                 genderFrames.sendGfx = localGraphicsId()
                 flyRide.sample(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05),
                     r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
-                -- The door the engine has open right now, if any. On the table for the same
-                -- reason everything else here is: this chunk is at Lua's 200-local ceiling.
+                -- The door the engine has open now, if any.
                 genderFrames.dk, genderFrames.dx, genderFrames.dy = genderFrames.door.sample()
                 genderFrames.sendAnim, genderFrames.sendIdx = genderFrames.coherentAnim(
                     genderFrames.sendGfx,
@@ -13704,51 +7731,25 @@ local function runFrame()
                 sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation,
                     state.anim, localGender or "male", genderFrames.sendGfx,
                     genderFrames.sendAnim, genderFrames.sendIdx,
-                    -- movementActionId (+0x1C; its values were read on the player's own object
-                    -- event, 2026-08-21, see the JUMP_SPECIAL note): what
-                    -- the engine is currently making this character DO. A ledge hop is a jump
-                    -- action, and no amount of watching positions can recover that -- see the
-                    -- remote side for why.
+                    -- movementActionId: what the engine is making this character do; no position recovers a ledge hop.
                     r8(GOBJECTEVENTS_ADDR + avatarAddrOffset
                         + r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05) * OBJECTEVENT_SIZE
                         + 0x1c),
-                    -- pos2 (+0x24/+0x26): the sprite offset the game's own TASKS move a character
-                    -- by. Fishing shifts it to 8,0 to keep the character on its tile inside a
-                    -- 32-wide frame -- and a ghost has no task, so without this it sits half a
-                    -- tile off exactly when it picks up the rod.
-                    --
-                    -- Taken from localGraphicsId's paired values, NOT read fresh here: while a new
-                    -- graphic is being held back, its offset must be held with it, or the peer
-                    -- gets the old graphic wearing the new offset.
+                    -- pos2, the offset the game's tasks move a character by (a ghost has no task): localGraphicsId's
+                    -- pair, so a held-back graphic keeps its own offset.
                     genderFrames.sendSox or 0, genderFrames.sendSoy or 0,
-                    -- animPaused (bit 0x40 of the sprite's +0x2C): whether the animation is
-                    -- RUNNING. The overworld pauses an idle character's sprite, so this is what
-                    -- tells a ghost to hold a frame rather than play the loop.
+                    -- animPaused: an idle character's sprite is paused, so a ghost holds a frame.
                     ((r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2c) & 0x40)
                         ~= 0) and 1 or 0,
-                    -- gPlayerAvatar.bikeSpeed (+0x0B): taken as the game's OWN statement of how
-                    -- fast this character is moving, as a PLAYER_SPEED_* (offset and value
-                    -- meanings per the decompilation, a pointer; only 0 on foot is measured).
-                    --
-                    -- A stable field, which is the point. The first attempt read the speed out of
-                    -- movementActionId, and that is a TRANSIENT: sampled at 20Hz it caught
-                    -- WALK_NORMAL or a turn as often as the fast action, so six steps in ten fell
-                    -- back to walking pace behind a peer at bike speed (measured 2026-08-19,
-                    -- `spd=` counters: walk/run=6 against 2D=3 and 15=1).
+                    -- gPlayerAvatar.bikeSpeed: a stable field, where movementActionId is transient at the send rate.
                     r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x0b),
-                    -- disableAnim (bit 0x04 of the object event's +0x01; held set through an ice
-                    -- slide, measured 2026-08-21): "this character may not animate", which a movement cannot
-                    -- override. See encodeLocalState for why spaused alone was not enough.
+                    -- disableAnim: this character may not animate, which outranks a movement (see encodeLocalState).
                     ((r8(GOBJECTEVENTS_ADDR + avatarAddrOffset
                         + r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05) * OBJECTEVENT_SIZE
                         + 0x01) & 0x04) ~= 0) and 1 or 0,
-                    -- The four that say the engine has stopped drawing this character at all:
-                    -- the object's `invisible` bit, the vehicle standing on its tile, and the two
-                    -- halves of a Fly. Sampled together, one frame, one pass over the object and
-                    -- task tables -- see flyRide.sample.
+                    -- The engine stopped drawing this character: invisible, a vehicle on its tile, a Fly's halves.
                     flyRide.invis, flyRide.boat, flyRide.fly, flyRide.flyk,
-                    -- The door, and the only group here that is absent from the packet entirely
-                    -- when there is nothing to say -- encodeLocalState's header has why.
+                    -- The door, absent from the packet when there is none (encodeLocalState says why).
                     genderFrames.dk, genderFrames.dx, genderFrames.dy, genderFrames.sendMspd))
                 if tiering.profT then
                     local pr = tiering.prof or {}
@@ -13770,33 +7771,12 @@ local function runFrame()
             end
         end
 
-        -- Reuses the SAME smoothed self-position just computed above (not a fresh raw
-        -- integer re-read) as the anchor for placing remotes -- found live 2026-08-11 that
-        -- anchoring on the raw integer tile position while playerScreenPos() (used inside
-        -- drawRemotes) is a smooth, continuously-updating pixel position made even a
-        -- perfectly stationary remote's ghost visibly wobble on this client's own screen
-        -- whenever the local player was mid-step. Skips drawing for the rare single frame
-        -- where state is nil (the map-transition debounce) rather than falling back to a
-        -- raw read that wouldn't be consistent with what was just sent to the network.
+        -- The smoothed self-position just sent anchors the remotes; the rare nil-state frame skips drawing rather
+        -- than read a raw position that disagrees with it.
         if connected and inOverworld() and smoothX then
-            -- ONE render path on both builds, since 2026-08-19. This used to branch on
-            -- avatarAddrOffset: a patched ROM got the drawn overlay instead of real spawns,
-            -- because gObjectEvents' Archipelago relocation was measured while gSprites' was
-            -- not, and writing an unmeasured address corrupts whatever now lives there.
-            -- gSprites is measured now and it does NOT move -- gObjectEvents shifts by 0x284 on
-            -- the Archipelago build, gSprites does not shift at all (probes/gsprites_scan_probe.lua,
-            -- verified.md 2026-08-19). So the split is gone, and with it the reason the drawn
-            -- renderer had to exist for anything but the overflow tier.
-            --
-            -- Nothing here relies on that measurement being right on some FUTURE patched build:
-            -- spawnGhost() refuses to write a byte unless the player's own object/sprite
-            -- cross-link resolves through gSprites first, so a build that did move it gets a
-            -- logged refusal rather than a corrupted sprite.
-            --
-            -- BEFORE THE TIERS, because a door is not a peer and belongs to none of them. It is
-            -- scenery the engine draws into the background, so it is neither spawned, nor a
-            -- hardware sprite, nor painted -- and a peer whose ghost no tier had room for still
-            -- gets their door, which is right: the door is the part you can see from across town.
+            -- One render path on both builds: spawnGhost refuses to write unless the player's own object/sprite
+            -- cross-link resolves through gSprites, so a build that moved it gets a logged refusal.
+            -- The door first: it is background scenery and belongs to no tier, so a peer no tier could take keeps it.
             genderFrames.doorTick(smoothAreaId)
             -- TIER ONE: real object events, as many as the map can spare (nearest peers win).
             if MESHGHOST_EMERALD_PROFILE then tiering.profT = os.clock() end
@@ -13807,36 +7787,26 @@ local function runFrame()
                 pr.sync = (pr.sync or 0) + (os.clock() - tiering.profT)
                 tiering.profT = os.clock()
             end
-            -- Independent of the drawn tier: a spawned ghost needs this whether or not the
-            -- overflow tier is on, so it cannot live inside drawRemotes.
+            -- Spawned ghosts need this whether or not the painted tier is on, so it lives outside drawRemotes.
             drawGhostShadows()
             if MESHGHOST_EMERALD_PROFILE and tiering.prof then
                 tiering.prof.shadows = (tiering.prof.shadows or 0) + (os.clock() - tiering.profT)
                 tiering.profT = os.clock()
             end
-            -- The PAINTED tier, now the third rung rather than the second. Flag-gated -- see
-            -- FLAGS.md and BANDAGES.md. A drawn ghost has no engine occlusion of its own, so it clips
-            -- against the panel regions tiering.scanPanel() measures per row, rather than
-            -- painting over a text box or menu the way an unclipped overlay would.
-            -- TIER TWO: hardware sprites the PPU draws, for peers the engine had no room for.
-            -- Preferred over painting because it is both cheaper and BETTER -- real background
-            -- priority and a live palette, which is exactly what the painted tier has to fake or
-            -- simply lacks. Flag-gated (FLAGS.md); off leaves the ladder as it was.
+            -- TIER TWO: hardware sprites the PPU draws, for peers the engine had no room for: cheaper than painting,
+            -- with real background priority and a live palette. Flag-gated.
             local hwSet = tiering.chooseHardware(smoothAreaId, smoothX, smoothY, spawnSet)
             renderHardwareGhosts(smoothAreaId, smoothX, smoothY, hwSet)
-            -- WHO THE PAINTED TIER MUST SKIP: the engine's peers AND the hardware ones. Merged into
-            -- one set rather than passing two, because drawRemotes already takes exactly this
-            -- question ("is somebody else drawing this peer?") and the answer is now yes for two
-            -- different reasons. Built fresh each frame -- mutating spawnSet in place would corrupt
-            -- the tiering decision for the following frame.
+            -- The painted tier skips both tiers' peers; a fresh set, since mutating spawnSet would corrupt the
+            -- next frame's tiering.
             local drawnSkip = spawnSet
             if next(hwSet) then
                 drawnSkip = {}
                 for id in pairs(spawnSet) do drawnSkip[id] = true end
                 for id in pairs(hwSet) do drawnSkip[id] = true end
             end
-            -- TIER THREE: everyone neither of the two above could take, painted over the finished
-            -- frame so that no peer is ever simply absent.
+            -- TIER THREE: everyone else, painted over the finished frame so no peer is absent. Flag-gated; it clips
+            -- against tiering.scanPanel's rows rather than paint over a text box.
             if tiering.drawn then
                 drawRemotes(smoothAreaId, smoothX, smoothY, drawnSkip)
             elseif COMPARE_TIERS then
@@ -13850,40 +7820,16 @@ local function runFrame()
     end
 end
 
--- nil, NOT 0. Starting at 0 made the rate limit swallow every error in the first 300 frames --
--- `frameCounter - 0 > 300` is false there -- which is exactly the window connecting, the port
--- walk, address detection and the first spawns all happen in. A startup error was therefore
--- invisible by construction, in the one place a log is most wanted. Found by reading, 2026-08-19:
--- an error the fix in drainBridge() removes fired on every bridge rejection and left no trace in
--- any of the eight session logs that recorded a rejection.
--- Two fields on one table rather than two locals: the main chunk is AT Lua's 200-local ceiling,
--- and the two-tier renderer needed the slot. frameErrors.lastLogged / .consecutive.
+-- lastLogged starts nil, not 0: 0 would swallow every error in the first 300 frames, where connecting and
+-- detection happen. consecutive tells a blip from a subsystem that has been failing for thousands of frames.
+-- One table rather than two locals: the main chunk is at Lua's 200-local ceiling.
 local frameErrors = { lastLogged = nil, consecutive = 0 }
--- BANDAGES.md entry 2: a blanket per-frame pcall cannot tell one malformed line from every frame
--- failing. This does not close that entry, but it stops the log lying about the difference --
--- the count says whether this is a blip or a subsystem that has been broken for 5000 frames.
 
--- THE SEAM TRACE -- a WINDOW around every crossing, never a line at the moment of one.
---
--- Built for two symptoms the user reported on 2026-09-12, both at a route/town connection: the
--- drawn ghost SNAPS when the LOCAL player crosses, and a peer crossing one looks like it SLOWS
--- DOWN. Those are questions about five things that have to agree, so all five go on one line, per
--- frame, per peer: the connection table's state, the wire (srcAreaId/sx/sy), the translation into
--- our frame (x/y), the glide model (gX/gY) and the PAINTED screen position. Watching any one of
--- them alone is what made this exact class of fault take nine tries in Crystal
--- (agent_docs/pitfalls/by-lesson.md, "from stuttery to clean", layer 2).
---
--- `conns` IS THE FIRST COLUMN ON PURPOSE. xmapBuild stamps connsFor with the new map before it
--- reads anything, so a read that lands mid-load latches an EMPTY table as valid and nothing ever
--- re-reads it -- after which a rebase silently does nothing and a peer stops being translated.
--- Crystal's own build clears connsFor instead, with a comment recording that PACING a seam makes
--- builds land mid-load constantly. The count here is what tells those apart on the record.
---
--- Defined at the END of the file, not beside the xmap block it belongs to: every local it reads
--- (rs16, session, the camera addresses, remotes) is declared later in the file than that block,
--- and a function closing over a not-yet-declared local silently reads a nil GLOBAL instead -- the
--- late-binding trap this file has already paid for twice. On `tiering`, not a new top-level local:
--- this chunk is at Lua's 200-local ceiling.
+-- The seam trace: a window around every crossing, one line per frame with, for each peer, the connection
+-- table, the wire, the translation, the glide and the painted position, the five things that must agree.
+-- conns comes first: xmapBuild stamps connsFor before reading, so a mid-load read can latch an empty table.
+-- Defined here because every local it reads is declared after the xmap block; on tiering for the 200-local
+-- ceiling.
 tiering.seamTraceTick = function()
     local xm = genderFrames.xmap
     local key = genderFrames.xmapLocalKey()
@@ -13891,12 +7837,8 @@ tiering.seamTraceTick = function()
     if sb1 == 0 then return end
     local nconn = 0
     for _ in pairs(xm.conns or {}) do nconn = nconn + 1 end
-    -- The EVENT that opens the window: either end of a crossing. A local one is our own map key
-    -- changing; a peer's is its wire area changing. Both are recorded, because the two symptoms
-    -- are the same crossing watched from the two sides.
-    -- NOT `event`: that is BizHawk's own API table, which this file registers hooks through.
-    -- Shadowing a host global inside a function is how a later line in it silently loses the
-    -- API (preflight's Lua-globals check caught this one, 2026-09-13).
+    -- Either end of a crossing opens the window: our map key changing, or a peer's wire area. Not named
+    -- `event`, which is BizHawk's API table.
     local seamEvent = nil
     if tiering.seamLastKey and key and tiering.seamLastKey ~= key then
         seamEvent = "LOCAL " .. tostring(tiering.seamLastKey) .. "->" .. tostring(key)
@@ -13911,9 +7853,7 @@ tiering.seamTraceTick = function()
                 .. "PEER " .. id .. " " .. tostring(prev) .. "->" .. tostring(r.srcAreaId)
         end
         tiering.seamLastSrc[id] = r.srcAreaId
-        -- WHAT WAS PAINTED, or that nothing was. The draw site stamps these for the frame it drew;
-        -- an unstamped frame means the peer was culled, off screen, or never reached the paint --
-        -- which is a finding, not a blank, so it is spelled out rather than left as a stale number.
+        -- What was painted this frame, or NOT-PAINTED: culled, off screen or never reached is a finding.
         local scr = (r.dbgScreenAt == frameCounter)
             and string.format("%.1f,%.1f", r.dbgScreenX or 0, r.dbgScreenY or 0) or "NOT-PAINTED"
         parts[#parts + 1] = string.format(
@@ -13922,10 +7862,7 @@ tiering.seamTraceTick = function()
             tostring(r.x), tostring(r.y), tostring(r.gX), tostring(r.gY),
             scr, tostring(r.gStepping), tostring(r.gDist), tostring(r.anim))
     end
-    -- THE PORT IS THE FIRST FIELD because both emulators in a two-instance rig share this script's
-    -- folder and therefore this log. An instrument that cannot say WHICH instance it measured is
-    -- not an instrument -- the same lesson dev-scripts/tevi-label-windows.ps1 exists for, and the
-    -- same one behind the per-game screenshot folders in probes.md.
+    -- The port first: both emulators in a two-instance rig share this script's folder, and so this log.
     local line = string.format(
         "p%s f=%d key=%s tile=%d,%d sent=%s@%s,%s camPix=%d,%d conns=%d@%s our=%s,%s "
             .. "anchor=%s,%s origin=%s,%s anchorArea=%s | %s%s",
@@ -13944,8 +7881,7 @@ tiering.seamTraceTick = function()
     tiering.seamRing = tiering.seamRing or {}
     local ring = tiering.seamRing
     ring[#ring + 1] = line
-    -- 60 frames of lead-in kept at all times, 150 frames of tail once a crossing opens the window:
-    -- one second either side at 60fps, which is the span both symptoms live in.
+    -- 60 frames of lead-in kept at all times, 150 of tail once a crossing opens the window.
     if seamEvent and not tiering.seamDumpUntil then tiering.seamDumpUntil = frameCounter + 150 end
     if not tiering.seamDumpUntil then
         while #ring > 60 do table.remove(ring, 1) end
@@ -13960,28 +7896,20 @@ tiering.seamTraceTick = function()
 end
 
 local function guardedFrame()
-    -- MESHGHOST_EMERALD_PROFILE (dev): price the LUA side of the frame. os.clock around runFrame,
-    -- reported once every 300 frames as an average -- cheap enough to leave on for a whole ride.
-    -- What it can and cannot see is the point of having it: a big number here means the cost is
-    -- in this script; a SMALL number while the fps is still low means the cost is in the emulator
-    -- core or another script, and no amount of adapter tuning will find it.
+    -- MESHGHOST_EMERALD_PROFILE (dev): the Lua side of the frame, averaged every 300 frames. A small number while
+    -- the fps is low puts the cost in the emulator core or another script.
     local t0
     if MESHGHOST_EMERALD_PROFILE then t0 = os.clock() end
     flushLogPeriodically()
+    -- pcall-wrapped so one malformed remote or odd memory read skips a frame instead of stopping the adapter.
     local ok, err = pcall(runFrame)
-    -- THE GAP ITSELF, logged the frame it happens. Cleared + a live compare ghost + zero paints
-    -- means the drawn copy was absent from this frame, which is the exact thing the user reports
-    -- and the exact thing every stored-state probe missed. Context on the line is what decides
-    -- WHERE the paint path bailed; consecutive gap frames all log, because the LENGTH of the gap
-    -- is part of the symptom.
+    -- The gap itself, every frame it lasts: cleared, a live compare ghost, and no body painted.
     if COMPARE_TIERS and tiering.overlayCleared then
         local ghostRemote = nil
         for id, rr in pairs(remotes) do
             if id:match("%-ghost$") then ghostRemote = rr break end
         end
-        -- BODY specifically. The first version counted every drawRunList call, and a frame where
-        -- only the ghost's REFLECTION painted read as "no gap" -- while the user watched the body
-        -- vanish. The reflection and the body are separate paints, and the symptom is the body's.
+        -- The body specifically: a frame where only the reflection painted is still a gap.
         if ghostRemote and not MG_BODY_PAINTED then
             local g2 = nil
             for id in pairs(remotes) do
@@ -13994,10 +7922,8 @@ local function guardedFrame()
                 tostring(g2 and ghostAlive(g2) or false), tostring(tiering.hw.placed)))
         end
     end
-    -- AFTER runFrame, so the painted position on the line is the one this frame actually drew.
-    -- The global is read here rather than latched at load so the probe can be armed mid-session
-    -- through the dev loader; `pcall` because an instrument must never be able to take the
-    -- adapter down, and a trace that errors would do it every frame.
+    -- After runFrame, so the line has this frame's painted position; the global is read live so the dev loader
+    -- can arm it, and pcall'd so an instrument can never take the adapter down.
     if tiering.seamTrace or MESHGHOST_EMERALD_SEAM_TRACE then pcall(tiering.seamTraceTick) end
     MG_DRAWN_CALLS, MG_BODY_PAINTED, tiering.overlayCleared = 0, nil, nil
     if t0 then
@@ -14006,12 +7932,9 @@ local function guardedFrame()
         frameErrors.profN = (frameErrors.profN or 0) + 1
         if dt > (frameErrors.profMax or 0) then frameErrors.profMax = dt end
         if frameErrors.profN >= 300 then
-            -- Sections, so a number has a name. Accumulated inside runFrame under the same flag.
+            -- Per section, accumulated inside runFrame; to the log file too, since only a person at the emulator
+            -- reads the console.
             local p = tiering.prof or {}
-            -- TO THE LOG FILE AS WELL AS THE CONSOLE (2026-09-11). console.log is a GUI append
-            -- that only a person sitting at the emulator can read, so the one instrument that can
-            -- ATTRIBUTE this tier's cost could not be collected by anything automated -- which is
-            -- how a tier-cost question got answered with reasoning instead of measurement.
             local profLine = string.format(
                 "MeshGhost PROFILE: lua avg %.3f ms, worst %.1f ms | send %.3f drain %.3f sync %.3f shadows %.3f draw %.3f (ms avg)",
                 frameErrors.profSum / frameErrors.profN * 1000, (frameErrors.profMax or 0) * 1000,
@@ -14043,9 +7966,7 @@ local function guardedFrame()
             console.log(profLine)
             logFile(profLine)
             frameErrors.profSum, frameErrors.profN, frameErrors.profMax = 0, 0, 0
-            -- MG_SPANS is NOT zeroed: the drawn-gap detector at the paint site samples it
-            -- before and after a frame's painting, and a reset between those two reads is
-            -- indistinguishable from "nothing was painted". Take a mark and diff it.
+            -- MG_SPANS is marked, not zeroed: the paint site diffs it around a paint, and a reset reads as nothing.
             MG_DRAWN_PASSES, MG_DRAWN_RUNS, MG_DRAWN_LOOP = 0, 0, 0
             MG_RSPANS_T, MG_RSPANS_N, MG_PANEL_T = 0, 0, 0
             MG_RF_T, MG_RF_N = 0, 0
@@ -14059,49 +7980,28 @@ local function guardedFrame()
         return
     end
     frameErrors.consecutive = frameErrors.consecutive + 1
-    -- Rate-limited after the first: a per-frame error would otherwise spam the console every
-    -- 1/60s. The FIRST one always logs, whenever it happens.
+    -- Rate-limited after the first, which always logs.
     if not frameErrors.lastLogged or frameCounter - frameErrors.lastLogged > 300 then
         console.log(string.format("MeshGhost: frame error (continuing, %d in a row): %s",
             frameErrors.consecutive, tostring(err)))
-        -- To the FILE as well: the console is invisible to log greps, and a per-frame error on
-        -- one side of a route seam hid behind exactly that on 2026-08-20.
+        -- To the file too: the console is invisible to log greps.
         logFile(string.format("FRAME ERROR (%d in a row): %s",
             frameErrors.consecutive, tostring(err)))
         frameErrors.lastLogged = frameCounter
     end
 end
 
--- Four lines of dev affordance, and the only one in this file: when loaded by
--- dev-scripts/bizhawk-dev-loader.lua (a development tool, never shipped), hand it the per-frame
--- function instead of taking the frame loop, so the adapter can be swapped and reloaded live like
--- any probe. A player opening this file in the Lua Console sets neither global and gets the
--- normal loop below, unchanged. Without this, testing an adapter edit costs a full emulator
--- relaunch each time, which is the cost the loader exists to remove.
--- ATOMIC FISHING ALIGNMENT. The game recomputes the fishing sprite's offset from the frame being
--- displayed, INSIDE the frame update, so image and offset do not disagree on screen for the
--- player (AlignFishingAnimationFrames is the pointer; the ghost's 8px flick is measured). A Lua script's
--- own writes land between frames, which is measurably too early or too late -- the engine steps
--- the animation before it builds OAM, so a between-frames offset is one frame out of phase with
--- the image, and the ghost flicks 8px sideways at every alignment change while the player and the
--- painted tier stay still.
---
--- So the alignment runs from a code hook at BuildOamBuffer (0x08006a0c, vanilla, from our own
--- pokeemerald.map build -- agent_docs/environment.md): sprite animations for the frame are final,
--- OAM is not yet built. The same point in the pipeline the game's own task has, which is what
--- makes it the same on screen. Vanilla-gated: an Archipelago ROM relocates code, so there the
--- alignment stays at the frame boundary (the mirror block above) until that ROM's address is
--- measured. Registered once per load: under the dev loader the previous load's hook survives in
--- the emulator, so it is unregistered first, and MESHGHOST_DEV_UNLOAD drops it with the sockets.
+-- The fishing alignment runs from an execute hook at BuildOamBuffer, where animations are final and OAM is not
+-- yet built: the point the game's own alignment runs at. From between frames it is a frame out of phase with
+-- the image, an 8px flick. Vanilla only, since an Archipelago ROM moves code; unregistered first, because
+-- under the dev loader the previous load's hook survives.
 if MESHGHOST_FISH_ALIGN_HOOK then
     pcall(event.unregisterbyid, MESHGHOST_FISH_ALIGN_HOOK)
     MESHGHOST_FISH_ALIGN_HOOK = nil
 end
 tiering.fishAlignActive = false
--- MESHGHOST_EMERALD_NO_FISH_HOOK (dev): skip registering the BuildOamBuffer execute hook.
--- Exists for one measurement (2026-08-20): an execute breakpoint can push the emulator CORE onto a
--- slow per-instruction path, a cost invisible to any Lua-side timer -- so the only way to price
--- this hook is to run the same route with and without it.
+-- MESHGHOST_EMERALD_NO_FISH_HOOK (dev): skip the hook, to price it; an execute breakpoint can slow the emulator
+-- core where no Lua timer sees.
 if avatarAddrOffset == 0 and not MESHGHOST_EMERALD_NO_FISH_HOOK then
     -- On tiering, not locals: the main chunk is at Lua's 200-local ceiling.
     tiering.hookOk, tiering.hookId = pcall(event.onmemoryexecute, function()
@@ -14111,19 +8011,7 @@ if avatarAddrOffset == 0 and not MESHGHOST_EMERALD_NO_FISH_HOOK then
             end
         end)
         if not aok then tiering.fishAlignActive = false end
-        -- THE PLAYER'S ANIMATION STATE, SAMPLED IN PHASE WITH THE PICTURE (2026-09-12).
-        --
-        -- The draw-order mask needs the silhouette the PPU is about to draw, and a read taken
-        -- between frames is a different frame's: this hook's own header records that the engine
-        -- steps sprite animations BEFORE it builds OAM, which is why the fishing alignment moved
-        -- here in the first place. Standing still the two agree and nothing shows; through a facing
-        -- change they do not, and the mask then cuts the ghost to a silhouette the player is not
-        -- wearing -- background through the notch. The user: *"the small transition from facing
-        -- left to right has some green in it"*.
-        --
-        -- Three reads, no allocation, and the frame stamp is what lets the mask say whether this is
-        -- fresh or whether it is falling back to the boundary read (a patched ROM never gets here:
-        -- the hook is vanilla-gated).
+        -- The player's animation, sampled in phase with the picture for the draw-order mask; the stamp says fresh.
         pcall(function()
             local pd = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
             genderFrames.pmSnapNum, genderFrames.pmSnapIdx, genderFrames.pmSnapAt =
@@ -14139,29 +8027,17 @@ if avatarAddrOffset == 0 and not MESHGHOST_EMERALD_NO_FISH_HOOK then
     end
 end
 
+-- Under dev-scripts/bizhawk-dev-loader.lua (never shipped) the loader takes the per-frame function instead of
+-- this file taking the frame loop, so the adapter reloads live; a player sets neither global.
 MESHGHOST_DEV_TICK = guardedFrame
 MESHGHOST_DEV_UNLOAD = function()
-    -- Three things, and every one of them leaked at some point on 2026-08-18:
-    --  * the BRIDGE SOCKET. A core serves exactly one adapter, so a leaked connection makes the
-    --    core reject the next load with "busy: this core already has a game attached" -- the port
-    --    walk then correctly looks elsewhere, finds nothing, and the adapter runs with no peers.
-    --    That cost a long detour debugging an "invisible ghost" that was really no connection.
-    --  * the GHOSTS. They are objects in the game; nothing else will ever clear them.
-    --  * the LOG FILE, a real OS handle -- leaking it locks the file on disk.
-    -- resetBridge() covers the first two (it despawns ghosts as part of dropping the connection).
-    -- hwReleaseAll(true) -- called inside resetBridge, and again below -- queues the hardware
-    -- tier's ranges as deferred frees stamped with the tier's area, and then CLEARS that area, so
-    -- the flush further down judged every one of them "no longer ours" and leaked ~13 bodies x 16
-    -- tiles per hot reload (measured 2026-09-02 with the tile probe: +208 bits per reload with a
-    -- crowd up; a first fix captured the area AFTER resetBridge and measured the same +200).
-    -- Remember the area before anything releases; a range stamped with it was ours until now.
+    -- Releases the bridge socket (a core serves one adapter), the ghosts (game objects nothing else clears) and
+    -- the log file. The hardware area is remembered first: hwReleaseAll clears it, and every range it queued
+    -- would then read as not ours.
     local hwAreaAtUnload = tiering.hw.area
     pcall(resetBridge)
     pcall(hwReleaseAll, true)
-    -- FLUSH THE DEFERRED FREES -- the queue's service point dies with this script, so anything
-    -- still waiting would leak its bits into the live session's bitmap forever (the dev loader
-    -- swaps scripts constantly, so this is the common path, not a corner). The age gate is
-    -- dropped; the ownership tests are not.
+    -- Flush the deferred frees now, as their service point dies with this script: ownership still checked.
     pcall(function()
         for _, e in ipairs(genderFrames.deferredTileFrees or {}) do
             local stillOurs
@@ -14178,10 +8054,7 @@ MESHGHOST_DEV_UNLOAD = function()
         pcall(event.unregisterbyid, MESHGHOST_FISH_ALIGN_HOOK)
         MESHGHOST_FISH_ALIGN_HOOK = nil
     end
-    -- A fourth: console.log itself. This script REPLACES the emulator's global console.log with a
-    -- wrapper that also writes the log file, and never put it back -- so under the dev loader each
-    -- reload wrapped the previous wrapper, one layer deeper every time, with every dead layer
-    -- still on the call path for the rest of the emulator session. Restore what was there.
+    -- Restore console.log, which this script wraps, or each reload wraps the previous wrapper.
     if rawConsoleLog then console.log = rawConsoleLog end
     if logfile then
         logfile:close()

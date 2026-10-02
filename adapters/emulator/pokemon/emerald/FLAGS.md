@@ -123,14 +123,14 @@ And the harder version: **a flag flip is not a revert** — verify the switch di
 the hardware copy now sits two tiles LEFT of the painted one with all three tiers in the player's
 row. It was stacked above the spawned copy until the surf blob and the reflection landed on this
 tier and there was something UNDER each character to look at — two tiles of separation put every
-copy's blob and reflection on top of the one below it. User's call, and the reason is in the
-table's own comment.
+copy's blob and reflection on top of the one below it. User's call; the comment that gave the reason
+is in `pitfalls/by-lesson.md`, "The stories behind the code" (2026-10-02).
 
 ## Added 2026-08-21 (dive session)
 
 | Flag | Where | Default | What it does |
 | --- | --- | --- | --- |
-| `MESHGHOST_EMERALD_NO_ANIM_RESTART` | **global only** — no `os.getenv` for it | unset — restarts suppressed only inside the **6**-frame post-swap cooldown (`ANIM_RESTART_COOLDOWN`, whose own comment reads *"SIX FRAMES, NOT THIRTY"*: the measured tear window is the OAM pipeline's ~2 frames plus margin. This row said 30, and "global or environment", until 2026-08-27) | **Probe.** Forces the engine-animation-restart suppression EVERYWHERE, not just near a graphic swap. This is the subtraction experiment that proved the grey/flash scramble was the engine's restart copy tearing mid-frame (`pitfalls.md`, 2026-08-21); it survives as the flag because re-running that experiment is how a recurrence would be diagnosed. Set, every ghost pose is driven purely by the wire mirror's boundary-time loads — fishing's engine-driven cast animation stops advancing between wire updates, which is why it must never ship set. |
+| `MESHGHOST_EMERALD_NO_ANIM_RESTART` | **global only** — no `os.getenv` for it | unset — restarts suppressed only inside the **6**-frame post-swap cooldown (`ANIM_RESTART_COOLDOWN`: the measured tear window is the OAM pipeline's ~2 frames plus margin. This row said 30, and "global or environment", until 2026-08-27) | **Probe.** Forces the engine-animation-restart suppression EVERYWHERE, not just near a graphic swap. This is the subtraction experiment that proved the grey/flash scramble was the engine's restart copy tearing mid-frame (`pitfalls.md`, 2026-08-21); it survives as the flag because re-running that experiment is how a recurrence would be diagnosed. Set, every ghost pose is driven purely by the wire mirror's boundary-time loads — fishing's engine-driven cast animation stops advancing between wire updates, which is why it must never ship set. |
 
 ## Added 2026-08-21 (dive session, later)
 

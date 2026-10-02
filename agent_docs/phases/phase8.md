@@ -1334,3 +1334,19 @@ and DIVE; then which badge each field move needs, from the party menu (48 trials
 The A5 comment pass moved the autoplay driver's game facts that no record held into Emerald's `MEASURED.md`, entry
 "2026-10-02 — Facts the code comments carried, moved here word for word" (map-read ones under "Not measured yet").
 The account is `phase13.md`, same date.
+
+## 2026-10-02 — the adapter's comments cut to what and why (A5)
+
+`meshghost_emerald.lua` went from 14,197 lines to 8,070 (whole-line comments 7,439 → 1,315), edited in six parts by
+subagents and joined (the account is `phase12.md`, same date). Code unchanged: `luac -l -l` listings of the parent and
+of this file, line numbers stripped, identical. History no record held is in `pitfalls/by-lesson.md`, "The stories
+behind the code"; game facts and adapter timings went to `MEASURED.md`, 2026-10-02 (the ones the comments said came from
+the decomp, under "Not measured yet"). Stale claims fixed on the way, among them: the drawPixel overlay said to serve ROMs
+it cannot write to (the shipped ladder is drawn-only; the spawned cap defaults to 0), the real shadow sprite said
+disabled (`shadowSpriteEnabled` is true), the layout and map header said read at vanilla addresses on Archipelago (the
+layout is found; only the header moved), a draw-order tie said to keep the ghost in front (a tie goes behind), and the
+painted shadow said to be compare-mode only (it draws for any jumping peer). `FLAGS.md`'s two rows that quoted comments
+now gone were reworded. Found and not changed (code, not comments): `SPRITECB_UNDERWATERSURFBLOB_CB` and
+`GDUMMYSPRITETEMPLATE` are unused, `onX`/`onY`/`seen` in the grass block are computed and never read, `FLAGS.md` has no
+row for `MESHGHOST_EMERALD_SEAM_TRACE`, and `pitfalls/by-lesson.md` says the side-hop lock should come off when the peer
+stops side hopping where the code releases it when the ghost stands on its target.
