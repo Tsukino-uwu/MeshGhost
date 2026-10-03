@@ -16,40 +16,16 @@ param(
     [string]$ScratchRoot = (Join-Path $env:TEMP "meshghost-negtest")
 )
 
-# MeshGhost -- prove that preflight's gates can FAIL.
-#
-# WHY THIS EXISTS. On 2026-09-11 the leak check's new IP scan reported PASS on a tree with a
-# planted public address in it, through three independent bugs: a POSIX grep that rejected the
-# lookarounds outright (exit 128), a PowerShell brace mangling that turned the pattern into a
-# revision, and an exit-code test that read "I could not run" as "nothing found". Every one of
-# them was invisible in the only direction anyone ever ran the check -- against a clean tree,
-# where the right answer and the broken answer are the same word.
-#
-# THE RULE THAT CAME OUT OF IT: a gate never seen to fail is indistinguishable from a gate that
-# cannot fail. The corollary is that "we negative-tested it once" is not durable either, because
-# all three of those bugs entered a check that had been correct earlier. So this is a standing
-# harness rather than an audit: it plants a real violation, runs preflight, and asserts the
-# section NAMES it.
-#
-# HOW IT WORKS. A detached git worktree at HEAD is the tree under test -- never your working copy,
-# which may hold uncommitted work and which a planted leak must never touch. The preflight script
-# copied into it is YOUR WORKING COPY'S, so this tests the script you are about to commit against
-# a known-clean tree. One fixture per run, reset in between, so a FAIL is attributable to exactly
-# one planted violation.
-#
-# Read-only with respect to the clone: it writes only under $ScratchRoot and removes the worktree
-# when it is done.
-#
-# Exit code 0 = every fixture's gate saw its violation. 1 = at least one gate did not.
+# MeshGhost -- prove that preflight's gates can fail: each fixture plants one real violation in a detached worktree
+# at HEAD, runs the working copy's preflight against it, and asserts the section names it. A gate never seen to fail
+# cannot be told from one that cannot fail. Writes only under $ScratchRoot and removes the worktree when done.
+# Exit 0: every fixture's gate saw its violation; 1: at least one did not.
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-# Explicit, never bare `powershell` off PATH -- CLAUDE.md's rule, and the reason preflight has a
-# section for it. $PSHOME is whichever edition is running this script, so this resolves to 5.1's
-# powershell.exe locally and to pwsh.exe under a CI job that uses `shell: pwsh` -- the same two
-# editions docs.yml and a local run already put preflight through.
+# $PSHOME's own executable, never a bare `powershell` off PATH: 5.1 locally, pwsh under a CI job with `shell: pwsh`.
 $psExe = Join-Path $PSHOME "powershell.exe"
 if (-not (Test-Path -LiteralPath $psExe)) { $psExe = Join-Path $PSHOME "pwsh.exe" }
 if (-not (Test-Path -LiteralPath $psExe)) { throw "no PowerShell executable in `$PSHOME ($PSHOME)" }
@@ -64,11 +40,7 @@ function Report-Info($msg) { Write-Host "        $msg" -ForegroundColor DarkGray
 # ---------------------------------------------------------------------------
 # Plant helpers.
 #
-# EVERY ONE OF THEM READS THE FILE BACK. A plant that silently did nothing is the exact failure
-# this harness exists to catch, one level up: the fixture would report "the gate did not see it"
-# when there was nothing to see, and the fix would be applied to an innocent gate. CLAUDE.md's
-# rule for scripted edits -- grep the result, never trust the write -- applies hardest to the
-# script whose whole job is distrusting a clean result.
+# Every plant reads its file back: one that silently did nothing would blame an innocent gate.
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
@@ -268,7 +240,7 @@ $fixtures = @(
         Why = 'a fenced block in a documentation.md -- the shape all three reproduced-expression violations shared'
         Plant = { param($wt) Plant-TextLine $wt 'adapters/_template/documentation.md' "``````text`nplanted by the negative-test harness`n``````" } },
 
-    # ---- the 2026-09-16 sweep: every gate that runs under -TreeOnly gets at least one fixture ----
+    # ---- every gate that runs under -TreeOnly gets at least one fixture ----
 
     @{  Name = 'duration-vague'
         Section = 'Invented durations'
@@ -553,9 +525,9 @@ $fixtures = @(
         Plant = { param($wt) Plant-TextLine $wt 'docs/hosting.md' "## Contents`n`n- [Planted by the negative-test harness](#planted)" } },
 
     @{  Name = 'comment-trace-date'
-        Section = 'Comment traces in code (ratchet)'
+        Section = 'Comment traces in code'
         Expect = 'FAIL'
-        Why = 'a dated code comment added above the floor'
+        Why = 'a dated code comment'
         Plant = { param($wt) Plant-TextLine $wt $luaTarget '-- planted by the negative-test harness on 2026-01-01' } },
 
     @{  Name = 'workflow-action-unpinned'

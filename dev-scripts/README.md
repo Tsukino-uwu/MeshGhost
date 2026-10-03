@@ -53,7 +53,8 @@ full note.
 - `preflight.ps1` — read-only pre-live-test check: gofmt, the leak grep (both slash directions),
   CLAUDE.md's cap, root binaries vs source, both mod DLLs vs their `built-from.txt`, CRLF in
   LF-pinned sources, each GitHub Action on one commit and version across workflows, doc coverage (code-map rows,
-  config keys, build-step Status lines), the comment-trace and pinning ratchets, leftover MeshGhost
+  config keys, build-step Status lines), no history in code comments (dates, the user, review IDs, `.md`
+  pointers), the pinning ratchets, leftover MeshGhost
   processes, and optionally the deployed DLLs in the live
   game installs (`MESHGHOST_TEVI_DLL`, `MESHGHOST_TEVI_DLL_ALT`, `MESHGHOST_PSEUDO_DLL` — env vars
   rather than literals, because install paths are machine-specific and this repo is public). It

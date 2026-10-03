@@ -615,8 +615,8 @@ $luaCiteAsm = '\b(engine|home|data|constants|ram|gfx|maps)/[A-Za-z0-9_/]+\.(asm|
 $luaCiteRatchet = @(
     @{ path = 'adapters/emulator/pokemon/emerald/meshghost_emerald.lua'; pattern = $luaCiteC;   floor = 0 },
     @{ path = 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua'; pattern = $luaCiteAsm; floor = 0 },
-    @{ path = 'adapters/emulator/pokemon/emerald/probes';                pattern = $luaCiteC;   floor = 78 },
-    @{ path = 'adapters/emulator/pokemon/crystal/probes';                pattern = $luaCiteAsm; floor = 85 }
+    @{ path = 'adapters/emulator/pokemon/emerald/probes';                pattern = $luaCiteC;   floor = 0 },
+    @{ path = 'adapters/emulator/pokemon/crystal/probes';                pattern = $luaCiteAsm; floor = 3 }
 )
 $luaCiteProblems = @()
 foreach ($r in $luaCiteRatchet) {
@@ -638,7 +638,7 @@ if ($luaCiteProblems.Count -gt 0) {
     Report-Pass "decompilation citations in adapter Lua at their recorded floors (4 ratchets)"
 }
 
-# Refuses the retired [from the decomp] label, or source-file citations in documentation.md, off their recorded floors.
+# Refuses the retired [from the decomp] label, or source-file citations in an adapter's documentation file, off their recorded floors.
 Section "Measured or observed only: no NEW source-derived claims (ratchet)"
 
 $ratchetDecompLabel = 0
@@ -675,7 +675,7 @@ if ($citeProblems.Count -gt 0) {
     Report-Pass "source-file citations in documentation.md at their recorded floor (the audit lowers them)"
 }
 
-# Warns on a fenced block in an adapter's documentation.md beyond the count accepted as our own probe output.
+# Warns on a fenced block in an adapter's documentation file beyond the count accepted as our own probe output.
 Section "No reproduced expression in documentation.md"
 
 $fenceAllow = @{
@@ -2320,12 +2320,8 @@ if ($contentsBad.Count -gt 0) {
     Report-Pass "every '## Contents' list matches its file's headings"
 }
 
-# Refuses more dates, "the user", review IDs or .md pointers in code comments than the recorded floors.
-Section "Comment traces in code (ratchet)"
-$floorTraceDate = 3852
-$floorTraceUser = 1233
-$floorTraceReview = 157
-$floorTraceMd = 1774
+# Refuses a date, "the user", a review ID or a .md pointer in a code comment.
+Section "Comment traces in code"
 
 # The comment text of each line: whole-line and trailing comments, and block comments, by the file's syntax.
 function Get-CommentTexts([string]$path) {
@@ -2363,6 +2359,8 @@ foreach ($f in $traceFiles) {
         @([System.IO.File]::ReadAllLines((Join-Path $root $f)) | Where-Object { $_ -match '^\s*#(?!!)' })
     } else { @(Get-CommentTexts $f) }
     foreach ($c in $texts) {
+        # A Go directive is code the toolchain reads (//go:embed names its file), not a comment to trim.
+        if ($c -match '^\s*//go:') { continue }
         if ($c -match '\b20\d\d-\d\d-\d\d\b') { $traces.Date += $f }
         if ($c -match "(?i)\bthe user\b|\buser's\b|\(user\b") { $traces.User += $f }
         if ($c -match '\b(PM|X\d)-\d+\b|\breview [A-Z]\d+\b|\bpass-\d') { $traces.Review += $f }
@@ -2370,10 +2368,16 @@ foreach ($f in $traceFiles) {
     }
 }
 $traceFix = 'move it to agent_docs/ (a game fact to that adapter''s MEASURED.md) and keep one line of why, per CLAUDE.md'
-Report-Ratchet 'dated code comments' $traces.Date.Count $floorTraceDate $traceFix ($traces.Date | Group-Object | ForEach-Object { "$($_.Name) ($($_.Count))" })
-Report-Ratchet 'code comments naming the user' $traces.User.Count $floorTraceUser $traceFix ($traces.User | Group-Object | ForEach-Object { "$($_.Name) ($($_.Count))" })
-Report-Ratchet 'code comments carrying a review ID' $traces.Review.Count $floorTraceReview $traceFix ($traces.Review | Group-Object | ForEach-Object { "$($_.Name) ($($_.Count))" })
-Report-Ratchet 'code comments pointing at a .md file' $traces.Md.Count $floorTraceMd $traceFix ($traces.Md | Group-Object | ForEach-Object { "$($_.Name) ($($_.Count))" })
+$traceKinds = [ordered]@{ Date = 'a date'; User = 'the user'; Review = 'a review ID'; Md = 'a .md pointer' }
+$traceBad = 0
+foreach ($k in $traceKinds.Keys) {
+    if ($traces[$k].Count -gt 0) {
+        $traceBad++
+        Report-Fail "$($traces[$k].Count) code comment line(s) carrying $($traceKinds[$k]) -- $traceFix"
+        $traces[$k] | Group-Object | Select-Object -First 10 | ForEach-Object { Write-Host "          $($_.Name) ($($_.Count))" }
+    }
+}
+if ($traceBad -eq 0) { Report-Pass "no code comment carries a date, the user, a review ID or a .md pointer ($($traceFiles.Count) files)" }
 
 # Refuses a workflow action not pinned to a full commit SHA with a version comment, or a workflow whose top-level
 # permissions are not {}.
