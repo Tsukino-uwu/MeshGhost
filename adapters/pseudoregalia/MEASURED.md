@@ -377,6 +377,11 @@ Each fact below sat in a code comment beside the code that uses it (at `f64560cc
 
 - COST: ~60 named reads per frame on ONE pawn during the 600 ms windows, nothing between. UNLOAD AFTERWARDS (restore probe_scratch's stub): a probe that calls input events on a pawn is a suspect in every later report.
 
+**`adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`** (A5's second pass, 2026-10-03; the first from `call_manage_blob_shadow`, the second from `call_do_wall_run`), checked against adapters/pseudoregalia/MEASURED.md, "Measured" (every entry, including this one) and "Not measured yet"; VERIFIED.md, UNVERIFIED.md, documentation.md, FLAGS.md and agent_docs/phases/phase7.md searched for `768` and `PropertiesSize` too: none holds the reflected frame size of `manageBlobShadow` or `doWallRun`.
+
+- A zeroed buffer of the reflected size: 768 bytes of Blueprint locals here, nothing to fill in.
+- The pawn's own doWallRun (the cling gem). Its 768-byte frame is Blueprint temporaries, so a zeroed buffer is the call; its parameters were not dumped by name first.
+
 ## Not measured yet
 
 &lt;None yet.&gt;

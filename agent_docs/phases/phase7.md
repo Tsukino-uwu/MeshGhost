@@ -3968,3 +3968,20 @@ controller (its own `find_ghost` finds one), and `stage3_roundtrip.lua` still na
 that pointed into the probes' headers now point where the text went: `PROBES.md` (eight line counts and four "its
 header says" pointers), `pitfalls/INDEX.md`, `pitfalls/by-host.md`, `chaser-planning.md` and `UNVERIFIED.md`'s costume
 entry.
+
+## 2026-10-03 — A5's second pass: `Plugin.cpp`'s comments read against the code
+
+Every comment left in `Plugin.cpp` was read beside its code, in three parts by subagents, joined: 20,447 lines to
+20,367, whole-line comments 1,955 to 1,877. Code unchanged: C++ tokens minus comments identical to the parent (117,917
+tokens); no comment traces. Fixed to the code, among them: `tail_until`'s stop points were off by one section, the
+fade guard said every real fade is untouched (one inside its window is neutralised too), `OUTFIT_TRACE` said it dumps
+the VisualMesh only (the pawn too), the sweep cadences were priced at 144 fps (~150 Hz ticks), and `NAMETAG_WORLD_SIZE`
+was described as the tag's size (nothing reads it). Two frame sizes went to `MEASURED.md`. Docs that cited `Plugin.cpp`
+line numbers or comments the first pass removed now name the symbol or drop the note: `FLAGS.md` (the dev-trace rows,
+`DESPAWN_PARK_Z`, `GHOST_COLLISION_ENABLED`, `SPAWN_DELAY_TICKS`, `WEAPON_SNAP_DISTANCE`, `tail_until`), `PROBES.md`,
+`UNVERIFIED.md`, `BANDAGES.md`, `culling.md`, `ideas.md`; `security-design.md`'s Gap 1 and its `risks.md` item are
+marked closed in code since the catalog gate (`0ee2a630`, 2026-09-01), which they still described as open. Found and
+not changed (code, for the user): `NAMETAG_WORLD_SIZE` and `AFTERIMAGE_COLOR_HOLD_TICKS` are unread; eight call
+helpers have no caller (`call_custom_play_montage`, `call_set_simulate_physics`, `call_contact_damage_response`,
+`call_combat_death`, `stop_projectile_movement`, `call_change_weapon_state`, `call_manage_recall_idle_fx`,
+`call_touch_hazard`); `projectile_vfx` is never cleared, so `prj_vfx` rides every sample after the first shot.

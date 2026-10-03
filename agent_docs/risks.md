@@ -634,14 +634,14 @@ goal", the number sizes the win; it is not a threshold the win has to clear to b
   game-blind?". **Not a hypothetical risk and not scheduled** — it is the current design, recorded
   so it is a decision rather than an oversight.
 
-- **A peer can name a thing, in two places** (audited 2026-08-27). Pseudoregalia hands a
-  peer-supplied string to an engine-wide `StaticFindObject` lookup (`Plugin.cpp:9383`) — type-checked
-  against `AnimMontage` before use, so no type confusion, but the peer may play any montage in the
-  loaded game and the miss-warning reveals whether an arbitrary object name exists. TEVI hands a
+- **A peer can name a thing, in two places** (audited 2026-08-27). Pseudoregalia handed a
+  peer-supplied string to an engine-wide `StaticFindObject` lookup, type-checked against
+  `AnimMontage`; since 2026-09-01 every peer-named asset resolves only through
+  `resolve_peer_named_asset`, a catalog of the local game's own loaded assets of that class
+  (`security-design.md`, Gap 1). TEVI hands a
   peer string to Unity's `anim.Play` (`UpsertRemoteGhost` in `Plugin.cs`), since gated by `IsPlayableAnimName`
-  (a length cap, then `Animator.HasState` on the ghost's own animator). **Neither is ACE**; both are cosmetic misbehaviour plus, for TEVI, a
-  per-frame log flood from a peer alternating two bogus names. Fix for both is an allowlist of the
-  names the adapter actually mirrors, which is a small fixed set. `ideas.md`, "The ACE audit".
+  (a length cap, then `Animator.HasState` on the ghost's own animator). **Neither was ACE**; both were cosmetic misbehaviour plus, for TEVI, a
+  per-frame log flood from a peer alternating two bogus names. Both are closed in code. `ideas.md`, "The ACE audit".
 
 ## Opt-in planes are exhaustible by one member of their room (opened 2026-09-02)
 

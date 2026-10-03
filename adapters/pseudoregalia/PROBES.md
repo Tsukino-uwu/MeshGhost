@@ -296,7 +296,7 @@ Stand around a moment, then go and get the sword; take as long as you like.
 NAMED list and nothing else — `ForEachProperty` is banned in an armed probe (`preflight.ps1`; a
 blind walk crashed three live sessions on 2026-08-29). So it cannot FIND an "owns the sword" flag,
 only prove whether `weaponEquipped?` is the wrong signal. If it is, the next instrument is the mod's
-own `OBJECT_REFLECTION_DUMP`, which `Plugin.cpp:848` already names as the right tool rather than
+own `OBJECT_REFLECTION_DUMP`, built to find real field names, rather than
 guessing a second name list. It also reports, in a `COVERAGE:` line, any named field that never
 resolved.
 

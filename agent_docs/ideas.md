@@ -2804,7 +2804,7 @@ nothing here is the agent's opinion.**
 
 **The real UMG route, priced honestly in case the glyph route is rejected on looks.**
 `RemoveFromParent` is already called reflectively on the ghost's duplicate HUD widget
-(`Plugin.cpp:12603`), so stock `UUserWidget` functions are reachable and `AddToViewport` would be
+(`ensure_ghost_spawned` in `Plugin.cpp`), so stock `UUserWidget` functions are reachable and `AddToViewport` would be
 too. What is missing is a widget CLASS to instantiate: `CreateWidget` needs one, this project
 authors no Blueprint assets and has no Unreal Editor content pipeline (see the
 `pseudoregalia-multiplayer` comparison in this file), and repurposing one of the game's own widgets

@@ -547,9 +547,9 @@ two real gaps are both "a peer can NAME a thing".**
 | **Pseudoregalia's narrowing UB** | `clamp_to_uint8` (15 call sites) exists because `static_cast<uint8_t>(double)` is **undefined behaviour** — not merely wrapping — for NaN or out-of-range input, and `move_state`/`action_state`/`anim_jump_type`/`movement_mode` all arrive from a peer's `extras`. Found and fixed in an earlier review pass. |
 | **Peer counts** | `land_count`, `jump_count`, `afterimage_count`, `montage_count` are edge-triggered comparisons (`target > last_seen`), never loop bounds or indices. A hostile huge count fires an action **once**. Verified: no `for` loop is bounded by a peer value. |
 
-### Gap 1 — a peer can name any UObject in the running game (Pseudoregalia)
+### Gap 1 — a peer can name any UObject in the running game (Pseudoregalia) — CLOSED IN CODE 2026-09-01
 
-`Plugin.cpp:9383` passes a peer-supplied string to an engine-wide lookup by name:
+As audited, the montage mirror passed a peer-supplied string to an engine-wide lookup by name:
 
 ```cpp
 UObject* montage_obj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, to_wide_ascii(remote.target_montage).c_str());
@@ -564,6 +564,14 @@ this adapter expects". So a peer can play **any** montage in the loaded game on 
 the warning line on a miss tells them whether an arbitrary object name exists — a small
 object-enumeration oracle driven entirely by remote input. **The fix is an allowlist of the montage
 names the adapter actually mirrors**, which is a fixed, tiny set.
+
+**The fix, built 2026-09-01 (`0ee2a630`): a catalog rather than a list.** Every peer-named asset (the
+montage mirror's two calls, the outfit and sword meshes, the sword glow and the projectile VFX) resolves
+only through `resolve_peer_named_asset`: the peer's string is a key into a catalog of the local game's
+own loaded assets of that class, rebuilt on a miss at most once per `PEER_ASSET_CATALOG_REFRESH_MS`,
+and the engine-wide lookup is fed only the catalog's own bytes. A peer can still name any asset of that
+class the watcher's game has loaded, which a same-game watcher could render anyway (mods included); a
+garbage name costs a hash lookup. `adapters/CLAUDE.md` makes it the rule for every adapter.
 
 ### Gap 2 — a peer names a Unity animation state — CLOSED IN CODE 2026-08-28, unwatched
 
@@ -799,7 +807,7 @@ enforcement points at once, since relay and core already share the function.
 | Pseudoregalia | 26 | **2** | numbers, short strings, **arrays of floats** |
 
 **Pseudoregalia sends arrays** — `weapon_pos`, `weapon_rot` and `afterimage_color` are
-`[float, ...]` (`Plugin.cpp:8560-8600`). So "flat map of scalars" is NOT a safe restriction: it
+`[float, ...]` (read by `json_vec3_member` in `handle_bridge_line`). So "flat map of scalars" is NOT a safe restriction: it
 would refuse a shipped adapter. The workable rule is **scalars and arrays of scalars, depth <= 4,
 <= 64 keys** — roughly 2x the observed depth and 2.5x the observed key count. At those numbers the
 contract-narrowing risk is close to theoretical: a third-party adapter would have to exceed twice

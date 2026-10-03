@@ -49,7 +49,7 @@ namespace MeshGhostPseudo
     using namespace RC;
     using namespace RC::Unreal;
 
-    // Cadence of the periodic bridge-stats and trace lines, in game-thread ticks; local_state is not throttled by it.
+    // Cadence of the bridge-stats and trace lines, in tick_count ticks (on_update's ~150 Hz); local_state ignores it.
     constexpr uint64_t LOG_INTERVAL_TICKS = 120;
     // Queued bridge lines that trigger a latest-wins collapse of the queue (on_update); a frame's worth at 512 peers
     // fits under it, so an unpaused game never reaches it.
@@ -68,7 +68,7 @@ namespace MeshGhostPseudo
     constexpr bool STATE_SEND_TRACE = true;
 
     // The input track. config.json's replay.inputs is the runtime gate, so this stays true. Buttons read IsInputKeyDown
-    // per key of the APPLIED table only: IMC_Reference holds the factory defaults beside the live bindings and would
+    // per key of the applied table only: IMC_Reference holds the factory defaults beside the live bindings and would
     // double-map keys. The hand-built FKey is zeroed with the game's FName bytes copied in: no KeyDetails to destruct.
     constexpr bool INPUT_TRACK_CAPTURE = true;
     // The stick and camera axes on every edge, quantized to 1/64 and throttled unless a button edge carries them;
@@ -240,8 +240,8 @@ namespace MeshGhostPseudo
     // change the other.
     constexpr bool GHOST_HURTBOX_DISABLED = false;
 
-    // Clears a ghost's references to state the player shares: the GameInstance singleton, the HUD widget and the two
-    // health refs.
+    // Cuts a ghost off from what it shares with the player: its own HUD taken off the screen, its damage numbers
+    // zeroed, and its GameInstance, HUD and two health refs cleared.
     constexpr bool GHOST_DECOUPLE_SHARED_STATE = true;
 
     // Snapshots every property on the GameInstance and UI_HudRef every HEALTH_PROBE_INTERVAL_TICKS and logs what
@@ -352,8 +352,8 @@ namespace MeshGhostPseudo
     // Dumps every simple-typed property value on a ghost, and on the local pawn, the moment the ghost spawns.
     constexpr bool DUMP_GHOST_SPAWN_VALUES = false;
 
-    // Dumps the local pawn's VisualMesh every LOG_INTERVAL_TICKS, so samples either side of a live costume swap can
-    // be diffed.
+    // Dumps the local pawn and its VisualMesh every LOG_INTERVAL_TICKS, so samples either side of a live costume swap
+    // can be diffed.
     constexpr bool OUTFIT_TRACE = false;
 
     // One-shot function-name dump of VisualMesh, to find the real setter for a mesh swap.
@@ -422,11 +422,11 @@ namespace MeshGhostPseudo
     // the through-walls outline would tell the local player where a peer is behind geometry.
     constexpr bool GHOST_HOLD_OUTLINE_OFF = true;
 
-    // ~30 attach-tree walks a second, so an attack's outline is caught within a frame or two. Not per tick: the
+    // ~30 attach-tree walks a second, so an attack's outline is caught within ~33 ms. Not per tick: the
     // per-tick property walk beside it costs nothing, and only runtime-attached parts pay for this one.
     constexpr uint64_t OUTLINE_SWEEP_INTERVAL_TICKS = 5;
 
-    // ~35 ms at 144 fps: a backstop, since the SetRenderCustomDepth pre-hook is what has to be immediate.
+    // ~33 ms at ~150 Hz: a backstop, since the SetRenderCustomDepth pre-hook is what has to be immediate.
     constexpr uint64_t AFTERIMAGE_SWEEP_INTERVAL_TICKS = 5;
 
     // Ghost spawning held back after the pause menu's Reset. Zero is the tested value; the window stays one constant
@@ -482,7 +482,7 @@ namespace MeshGhostPseudo
     // ghost_spawn_far.txt: a ghost is born far above the player instead of on it, and the next state brings it in.
     bool g_ghost_spawn_far = false;
     // FixAllLights after ghost spawns, only with ghost_fixlights_on.txt since the spawn-tick light kill left it nothing
-    // to repair: a spawn requests it, the tick's end serves it at most every FIX_LIGHTS_SPACING_TICKS.
+    // to repair: a spawn requests it, game_thread_tick's top serves it at most every FIX_LIGHTS_SPACING_TICKS.
     bool g_fix_lights_due = false;
     int g_fix_lights_spawns_pending = 0;
     uint64_t g_fix_lights_last_tick = 0;
@@ -510,7 +510,7 @@ namespace MeshGhostPseudo
     // own BP_PlayerCam_C, and an orphaned one has no owner left to catch at spawn.
     constexpr bool GHOST_NEUTRALISE_CAMERA_RIGS = true;
 
-    // ~5 sweeps a second: a rig appears once per peer level load, so this only has to catch it within a frame or two.
+    // ~5 sweeps a second: a rig appears once per peer level load, so catching it within ~0.2 s is enough.
     constexpr uint64_t CAMERA_RIG_SWEEP_INTERVAL_TICKS = 30;
 
     // A ghost's camera rig is destroyed with it (release_ghost, by OwningActor), and a rig whose OwningActor reads null
@@ -558,7 +558,7 @@ namespace MeshGhostPseudo
     // A material path to swap onto the nametag text; empty keeps the component's own, which draws readable text.
     constexpr const wchar_t* NAMETAG_MATERIAL_OVERRIDE = STR("");
 
-    // Height of the tag above the ghost's origin and (NAMETAG_WORLD_SIZE) of its glyphs, in Unreal units; tuned by eye.
+    // Height of the tag above the ghost's origin, in Unreal units; tuned by eye.
     constexpr double NAMETAG_HEIGHT_ABOVE_GHOST = 110.0;
     // The stock outfit's air under a tag at that height (its top is 76 above the actor). A taller outfit gets the same
     // air above its own top (outfit_mesh_top_above_actor); a shorter one keeps the fixed height.
@@ -567,6 +567,7 @@ namespace MeshGhostPseudo
     // declared 13,558); outside it the fixed height stands.
     constexpr double NAMETAG_OUTFIT_TOP_MIN = 40.0;
     constexpr double NAMETAG_OUTFIT_TOP_MAX = 400.0;
+    // Read by nothing: a tag keeps the text component's class-default size unless rec_indicator.txt sets name_size.
     constexpr float NAMETAG_WORLD_SIZE = 18.0f;
 
     // The colour plate: the name again behind it, through a DebugMeshMaterial instance whose Color is the peer's, so it
@@ -604,7 +605,7 @@ namespace MeshGhostPseudo
     constexpr bool GHOST_ATTACK_LOCKOUT = false;
 
     // Zeroes damage at GameplayStatics::ApplyDamage and its two siblings when a ghost caused it. Never fires here: this
-    // game damages through BPI_PerformDamageResponse. Kept for a UE game that uses them.
+    // game damages through its own BPI_TryDamage. Kept for a UE game that uses them.
     constexpr bool GHOST_DAMAGE_GUARD = false;
 
     // Re-asserts the ghost's collision off every tick. A recorded negative: its attack queries outward, so the ghost's
@@ -1235,8 +1236,7 @@ namespace MeshGhostPseudo
             }
         }
 
-        // Read-only reflection dump (OBJECT_REFLECTION_DUMP) through native TFieldRange: the Lua ForEachProperty
-        // binding is missing on this build.
+        // Read-only reflection dump (OBJECT_REFLECTION_DUMP) through native TFieldRange.
         auto dump_object_reflection(UObject* obj, const wchar_t* label) -> void
         {
             if (!obj)
@@ -1487,7 +1487,7 @@ namespace MeshGhostPseudo
             return false;
         }
 
-        // The matcher for a full census: nothing damage-named is ever called on BP_HpHitable, so dump all it offers.
+        // The matcher for a full census of BP_HpHitable: everything it offers, never a guessed name.
         auto matches_everything(const StringType&) -> bool { return true; }
 
         // Every matching property (with its value) and function (with its parameters) on one actor.
@@ -1908,8 +1908,8 @@ namespace MeshGhostPseudo
                          reported);
         }
 
-        // Every scalar property of an object as name -> text, for diff_scalar_snapshots. Object, struct and array
-        // properties are skipped: following what an object holds has crashed this game.
+        // Every scalar property of an object as name -> text, for diff_scalar_snapshots; structs one level in only with
+        // include_structs. Object and array properties are skipped: following an object's values has crashed this game.
         auto snapshot_scalar_properties(UObject* obj, bool include_structs = false)
             -> std::map<std::string, std::string>
         {
@@ -2259,8 +2259,8 @@ namespace MeshGhostPseudo
         }
 
         // Parms sized from the function's own GetPropertiesSize and zeroed (every default these callers need is
-        // all-zero bits), with the actor written at offset 0, the first declared parameter of Possess and
-        // SetViewTargetWithBlend. A guessed struct smaller than the real block lets the engine write past it.
+        // all-zero bits), with the actor written at offset 0, Possess's first declared parameter. A guessed struct
+        // smaller than the real block lets the engine write past it.
         auto call_ufunction_with_leading_actor_arg(UObject* target, UFunction* function, AActor* actor_arg) -> void
         {
             if (!target || !function)
@@ -2609,7 +2609,7 @@ namespace MeshGhostPseudo
             anim_instance->ProcessEvent(function, params_buffer.data());
         }
 
-        // The montage playing on an anim instance (ANIM_TRACE), its getter resolved by name. Returns false only when
+        // The montage playing on an anim instance, its getter resolved by name. Returns false only when
         // the getter cannot be used, so the caller can stop asking after one miss.
         auto read_current_active_montage(UObject* anim_instance, std::string& out_name) -> bool
         {
@@ -2853,7 +2853,6 @@ namespace MeshGhostPseudo
             Output::send(STR("[MeshGhostPseudo] DIAG: end of {} filtered function dump.\n"), label);
         }
 
-        // updateWeaponEquip on animBPref (one bool, animEquippedWeapon), matched by name.
         auto call_update_weapon_equip(UObject* anim_instance, bool equipped) -> void
         {
             if (!anim_instance)
@@ -2890,7 +2889,7 @@ namespace MeshGhostPseudo
             anim_instance->ProcessEvent(function, params_buffer.data());
         }
 
-        // Stops a component's physics bodies simulating, resolved by name; a build without it says so once.
+        // Sets whether a component's physics bodies simulate, resolved by name; a build without it says so.
         auto call_set_simulate_physics(UObject* component, bool simulate, const wchar_t* label) -> bool
         {
             if (!component)
@@ -2916,9 +2915,9 @@ namespace MeshGhostPseudo
             return true;
         }
 
-        // Spawns a Niagara system attached to a component (the landed sword's NS_WeaponIdle glow, which no in-game
-        // trigger creates for our prop). Parameters resolved by name and listed once; it refuses without SystemTemplate
-        // and AttachToComponent. socket attaches at a bone socket (the charged-projectile glow hangs off handslot_R).
+        // Spawns a Niagara system attached to a component (a mirrored effect, the recall glow). Parameters resolved by
+        // name and listed once; it refuses without SystemTemplate and AttachToComponent. socket attaches at a bone
+        // socket (the charged-projectile glow hangs off handslot_R).
         auto spawn_niagara_attached(UObject* system_asset, UObject* attach_component, const wchar_t* socket = nullptr) -> UObject*
         {
             if (!system_asset || !attach_component)
@@ -2993,7 +2992,7 @@ namespace MeshGhostPseudo
                 }
                 else if (param_name == STR("bAutoDestroy"))
                 {
-                    // The prop's lifetime owns it; auto-destroy would only risk losing a looping idle effect early.
+                    // Its owner destroys it; auto-destroy would only risk losing a looping effect early.
                     *slot = 0;
                 }
                 else if (param_name == STR("ReturnValue"))
@@ -3015,7 +3014,7 @@ namespace MeshGhostPseudo
             return return_slot ? *return_slot : nullptr;
         }
 
-        // Reads the shared CurrentHp off the pawn's GameInstance, for the hurt mirror's tripwire; never written.
+        // Reads the shared CurrentHp off the GameInstance for the hurt mirror's drop count and tripwire; never written.
         auto read_shared_current_hp(UObject* pawn_or_ghost, double& out) -> bool
         {
             if (!pawn_or_ghost)
@@ -3436,7 +3435,6 @@ namespace MeshGhostPseudo
                 }
                 if (destroy_fn)
                 {
-                    // One pointer-wide argument, written through the reflected parameter.
                     const int32_t parms_size = destroy_fn->GetPropertiesSize();
                     std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size > 0 ? parms_size : 0), 0);
                     for (FProperty* param : TFieldRange<FProperty>(destroy_fn, EFieldIterationFlags::None))
@@ -3725,7 +3723,7 @@ namespace MeshGhostPseudo
             }
         }
 
-        // Destroys a thrown-weapon prop, which is ours; false lets the caller park it instead.
+        // K2_DestroyActor on an actor of ours; false means not reflected, and a despawning ghost is parked instead.
         auto call_destroy_actor(AActor* actor) -> bool
         {
             if (!actor)
@@ -3747,7 +3745,6 @@ namespace MeshGhostPseudo
             return true;
         }
 
-        // Destroys every BP_PlayerCam_C whose OwningActor is owner and returns how many.
         auto destroy_camera_rigs_owned_by(UObject* owner, const wchar_t* why) -> int
         {
             if (!owner)
@@ -3836,7 +3833,6 @@ namespace MeshGhostPseudo
             weapon_actor->ProcessEvent(function, params_buffer.data());
         }
 
-        // changeEquippedWeapon on the pawn (one bool, weaponEquipped?), matched by name.
         auto call_change_equipped_weapon(UObject* pawn, bool equipped) -> void
         {
             if (!pawn)
@@ -3932,13 +3928,12 @@ namespace MeshGhostPseudo
             {
                 return false;
             }
-            // A zeroed buffer of the reflected size: 768 bytes of Blueprint locals here, nothing to fill in.
+            // A zeroed buffer of the reflected size: Blueprint locals, nothing to fill in.
             std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
             ghost->ProcessEvent(function, params_buffer.data());
             return true;
         }
 
-        // The pawn's own Spawn After Image(Duration), matched by name.
         auto call_spawn_after_image(UObject* pawn, float duration) -> void
         {
             if (!pawn)
@@ -4055,7 +4050,7 @@ namespace MeshGhostPseudo
         // the AFTERIMAGE_IDLE_SCAN_INTERVAL_TICKS gap, so 400 is a 4x margin. farNew= and rejFar= in the log check it.
         constexpr double AFTERIMAGE_SPAWN_PROXIMITY_UNITS = 400.0;
 
-        // Result of one colour-only afterimage observation -- see AFTERIMAGE_OBSERVE_COLOR.
+        // Result of one afterimage observation: the colour, and the new-image count the observation trigger fires on.
         struct AfterimageColorObservation
         {
             LinearColorRGBA color{};
@@ -4070,9 +4065,9 @@ namespace MeshGhostPseudo
             double farthest_new_dist_sq{0.0}; // how far the furthest mover was, for tuning the threshold
         };
 
-        // Mirrors the ultra hop's blue off the afterimages themselves: the ultra colours each BP_AfterImage_C's Color
-        // and leaves the pawn's afterimageColor alone. It mirrors the colour used and never detects an ultra. Ownership
-        // is one pointer compare (cachedMesh's outer is the pawn), no strings, and the caller runs it once per burst.
+        // Reads the afterimages themselves: the ultra hop colours each BP_AfterImage_C's Color and leaves the pawn's
+        // afterimageColor alone. It mirrors the colour used and never detects an ultra. Ownership is one pointer
+        // compare (cachedMesh's outer is the pawn), no strings, and the callers run it every few ticks, never per tick.
         auto observe_local_afterimage_colors(UObject* pawn,
                                              const LinearColorRGBA& baseline,
                                              std::map<UObject*, std::tuple<double, double, double>>& last_pos)
@@ -4170,8 +4165,8 @@ namespace MeshGhostPseudo
             return obs;
         }
 
-        // The pawn's own doWallRun (the cling gem). Its 768-byte frame is Blueprint temporaries, so a zeroed buffer is
-        // the call; its parameters were not dumped by name first.
+        // The pawn's own doWallRun (the cling gem). Its frame is Blueprint temporaries, so a zeroed buffer is the call;
+        // its parameters were not dumped by name first.
         auto call_do_wall_run(UObject* pawn) -> void
         {
             if (!pawn)
@@ -4188,7 +4183,7 @@ namespace MeshGhostPseudo
             pawn->ProcessEvent(function, params_buffer.data());
         }
 
-        // A zero-argument pawn function, among them the slide pose's own routine: the pose is written by event code
+        // A zero-argument function by name, among them the slide pose's own routine: the pose is written by event code
         // when a slide starts, which no property write reaches. Zeroed buffer: PropertiesSize is Blueprint temporaries.
         auto call_named_no_arg(UObject* pawn, const wchar_t* function_name) -> bool
         {
@@ -4208,9 +4203,9 @@ namespace MeshGhostPseudo
             return true;
         }
 
-        // The game's own crouch pose handlers, K2_OnStartCrouch / K2_OnEndCrouch (two floats, the half-height
-        // adjustments): the engine never fires them because bCanEverCrouch is false, so they are called with the
-        // measured adjustment (65 - 22 = 43). Edge-called only: an event hammered every frame retriggers.
+        // ACharacter's crouch events, K2_OnStartCrouch / K2_OnEndCrouch (two floats, the half-height adjustments): the
+        // engine never fires them because bCanEverCrouch is false, so they are called with the peer's latched
+        // adjustment. Edge-called only: an event hammered every frame retriggers.
         auto call_two_float_event(UObject* pawn, const wchar_t* function_name, float a, float b) -> bool
         {
             if (!pawn)
@@ -4315,7 +4310,7 @@ namespace MeshGhostPseudo
 
         // The ambient particle emitter every character carries (NE_Particles_System, the drifting white balls), hidden
         // and deactivated on a ghost rather than destroyed. Found in this ghost's attach tree by asset name, so our
-        // mirrored effects are never touched; the caller retries for a few ticks after spawn.
+        // mirrored effects are never touched; the caller retries for a short window after spawn.
         auto strip_ghost_ambient_particles(UObject* ghost, const std::string& player_id) -> bool
         {
             if (!ghost)
@@ -4508,7 +4503,6 @@ namespace MeshGhostPseudo
             component->ProcessEvent(function, params_buffer.data());
         }
 
-        // Stops a looping sound: Stop, falling back to Deactivate. Returns which ran.
         auto call_audio_component_stop(UObject* component) -> const wchar_t*
         {
             if (!component)
@@ -4569,7 +4563,7 @@ namespace MeshGhostPseudo
         }
 
         // OverrideMaterials belongs to the component, not the mesh asset, so the hurt flash's per-slot instances
-        // outlive a mesh swap. Reset(), never Empty(): Reset(0) never calls the allocator, which is not the game's.
+        // outlive a mesh swap. Reset(), not Empty(): Reset(0) only sets the count, where Empty() goes to the allocator.
         auto clear_override_materials(UObject* mesh_component) -> int32_t
         {
             if (!mesh_component)
@@ -4955,10 +4949,6 @@ namespace MeshGhostPseudo
                                        FName(STR("Roll"), FNAME_Find),
                                        value.GetPitch(), value.GetYaw(), value.GetRoll());
         }
-
-        // ---- Nametags -------------------------------------------------------------------
-        //
-        // A floating label above a ghost, built from a UTextRenderComponent.
 
         // Lists a class's component-related UFunctions, called only when the expected one is missing.
         auto dump_component_functions(const wchar_t* class_path) -> void
@@ -5750,8 +5740,8 @@ namespace MeshGhostPseudo
             return true;
         }
 
-        // The recording indicator: a dot and the elapsed time, top right, while the core records. Each is a text
-        // component on a coloured plate, placed in the camera's frame per tick; live-tunable via `rec_indicator.txt`.
+        // The world-space recording indicator (REC_INDICATOR_SCREEN_SPACE false): a dot and the elapsed time, top
+        // right, each a text component on a coloured plate in the camera's frame; live-tunable via `rec_indicator.txt`.
         double g_rec_forward = 140.0;    // how far in front of the camera the pair floats
         double g_rec_right = 112.0;      // + is right, toward the corner
         double g_rec_up = 72.0;          // + is up
@@ -5764,7 +5754,7 @@ namespace MeshGhostPseudo
         // Any character: the plate fills the glyph's whole quad, so dot_w/dot_h make the shape, not the glyph.
         StringType g_rec_glyph = STR("H");
         bool g_rec_tuning_dirty = false;
-        // The digits currently on screen. See the write site for why this is not a local.
+        // The digits on screen, at file scope: whether this SDK's FText copies the characters is not established.
         StringType g_recording_time_text;
         // A plate's side margin in character widths, so a short clock and a long name get the same visible gap.
         double g_plate_margin_chars = 0.35;
@@ -5862,11 +5852,11 @@ namespace MeshGhostPseudo
         std::string g_disp_unit = "cs";   // one or more of cs, ms, frames, in display order ("cs,frames")
         bool g_disp_count_left = true;     // input_display.count_side: the count before or after the inputs
         bool g_disp_fps_note = false;      // input_display.fps_note: the "@ N fps" header when frames are shown; off by default
-        // Engine frames per wall second, a header whenever "frames" is shown, so a frame count carries its scale.
+        // Engine frames per wall second, for the fps_note header, so a frame count carries its scale.
         uint64_t g_disp_fps_frames = 0;
         int64_t g_disp_fps_since_ms = 0;
         int g_disp_fps = 0;
-        double g_disp_margin_x = 200.0;    // panel inset from its side, pixels (the prototype's)
+        double g_disp_margin_x = 200.0;    // panel inset from its side, pixels
         double g_disp_margin_y = 300.0;    // panel top, pixels
         double g_disp_pad = 6.0;
         unsigned g_disp_tuning_gen = 1;    // bumped by a config change that needs a rebuild
@@ -5923,8 +5913,7 @@ namespace MeshGhostPseudo
             g_recording_time_plate_mid = nullptr;
         }
 
-        // The camera's rotation, which supplies the frame a screen corner is placed in. Never cached: a
-        // camera-manager pointer does not survive a level transition.
+        // Never cached: a camera-manager pointer does not survive a level transition.
         auto camera_world_rotation(UObject* controller, FRotator& out) -> bool
         {
             if (!controller)
@@ -5987,7 +5976,6 @@ namespace MeshGhostPseudo
             return true;
         }
 
-        // Places the component in the world and turns it to face the viewer.
         auto set_text_render_transform(UObject* component,
                                        double x, double y, double z,
                                        double pitch, double yaw, double roll) -> void
@@ -6021,7 +6009,6 @@ namespace MeshGhostPseudo
             }
             std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
             uint8_t* base = params_buffer.data();
-            // The ghost placement's own writers, so a defect in them shows in the most-run path first.
             if (!write_vector_param(base, location_property, FVector{x, y, z}))
             {
                 return;
@@ -6033,8 +6020,7 @@ namespace MeshGhostPseudo
             component->ProcessEvent(function, params_buffer.data());
         }
 
-        // Calls a reflected one-float setter by name (SetWorldSize and friends): writing `WorldSize` directly leaves
-        // the render state untouched.
+        // By the setter (SetWorldSize and friends), never a `WorldSize` write: that leaves the render state untouched.
         auto call_float_setter(UObject* component, const wchar_t* function_name, float value) -> bool
         {
             if (!component)
@@ -6085,10 +6071,9 @@ namespace MeshGhostPseudo
             call_float_setter(component, STR("SetWorldSize"), size);
         }
 
-        // What a plate draws: the same string, behind it, in a material that fills each glyph's quad.
+        // The text itself, unpadded: this font's space has no advance, so a plate's margin comes from its scale.
         auto plate_string_for(const StringType& text) -> StringType
         {
-            // Padding is by size: this font's space has no advance in the generated mesh.
             return text;
         }
 
@@ -6140,7 +6125,7 @@ namespace MeshGhostPseudo
             }
         }
 
-        // Centres a text component both ways, so growing it grows evenly; a forced rebuild follows either write path.
+        // Centres a text component both ways, so growing it grows evenly; the property fallback needs a forced rebuild.
         auto center_text_component(UObject* component) -> void
         {
             if (!component)
@@ -6177,8 +6162,7 @@ namespace MeshGhostPseudo
             }
         }
 
-        // Re-parents a scene component keeping its relative transform, so the engine carries it with the parent:
-        // per-tick world writes fought the pawn's own carry. EAttachmentRule is UE's: KeepRelative=0.
+        // Relative transform kept, so the engine carries the child: per-tick world writes fought the pawn's own carry.
         auto attach_component_keep_relative(UObject* child, UObject* parent) -> bool
         {
             if (!child || !parent)
@@ -6227,7 +6211,6 @@ namespace MeshGhostPseudo
                 {
                     *slot = 0; // KeepRelative
                 }
-                // SocketName stays None (zeroed FName) and bWeldSimulatedBodies stays false.
             }
             logged_params = true;
             if (!has_parent)
@@ -6300,7 +6283,7 @@ namespace MeshGhostPseudo
             {
                 return nullptr;
             }
-            // CADENCE: PER-EVENT -- once per indicator build, only when the named route fails. Never on a tick path.
+            // Cadence: per-event, once per indicator build, only when the named route fails; never on a tick path.
             std::vector<UObject*> cameras;
             UObjectGlobals::FindAllOf(STR("CameraComponent"), cameras);
             const std::string pawn_name = to_utf8(local_pawn->GetName());
@@ -6322,8 +6305,7 @@ namespace MeshGhostPseudo
             return nullptr;
         }
 
-        // The player-facing settings from config.json, re-read on the dev file's poll so an edit lands without a
-        // relaunch.
+        // config.json's player settings, re-read on the dev file's poll so an edit lands without a relaunch.
         auto poll_recording_indicator_config() -> void
         {
             std::string value;
@@ -6457,7 +6439,6 @@ namespace MeshGhostPseudo
             size_t pos = 0;
             while (pos < text.size())
             {
-                // The long way: <windows.h> defines `min` as a macro, so `std::min` does not compile here.
                 size_t line_end = text.find('\n', pos);
                 if (line_end == std::string::npos)
                 {
@@ -6619,7 +6600,6 @@ namespace MeshGhostPseudo
             g_recording_indicator_visible = false;
         }
 
-        // ------------------------------------------------------------------------------------------
         // The screen-space indicator (REC_INDICATOR_SCREEN_SPACE): the world-space one's square and clock box, as UMG
         // widgets. Pixels in the 1920x1080 the engine lays UI out in; a `hud_*` change rebuilds the widgets, since a
         // live TextBlock's font size changes only through a struct the engine owns.
@@ -6713,8 +6693,7 @@ namespace MeshGhostPseudo
             return false;
         }
 
-        // The function through the class chain, a zeroed buffer the filler populates by parameter name, ProcessEvent,
-        // and the buffer back for a return value. A missing function is named once, then a no-op.
+        // The filler populates a zeroed buffer by parameter name; a missing function is named once, then a no-op.
         auto hud_call(UObject* obj, const wchar_t* fname, const std::function<bool(UFunction*, uint8_t*)>& fill,
                       std::vector<uint8_t>* out = nullptr) -> bool
         {
@@ -6843,7 +6822,7 @@ namespace MeshGhostPseudo
                     }
                 }
             }
-            // Cadence: ONE-SHOT -- only while the property above does not resolve; the answer is kept.
+            // Cadence: one-shot, only while the property above does not resolve; the answer is kept.
             static UObject* found = nullptr;
             if (!found)
             {
@@ -6861,7 +6840,6 @@ namespace MeshGhostPseudo
             return found;
         }
 
-        // Reads a 2D-vector ReturnValue out of a call's buffer through the struct's own reflection.
         auto hud_read_vec2(UObject* obj, const wchar_t* fname, const std::vector<uint8_t>& out, double& w, double& h) -> bool
         {
             UFunction* fn = mg_cached_function(obj, fname);
@@ -6978,8 +6956,7 @@ namespace MeshGhostPseudo
             g_hud_last_second = -1;
         }
 
-        // Builds the two widgets and applies every number and colour. Placement comes last and is
-        // repeated by hud_place whenever the viewport size changes.
+        // Every number and colour applied here; hud_place positions the widgets, again on each size change.
         auto hud_build(UObject* controller) -> bool
         {
             UObject* gi = hud_game_instance(controller);
@@ -7154,7 +7131,7 @@ namespace MeshGhostPseudo
             {
                 return;
             }
-            // Viewport size and in-viewport state, checked on a cadence: one static call each.
+            // Viewport size, the box's laid-out size and in-viewport state: every 60th tick, or each tick until added.
             if (!g_hud_in_viewport || (g_registry_tick % 60) == 0)
             {
                 double vw = 0.0, vh = 0.0;
@@ -7218,13 +7195,11 @@ namespace MeshGhostPseudo
             }
         }
 
-        // ------------------------------------------------------------------------------------------
         // The input history display (INPUT_HISTORY_DISPLAY): a Border holding one TextBlock of rows, newest on top,
         // one SetText per row change. A row: the count, direction arrows, then one letter per held action:
         // J jump, A attack, C crouch, W cling, T throw, G guard, I interact, L lock-on, P power, M map, V view.
         constexpr const wchar_t* INPUT_HISTORY_TOKENS = STR("JACWTGILPMV");
 
-        // ------------------------------------------------------------------------------------------
         // The ghost drive dev rig, armed by `ghost_drive.txt` (`key=value` lines) beside the DLL; never ships armed.
         // It drives the first replay ghost seen while armed with that ghost's mirrors skipped, so what the pawn does
         // is the call's doing. In C++ because FInputActionValue has no reflected fields: written by measured layout.
@@ -7234,10 +7209,10 @@ namespace MeshGhostPseudo
             std::string mode = "attack_loop";
             double gap_s = 1.5;
             int block = 5;
-            // How much of the per-ghost tail a driven ghost still runs: 0 none, 1 sweeps, 2 light hold, 3 events,
-            // 4 weapon mirror, 5 montage mirror, 6 all.
+            // Where a driven ghost's per-ghost tail stops: 0 at once, then before the sweeps (1), the light hold (2),
+            // the events (3), the weapon mirror (4) or the montage mirror (5); 6 runs it all.
             int tail_until = 6;
-            // Track mode's correction threshold, in the game's units (the capsule is 65 tall).
+            // Track mode's correction threshold, in the game's units (the capsule's half-height is 65).
             double snap = 150.0;
             // A private game instance object for the driven ghost, in place of the ref the decouple nulls.
             bool private_gi = true;
@@ -7451,7 +7426,6 @@ namespace MeshGhostPseudo
             return true;
         }
 
-        // The actor's Z for the drive log, through the engine's own getter.
         auto pcall_actor_z(AActor* actor, double& z) -> void
         {
             if (actor)
@@ -7460,8 +7434,7 @@ namespace MeshGhostPseudo
             }
         }
 
-        // Which ghost the rig drives: the first replay ghost seen while armed, sticky. Sets and
-        // returns remote.driven for this tick.
+        // The rig's ghost: the first replay ghost seen while armed, sticky. Sets and returns remote.driven.
         auto ghost_drive_select(const std::string& id, RemoteGhost& remote, UObject* local_pawn) -> bool
         {
             if (!g_drive.armed)
@@ -7692,8 +7665,7 @@ namespace MeshGhostPseudo
             return remote.driven;
         }
 
-        // Logs every change of the driven pawn's crouch/action/move state, movement mode and capsule height, with
-        // the tick, so a pose that appears on it names the tick it arrived on.
+        // Each change of the driven pawn's states, movement mode and capsule height, with the tick it arrived on.
         auto ghost_drive_trace(const std::string& id, RemoteGhost& remote, uint64_t tick_count) -> void
         {
             UObject* ghost = static_cast<UObject*>(remote.ghost);
@@ -7781,7 +7753,6 @@ namespace MeshGhostPseudo
             {7, STR("InpActEvt_IA_LockOn_K2Node_EnhancedInputActionEvent_11"), STR("InpActEvt_IA_LockOn_K2Node_EnhancedInputActionEvent_12")},
         };
 
-        // Defined further down (the per-ghost-per-tick mover); the correction below uses it.
         auto call_set_actor_location_and_rotation(AActor* actor, const FVector& new_location, const FRotator& new_rotation) -> void;
 
         // The slice of a ghost's streamed inputs the track tick reads; the buffer is the Plugin's.
@@ -7792,7 +7763,6 @@ namespace MeshGhostPseudo
             const double* ax;
         };
 
-        // One applied edge: fire the node for every bit that changed.
         auto ghost_drive_edge(const std::string& id, RemoteGhost& remote, uint32_t prev_mask, uint32_t mask) -> void
         {
             UObject* ghost = static_cast<UObject*>(remote.ghost);
@@ -7832,8 +7802,7 @@ namespace MeshGhostPseudo
             }
         }
 
-        // Every tick in track mode, after the edges: the camera onto the controller, the stick
-        // into the pawn, then the correction against the rendered target.
+        // Track mode, every tick after the edges: the camera, the stick, then the correction against the target.
         auto ghost_drive_track_tick(const std::string& id, RemoteGhost& remote, const GhostInputTrackView& track, double snap) -> void
         {
             UObject* ghost = static_cast<UObject*>(remote.ghost);
@@ -8026,8 +7995,6 @@ namespace MeshGhostPseudo
                 call_set_actor_location_and_rotation(remote.ghost,
                                                      FVector(remote.target_x, remote.target_y, remote.target_z),
                                                      FRotator(remote.target_pitch, remote.target_yaw, remote.target_roll));
-                // The correction carries the recording's velocity rather than stopping the pawn: a stop zeroes a plunge
-                // and restarts a wall slide.
                 if (UObject** mv = mg_property_value<UObject*>(ghost, STR("CharacterMovement")); mv && *mv)
                 {
                     if (g_drive.snap_stop)
@@ -8062,7 +8029,6 @@ namespace MeshGhostPseudo
             }
         }
 
-        // One tick of the rig on the driven ghost.
         auto ghost_drive_tick(const std::string& id, RemoteGhost& remote) -> void
         {
             if (!remote.ghost)
@@ -8107,7 +8073,6 @@ namespace MeshGhostPseudo
             }
             if (g_drive.mode.rfind("fn:", 0) == 0)
             {
-                // Any no-arg function on the pawn by name, repeated.
                 const std::wstring fname = to_wide_ascii(g_drive.mode.substr(3));
                 const bool ok = call_named_no_arg(ghost, fname.c_str());
                 ++remote.drive_fired;
@@ -8705,7 +8670,6 @@ namespace MeshGhostPseudo
             int32_t loc_base = location_property->GetOffset_Internal();
             int32_t rot_base = rotation_property->GetOffset_Internal();
 
-            // On the shared struct-triple writers on purpose: the most-run call surfaces a defect in them first.
             static bool logged_once = false;
             if (!logged_once)
             {
@@ -8714,7 +8678,8 @@ namespace MeshGhostPseudo
                 logged_once = true;
             }
 
-            // The inner offsets resolved once too; write_vector_param and write_rotator_param serve edge callers.
+            // The inner offsets resolved once too, on the struct-triple writers every edge caller shares: the most-run
+            // call surfaces a defect in them first.
             static const StructTripleLayout location_layout = resolve_struct_triple(
                 location_property, FName(STR("X"), FNAME_Find), FName(STR("Y"), FNAME_Find), FName(STR("Z"), FNAME_Find));
             static const StructTripleLayout rotation_layout = resolve_struct_triple(
@@ -8777,7 +8742,6 @@ namespace MeshGhostPseudo
         {
             salao_function->UnregisterHook(audio_listener_hook_id);
         }
-        // The damage guards' lambda takes state_mutex and walks `remotes`, both gone by the time it could fire.
         if (init_game_state_pre_callback_id != Hook::ERROR_ID && init_game_state_pre_callback_id != 0)
         {
             Hook::UnregisterCallback(init_game_state_pre_callback_id);
@@ -8798,6 +8762,7 @@ namespace MeshGhostPseudo
         {
             fade_function->UnregisterHook(fade_hook_id);
         }
+        // The damage guards' lambda takes state_mutex and walks `remotes`, both gone by the time it could fire.
         for (auto& [function, hook_id] : damage_hook_ids)
         {
             if (function && hook_id != -1)
@@ -8808,7 +8773,6 @@ namespace MeshGhostPseudo
         damage_hook_ids.clear();
     }
 
-    // Dumps every remote's ghost pointer and owning world, for the LoadMap hook and diagnostics.
     auto Plugin::log_remote_state(const wchar_t* context) -> void
     {
         Output::send(STR("[MeshGhostPseudo] remote state dump ({}): {} remote(s)\n"), context, remotes.size());
@@ -8821,10 +8785,8 @@ namespace MeshGhostPseudo
         }
     }
 
-    // ---- Per-subsystem cost instrument (dev only; off unless armed) --------------------
-    //
-    // Accumulated microseconds per subsystem per frame, printed every ~2s. Armed by `perf_report.txt` in the mod
-    // folder; disarmed, each scope is one bool test. Never armed while judging anything visual.
+    // The per-subsystem cost instrument, dev only: microseconds per subsystem per frame, printed every ~2s. Armed by
+    // `perf_report.txt` in the mod folder; disarmed, each scope is one bool test. Never armed while judging a visual.
     namespace
     {
         enum PerfSlot
@@ -9015,7 +8977,6 @@ namespace MeshGhostPseudo
             return true;
         }
 
-        // The component twin of call_set_actor_location_and_rotation: the shared writers, bSweep false, bTeleport true.
         auto call_set_component_world_location_and_rotation(UObject* component, const FVector& new_location, const FRotator& new_rotation) -> void
         {
             if (!component)
@@ -9230,7 +9191,6 @@ namespace MeshGhostPseudo
     auto Plugin::tick_remote_weapon(const std::string& player_id, RemoteGhost& remote, UWorld* current_world) -> void
     {
         (void)current_world;
-        // The whole-prop subtraction toggle -- see g_ghost_weapon_prop_skipped's declaration.
         if (g_ghost_weapon_prop_skipped)
         {
             return;
@@ -9264,7 +9224,6 @@ namespace MeshGhostPseudo
                 {
                     remote.weapon_glow_component->ProcessEvent(stop_fn, nullptr);
                 }
-                // Which stop ran, once.
                 static bool stop_logged = false;
                 if (!stop_logged)
                 {
@@ -9577,7 +9536,7 @@ namespace MeshGhostPseudo
     // truncates bursts the game spawns across ticks.
     constexpr uint64_t AFTERIMAGE_COLOR_SCAN_INTERVAL_TICKS = 15;
 
-    // Holds a non-baseline colour past one ~20Hz send (7-8 ticks at ~150Hz), so the sample cannot miss it.
+    // Unread: the trail colour latches to its burst, so no timer holds it.
     constexpr uint64_t AFTERIMAGE_COLOR_HOLD_TICKS = 15;
 
     // An afterimage never moves once spawned, so this only needs to clear read noise.
@@ -9587,8 +9546,7 @@ namespace MeshGhostPseudo
     // but not what the trail needed.
     constexpr bool AFTERIMAGE_COUNT_REUSE = false;
 
-    // The first observed trigger, which replaced the slide trigger and scanned unconditionally; superseded by
-    // AFTERIMAGE_TRIGGER_FROM_OBSERVATION.
+    // Retired for AFTERIMAGE_TRIGGER_FROM_OBSERVATION: the first observed trigger, which scanned unconditionally.
     constexpr bool AFTERIMAGE_TRIGGER_OBSERVED = false;
 
     // The ultra's colour, observed off the game's own afterimages once per burst, with a pointer compare for ownership.
@@ -9605,8 +9563,6 @@ namespace MeshGhostPseudo
     // The ultra hop's afterimages bypass afterImagesToSpawn, so no local trigger fires: this scans while no burst is
     // pending and emits one only for new images coloured off the baseline, which a gold straggler never is.
     constexpr bool AFTERIMAGE_OBSERVE_SPECIAL_TRIGGER = true;
-
-    // AFTERIMAGE_REQUIRE_SPAWN_PROXIMITY and its radius sit beside observe_local_afterimage_colors, their only user.
 
     // Trails the ghost from the afterimages the game really spawned. The reconstructed triggers (burst_edge,
     // slide_edge, slide_refire) are off while it is on, or both would count one burst; false is a real revert.
@@ -9655,7 +9611,6 @@ namespace MeshGhostPseudo
             remote.projectile_component_world = nullptr;
         }
 
-        // The peer's shot ended: stop and destroy the effect.
         if (!remote.target_projectile_active)
         {
             if (remote.projectile_component)
@@ -9883,7 +9838,6 @@ namespace MeshGhostPseudo
                         continue;
                     }
                     component = spawn_niagara_attached(asset, *attach_ptr, effect.socket);
-                    // The row's offset in the attach parent's space, written only when nonzero.
                     if (component &&
                         (effect.attach_offset_x != 0.0 || effect.attach_offset_y != 0.0 || effect.attach_offset_z != 0.0))
                     {
@@ -10021,7 +9975,7 @@ namespace MeshGhostPseudo
         UObject** attach_ptr = mg_property_value<UObject*>(remote.ghost, STR("WeaponMesh"));
         if (!attach_ptr || !*attach_ptr)
         {
-            // No root fallback: the root is the misplacement this fixes.
+            // No root fallback: at the root the glow is drawn in the wrong place.
             Output::send(STR("[MeshGhostPseudo] RECALLGLOW {}: ghost has no WeaponMesh -- glow not shown.\n"),
                          to_wide_ascii(player_id));
             return;
@@ -10032,7 +9986,6 @@ namespace MeshGhostPseudo
                      remote.recall_glow_component ? STR("component returned") : STR("NULL"));
     }
 
-    // Dev probe: see AFTERIMAGE_DISCOVERY.
     auto Plugin::tick_afterimage_discovery(AActor* ghost) -> void
     {
         if (!ghost)
@@ -10180,7 +10133,6 @@ namespace MeshGhostPseudo
         }
     }
 
-    // Dev capture: see GHOST_SPAWN_WEAPON_TRACE.
     auto Plugin::tick_ghost_spawn_weapon_trace(const std::string& player_id, RemoteGhost& remote) -> void
     {
         if (!remote.ghost)
@@ -10217,7 +10169,7 @@ namespace MeshGhostPseudo
                      static_cast<void*>(remote.weapon_actor),
                      to_wide_ascii(remote.target_weapon_class));
 
-        // What the ghost's OWN construction decided, independently of anything we sent it.
+        // What the ghost's own construction decided, independently of anything we sent it.
         bool* ghost_equipped = mg_property_value<bool>(remote.ghost, STR("weaponEquipped?"));
         UObject** ghost_weapon_ref = mg_property_value<UObject*>(remote.ghost, STR("weaponRef"));
         Output::send(STR("[MeshGhostPseudo] SPAWNWEAPON {} {}: ghost weaponEquipped={} weaponRef={}\n"),
@@ -10258,7 +10210,6 @@ namespace MeshGhostPseudo
                      label, to_wide_ascii(player_id), count);
     }
 
-    // See VFX_CATALOG_PROBE for what this is for and why it exists in this shape.
     auto Plugin::tick_vfx_catalog_probe(AActor* ghost) -> void
     {
         if (!ghost)
@@ -10284,7 +10235,6 @@ namespace MeshGhostPseudo
                 {
                     continue;
                 }
-                // An empty VFX_PROBE_NAME_FILTERS means everything.
                 if (std::size(VFX_PROBE_NAME_FILTERS) > 0)
                 {
                     bool matched = false;
@@ -10361,7 +10311,6 @@ namespace MeshGhostPseudo
     // Dev toggles whose content names what to switch, the same shape as `hooks_off.txt` and `call_light_fn.txt`.
     namespace
     {
-        // Is `word` in `body` as a whole word?
         auto dev_toggle_word(const std::string& body, const std::string& word) -> bool
         {
             if (word.empty())
@@ -10831,7 +10780,7 @@ namespace MeshGhostPseudo
         it->second.nametag_plate_has_color = false;
         it->second.nametag_create_failed = false;
 
-        // The projectile effect is our component; the tick path destroys it when the shot ends.
+        // Destroyed above with the other world-spawned effects.
         it->second.projectile_component = nullptr;
         it->second.projectile_component_world = nullptr;
         // Already destroyed above; the map must not outlive them.
@@ -11038,8 +10987,7 @@ namespace MeshGhostPseudo
     {
         Output::send(STR("[MeshGhostPseudo] on_unreal_init reached.\n"));
         unreal_ready = true;
-        // Resolved once here: MESHGHOST_BRIDGE_PORT, then "local_game_bridge" in the config.json
-        // beside this DLL, then the compiled-in default. See resolve_bridge_base_port.
+        // Resolved once: MESHGHOST_BRIDGE_PORT, then "local_game_bridge" in the game root's config.json, then default.
         const uint16_t bridge_base = resolve_bridge_base_port(BRIDGE_BASE_PORT);
         if (bridge_base != BRIDGE_BASE_PORT)
         {
@@ -11050,7 +10998,6 @@ namespace MeshGhostPseudo
         bridge = std::make_unique<BridgeClient>(BRIDGE_HOST, bridge_base);
         core_launcher = std::make_unique<CoreLauncher>();
 
-        // Releases every ghost before a LoadMap-driven transition proceeds.
         load_map_pre_callback_id = Hook::RegisterLoadMapPreCallback(
             [this](Hook::TCallbackIterationData<bool>&, UEngine*, FWorldContext&, FURL, UPendingNetGame*, FString&) {
                 Output::send(STR("[MeshGhostPseudo] HOOK: LoadMap PRE fired.\n"));
@@ -11078,7 +11025,7 @@ namespace MeshGhostPseudo
                 }
                 release_all_ghosts(STR("LoadMap PRE"));
 
-                // No ghost spawns into the world coming up; InitGameState clears the window.
+                // Spawns held RESET_SPAWN_SUPPRESS_TICKS for the world coming up; InitGameState PRE re-arms the hold.
                 suppress_ghost_spawn_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
                 quiet_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
 
@@ -11297,8 +11244,7 @@ namespace MeshGhostPseudo
 
     // BP_PlayerGoatMain_C's BeginPlay pins the controller's attenuation listener to its own capsule, so a ghost takes
     // it and every spatialized sound goes silent once that ghost despawns. Any call naming a component other than the
-    // driving pawn's root is rewritten to it in the argument buffer: a second corrective call loses to the engine's
-    // own. With no driving pawn yet (a transition) the call passes untouched.
+    // driving pawn's root is rewritten to it in the argument buffer: a second corrective call loses to the engine's.
     auto Plugin::register_audio_listener_guard() -> void
     {
         salao_function = UObjectGlobals::StaticFindObject<UFunction*>(
@@ -11833,8 +11779,8 @@ namespace MeshGhostPseudo
         Output::send(STR("[MeshGhostPseudo] afterimage outline guard armed on SetRenderCustomDepth.\n"));
     }
 
-    // The object registries' feed: UE4SS's StaticConstructObject post-callback, read-only, with no hook on a game
-    // function (registry_note_constructed says why the Niagara spawn functions are not hooked).
+    // The object registries' feed: UE4SS's StaticConstructObject post-callback, read-only, never a hook on a game
+    // function: hooked, the Niagara spawn functions hang the game thread.
     auto Plugin::register_object_registry_feed() -> void
     {
         registry_construct_callback_id = Hook::RegisterStaticConstructObjectPostCallback(
@@ -12049,7 +11995,7 @@ namespace MeshGhostPseudo
                      hijack_target->GetFullName());
     }
 
-    // Called only from game_thread_tick's chain: the C++ spawn that crashed made these calls from on_update().
+    // Called only from game_thread_tick's chain: on_update() is UE4SS's own thread, and a spawn from it crashed.
     auto Plugin::ensure_ghost_spawned(const std::string& player_id, UObject* local_pawn, UObject* local_controller) -> void
     {
         auto existing = remotes.find(player_id);
@@ -12068,7 +12014,6 @@ namespace MeshGhostPseudo
             return;
         }
 
-        // Nothing spawns while a reset is in flight (suppress_ghost_spawn_until_tick).
         if (tick_count < suppress_ghost_spawn_until_tick)
         {
             return;
@@ -12387,8 +12332,7 @@ namespace MeshGhostPseudo
 
         spawn_timer_report.mark(STR("templates+vertexlight"));
         // The light manager's own repair (call_fix_lights), for a light that registered during SpawnActor and stays
-        // registered after it dies. Deferred and coalesced: requested here, served at most once per
-        // FIX_LIGHTS_SPACING_TICKS by game_thread_tick, and only when ghost_fixlights_on.txt is present.
+        // registered after it dies: requested here, served by game_thread_tick (g_fix_lights_due).
         g_fix_lights_due = true;
         ++g_fix_lights_spawns_pending;
         spawn_timer_report.mark(STR("fixlights-deferred"));
@@ -12929,8 +12873,7 @@ namespace MeshGhostPseudo
                     // Blank it now: a fresh TextRenderComponent holds the default string "Text", which a plate that
                     // never gets a colour would draw as a box, and nothing below clears it.
                     set_text_render_string(entry.nametag_plate, STR(""));
-                    // Bigger than the name and centred, so the colour shows evenly all round: padding with spaces
-                    // cannot grow it, since this font gives a space no advance.
+                    // Centred, and stretched past the name (apply_nametag_tuning): the colour shows evenly all round.
                     center_text_component(entry.nametag_component);
                     center_text_component(entry.nametag_plate);
                     apply_nametag_tuning(entry, utf8_to_wide(wanted_name).size());
@@ -12955,7 +12898,7 @@ namespace MeshGhostPseudo
                 entry.nametag_plate_applied_color = wanted_color;
                 if (entry.nametag_plate)
                 {
-                    // Padded, so the name has coloured space either side rather than a box stopping on the last letter.
+                    // The name itself: the coloured margin either side comes from the plate's width scale, not padding.
                     set_text_render_string(entry.nametag_plate,
                                            entry.nametag_plate_has_color
                                                ? plate_string_for(utf8_to_wide(wanted_name)).c_str()
@@ -13319,7 +13262,7 @@ namespace MeshGhostPseudo
 
                 // Hold a shrunk capsule across the seams of a held slide, which re-triggers and stands for a few ms
                 // between repeats: a discretely posed ghost shows each seam as a bounce. Held here, where the value
-                // arrives, so the five consumers cannot disagree. SLIDE_SEAM_HOLD_MS sits in the measured gap between
+                // arrives, so its consumers cannot disagree. SLIDE_SEAM_HOLD_MS sits in the measured gap between
                 // seams and real stand-ups: re-measure, never nudge.
                 if (capsule_half > 0.0 && capsule_half < GHOST_STANDING_CAPSULE_HALF)
                 {
@@ -13485,9 +13428,8 @@ namespace MeshGhostPseudo
         }
         else if (type == "remote_input")
         {
-            // A window of a replay ghost's recorded inputs, buffered per player and applied when the ghost's rendered
-            // timestamp reaches an edge's at. The labels stay opaque: the display maps bit i to INPUT_HISTORY_TOKENS[i]
-            // by position.
+            // A replay ghost's recorded inputs, buffered per player until its rendered timestamp reaches an edge's at.
+            // The labels stay opaque: the display maps bit i to INPUT_HISTORY_TOKENS[i] by position.
             if constexpr (INPUT_HISTORY_DISPLAY)
             {
                 size_t rb = 0, re = 0, pb = 0, pe = 0;
@@ -13545,10 +13487,9 @@ namespace MeshGhostPseudo
                         {
                             continue; // an edge with no due time can never apply
                         }
-                        // A double outside the integer's range makes static_cast undefined behaviour, from a clip a
-                        // friend sent, so f and t are bounded like m. The Go side bounds both too; these restate its
-                        // powers of two, there being no way to share a Go constant. Dropped, not clamped: a nonsense
-                        // frame or time would apply an input at an arbitrary moment.
+                        // f and t are peer data: bounded like m, since an out-of-range double makes static_cast
+                        // undefined, and dropped rather than clamped, since a nonsense frame or time would apply an
+                        // input at an arbitrary moment. The bounds restate the Go side's, which C++ cannot share.
                         constexpr double MAX_INPUT_FRAME = 9007199254740992.0; // 2^53, bridge.MaxInputFrame
                         constexpr double MAX_INPUT_T_MS = 4398046511104.0;     // 2^42, protocol.MaxTimestampMs
                         if (!std::isfinite(f) || f < 0.0 || f > MAX_INPUT_FRAME ||
@@ -13638,8 +13579,7 @@ namespace MeshGhostPseudo
         PerfScope perf_whole_tick(PERF_TICK_TOTAL);
         g_registry_tick = tick_count; // the object registries' clock (belt re-seeds)
         registry_drain_pending();     // constructions the loading thread saw since last tick
-        // The deferred light repair: once for every spawn since the last, at most every FIX_LIGHTS_SPACING_TICKS, and
-        // only when ghost_fixlights_on.txt is present.
+        // The deferred light repair: one call for every spawn since the last, at most every FIX_LIGHTS_SPACING_TICKS.
         if (g_fix_lights_due && tick_count - g_fix_lights_last_tick >= FIX_LIGHTS_SPACING_TICKS)
         {
             g_fix_lights_due = false;
@@ -13668,8 +13608,7 @@ namespace MeshGhostPseudo
         if (auto [pause_controller, pause_pawn] = find_local_controller_and_pawn(); pause_controller)
         {
             // player_frozen, sent on change and read before the paused return below: the pause menu shows the cursor on
-            // the same sample it sets the pauser, so a later read would miss the rising edge. PauserPlayerState is set
-            // while the pause menu or an item popup is up; the intro cutscene does not set it.
+            // the same sample it sets the pauser, so a later read would miss the rising edge.
             {
                 bool frozen = false;
                 bool resolved = false;
@@ -13942,7 +13881,6 @@ namespace MeshGhostPseudo
                 if (tick_count % CAMERA_RIG_SWEEP_INTERVAL_TICKS == 0 && class_looks_like_player(pawn_obj))
                 {
                     static std::map<UObject*, int> orphan_sightings; // rig -> consecutive sweeps with OwningActor null
-                    // Every CAMERA_RIG_SWEEP_INTERVAL_TICKS over the registry's few rigs, never per tick or ghost.
                     std::vector<UObject*> rigs;
                     g_camrig_registry.live(g_registry_tick, rigs); // fed by constructions, re-seeded on the belt
                     std::set<UObject*> seen_orphaned;
@@ -14064,8 +14002,8 @@ namespace MeshGhostPseudo
                 }
             }
 
-            // Hurt counter, local half: any drop in the shared CurrentHp is a hurt; a pit fall is 5 at once, never a
-            // death. release_all_ghosts resets the baseline at LoadMap PRE, since a save swap rewrites CurrentHp.
+            // Hurt counter, local half: any drop in the shared CurrentHp is a hurt, a pit fall included, never a death.
+            // release_all_ghosts resets the baseline at LoadMap PRE, since a save swap rewrites CurrentHp.
             if constexpr (MIRROR_HURT_REACTION)
             {
                 double hp_now = 0.0;
@@ -14105,7 +14043,6 @@ namespace MeshGhostPseudo
                              local_death_count);
             }
 
-            // See OUTLINE_HUNT. Everything rendering custom depth, by actor, on change.
             if constexpr (OUTLINE_HUNT)
             {
                 if (tick_count % OUTLINE_HUNT_INTERVAL_TICKS == 0)
@@ -14168,7 +14105,6 @@ namespace MeshGhostPseudo
                 }
             }
 
-            // See LOCKON_PROBE: lock-on-shaped properties on change, naming what each object one points at.
             if constexpr (LOCKON_PROBE)
             {
                 static std::map<StringType, StringType> prev_lockon;
@@ -14213,7 +14149,6 @@ namespace MeshGhostPseudo
                 }
             }
 
-            // See DEATH_VISIBILITY_PROBE. Local player only, logged on change.
             if constexpr (DEATH_VISIBILITY_PROBE)
             {
                 static std::map<StringType, StringType> prev_visibility;
@@ -14332,7 +14267,7 @@ namespace MeshGhostPseudo
                         }
                         else if (bool* hidden = mg_property_value<bool>(candidate, STR("bHidden")))
                         {
-                            // Fallback only: bHidden is a bitfield-packed bool, and reading one has misled this file.
+                            // Fallback only: bHidden is a bitfield-packed bool, which a plain bool read can misreport.
                             if (*hidden)
                             {
                                 continue;
@@ -14485,10 +14420,8 @@ namespace MeshGhostPseudo
                             }
                         }
 
-                        // See WEAPON_LANDING_TRACE for what each of these tests.
                         if constexpr (WEAPON_LANDING_TRACE)
                         {
-                            // One-shot dump of every function the real thrown weapon's class exposes.
                             if (!weapon_landing_reflection_dumped)
                             {
                                 weapon_landing_reflection_dumped = true;
@@ -14516,7 +14449,6 @@ namespace MeshGhostPseudo
                             const int32_t state_now = state_ptr ? static_cast<int32_t>(*state_ptr) : -2;
                             const int32_t embedded_now = embedded_ptr ? (*embedded_ptr ? 1 : 0) : -2;
 
-                            // The mesh-offset candidate, off the actor's own SkeletalMesh component.
                             double mesh_x = -99999.0, mesh_y = -99999.0, mesh_z = -99999.0;
                             if (UObject** mesh_ptr = mg_property_value<UObject*>(weapon_ref, STR("SkeletalMesh")); mesh_ptr && *mesh_ptr)
                             {
@@ -14720,7 +14652,7 @@ namespace MeshGhostPseudo
                 }
             }
 
-            // See VFX_WATCH for why this searches by observation rather than by name.
+            // By observation, not by name: whatever the player spawns names its own asset and the tick it appeared.
             if constexpr (VFX_WATCH)
             {
                 if (tick_count % VFX_WATCH_INTERVAL_TICKS == 0)
@@ -14868,7 +14800,7 @@ namespace MeshGhostPseudo
                 prev_local_montage = montage_path;
             }
 
-            // See WEAPON_ACTOR_TRACE for the four questions this capture answers.
+            // (1)-(4) below: weaponRef's identity, its movement, a world sweep after a throw, a one-shot value dump.
             if constexpr (WEAPON_ACTOR_TRACE)
             {
                 UObject** weapon_ref_ptr = mg_property_value<UObject*>(pawn, STR("weaponRef"));
@@ -15118,8 +15050,7 @@ namespace MeshGhostPseudo
             // Capsule half-height: the real-slide signal, and the ghost's floor-sinking fix. 65 standing, 22 sliding.
             constexpr float SLIDE_CAPSULE_THRESHOLD = 50.0f;
 
-            // The slide Timeline's track value -- the peer's exact point on the game's own pose
-            // curve. See SLIDE_TIMELINE_TRACK. 1.0 is standing; a slide runs it down toward 0.
+            // The slide Timeline's track, the peer's point on the game's pose curve: 1.0 standing, falling in a slide.
             float local_slide_t = 1.0f;
             if (float* slide_t_ptr = mg_property_value<float>(pawn, SLIDE_TIMELINE_TRACK))
             {
@@ -15217,7 +15148,7 @@ namespace MeshGhostPseudo
                     last_slide_refire_tick = tick_count;
                 }
 
-                // The reconstructed trigger, off while AFTERIMAGE_TRIGGER_FROM_OBSERVATION is on.
+                // The reconstructed trigger, off while either observed trigger is on, or one burst would count twice.
                 if (!AFTERIMAGE_TRIGGER_OBSERVED && !AFTERIMAGE_TRIGGER_FROM_OBSERVATION &&
                     (burst_edge || slide_edge || slide_refire))
                 {
@@ -15360,7 +15291,6 @@ namespace MeshGhostPseudo
                     }
                 }
 
-                // POLE_ROTATION_TRACE -- see the flag's own comment for what each outcome means.
                 if constexpr (POLE_ROTATION_TRACE)
                 {
                     constexpr uint8_t FLYING_MOVEMENT_MODE = 5;
@@ -15556,7 +15486,6 @@ namespace MeshGhostPseudo
                 }
             }
 
-            // Health hunt -- see HEALTH_PROBE's own comment for the two-run protocol.
             if constexpr (HEALTH_PROBE)
             {
                 if (tick_count % HEALTH_PROBE_INTERVAL_TICKS == 0)
@@ -15654,7 +15583,6 @@ namespace MeshGhostPseudo
                 }
             }
 
-            // The stuck-flying-after-jump trace, on the slow LOG_INTERVAL_TICKS cadence; see LOCAL_MOVEMENT_TRACE.
             if (LOCAL_MOVEMENT_TRACE && tick_count % LOG_INTERVAL_TICKS == 0)
             {
                 Output::send(STR("[MeshGhostPseudo] TRACE local: moveState={} actionState={} hSpeed={} vSpeed={} animJumpType={} movementMode={} landed={} jumped={} yaw={} bOrientRotationToMovement={}\n"),
@@ -15669,7 +15597,6 @@ namespace MeshGhostPseudo
                              rotation.GetYaw(),
                              orient_rotation_to_movement);
 
-                // VisualMesh's relative rotation, scale and location, live across a real turn.
                 if (UObject** vm_ptr = mg_property_value<UObject*>(pawn, STR("VisualMesh")); vm_ptr && *vm_ptr)
                 {
                     FRotator* vm_rot = mg_property_value<FRotator>((*vm_ptr), STR("RelativeRotation"));
@@ -15944,7 +15871,7 @@ namespace MeshGhostPseudo
                     const bool is_ours = cached_ptr && *cached_ptr &&
                                          to_utf8((*cached_ptr)->GetFullName()).find(pawn_name) != std::string::npos;
 
-                    // Trace (1) local and (3) result in one pass: every new afterimage, whoever it belongs to.
+                    // The local images and the ghost's resulting ones in one pass: every new afterimage, whoever's.
                     if constexpr (TRAIL_COLOR_TRACE)
                     {
                         std::string trace_name = to_utf8(image->GetFullName());
@@ -16069,8 +15996,7 @@ namespace MeshGhostPseudo
                                 }
                             }
                             const bool visible = opacity > 0.01f;
-                            // Height per side: the ghost's slide fix raises its actor by up to 43, so its snapshots
-                            // could sit off its visible body.
+                            // Height per side, so an image drawn off its character's body shows in the line.
                             const double image_z = static_cast<AActor*>(image)->K2_GetActorLocation().Z();
                             char buf[24];
                             std::snprintf(buf, sizeof(buf), "%.2f@%.0f ", opacity, image_z);
@@ -16185,8 +16111,6 @@ namespace MeshGhostPseudo
                 }
             }
 
-            // Cling-gem / wall-ride state, edge-logged -- see prev_wallride_button_held's comment
-            // in Plugin.hpp and WALLRIDE_TRACE's own comment.
             if constexpr (WALLRIDE_TRACE)
             {
                 bool* wr_held_ptr = mg_property_value<bool>(pawn, STR("wallRideButtonHeld?"));
@@ -16473,12 +16397,11 @@ namespace MeshGhostPseudo
                 // point in it. Two decimals: the curve spans 0..1.
                 "\"afterimage_n\":{},\"capsule_half\":{:.1f},\"slide_t\":{:.2f},\"bubble_charged\":{},"
                 "\"afterimage_color\":[{:.4f},{:.4f},{:.4f}],"
-                // Thrown sword: only the flag is always present; one-decimal values bound the block under
-                // MaxExtrasBytes, where an unbounded double prints 17 digits.
+                // Thrown sword: one-decimal values keep the block under MaxExtrasBytes, where an unbounded double
+                // prints 17 digits.
                 "\"weapon_thrown\":{},\"weapon_class\":\"{}\",\"weapon_state\":{},\"weapon_glow\":\"{}\",\"recall_glow\":{},"
                 "\"weapon_pos\":[{:.1f},{:.1f},{:.1f}],\"weapon_rot\":[{:.1f},{:.1f},{:.1f}],\"weapon_bounce\":{},\"shadow_on\":{},\"vfx\":\"{}\","
-                // Ranged projectile -- one decimal for the same size reason as the weapon
-                // block above, and the class path only crosses the wire while a shot flies.
+                // Ranged projectile: one decimal, for the same size reason as the weapon block above.
                 "\"prj\":{},\"prj_vfx\":\"{}\",\"prj_pos\":[{:.1f},{:.1f},{:.1f}],\"prj_rot\":[{:.1f},{:.1f},{:.1f}],\"blink_count\":{},\"death_count\":{},\"hurt_count\":{}}}"
                 "}}}}}}",
                 json_escape(area_id),
@@ -16771,8 +16694,8 @@ namespace MeshGhostPseudo
                     afterimage_pending_reenable.erase(pending); // a ghost's: refused correctly, stays off
                 }
 
-                // See AFTERIMAGE_CENSUS. One ghost-owned afterimage, dumped once: what it reads to decide it should be
-                // outlined, since reacting afterwards never beats the frame it spawns on.
+                // One ghost-owned afterimage, dumped once: what it reads to decide it should be outlined, since
+                // reacting afterwards never beats the frame it spawns on.
                 if constexpr (AFTERIMAGE_CENSUS)
                 {
                     static bool dumped_afterimage = false;
@@ -17603,7 +17526,7 @@ namespace MeshGhostPseudo
                     }
                     if (!track.have_state && !track.edges.empty() && (tick_count % 120) == 0)
                     {
-                        // Nothing applied yet: how far the head edge sits from the render clock, every ~2 s.
+                        // Nothing applied yet: how far the head edge sits from the render clock, every 120 ticks.
                         Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: {} waiting -- head at={:.0f} target_ts={:.0f} (head - ts = {:.0f} ms, {} queued).\n"),
                                      to_wide_ascii(id), track.edges.front().at, remote.target_ts, track.edges.front().at - remote.target_ts, track.edges.size());
                     }
@@ -19181,7 +19104,6 @@ namespace MeshGhostPseudo
                 }
             }
 
-            // The ghost's own health, to compare with the local health tick by tick.
             if constexpr (HEALTH_TRACE)
             {
                 static const wchar_t* GHOST_HEALTH_NAMES[] = {
@@ -19392,11 +19314,9 @@ namespace MeshGhostPseudo
         }
     }
 
-    // ------------------------------------------------------------------------------------------
     // The input track, adapter half: this reads on the game thread once per engine frame; the next drains and
-    // sends on UE4SS's thread. Both reflected calls are resolved by name and checked before the first call
-    // (FInputActionValue by size, since it has no reflected fields), and every jump edge is checked against
-    // the pawn's own jumpButtonHeld?.
+    // sends on UE4SS's thread. Every reflected call's layout is checked before its first call (FInputActionValue
+    // by size, since it has no reflected fields), and every jump edge against the pawn's own jumpButtonHeld?.
     auto Plugin::input_track_sample(UObject* controller, UObject* pawn) -> void
     {
         ++input_frame; // engine frames on which a read was possible, whether or not one happened
@@ -20361,7 +20281,7 @@ namespace MeshGhostPseudo
             // The same for replay inputs: with the display off the core never scans for a track. The core log
             // confirms the opt-in.
             const char* want_input_tracks = INPUT_HISTORY_DISPLAY ? ",\"input_tracks\":true" : "";
-            // MIN_RELAY_PROTOCOL is this adapter's floor; it is raised only by hand, never automatically.
+            // MIN_RELAY_PROTOCOL_FIELD is this adapter's floor; it is raised only by hand, never automatically.
             std::string hello = std::string("{\"type\":\"hello\",\"payload\":{\"game_id\":\"") + GAME_ID +
                 "\",\"game_version\":\"" + ADAPTER_VERSION + "\"," + MIN_RELAY_PROTOCOL_FIELD + want_orient_bracket + want_input_tracks + "}}";
             Output::send(STR("[MeshGhostPseudo] HELLO {}\n"), to_wide_ascii(hello));

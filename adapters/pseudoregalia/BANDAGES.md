@@ -34,8 +34,8 @@ if a ghost spawned within `GHOST_SPAWN_FADE_GUARD_TICKS` (10 ticks, ~50 ms), wri
 construction path the clone runs fires the same fade a real spawn would. Every ghost appearing
 flashed the local player's view.
 
-**Why it is a bandage.** It cannot tell OUR fade from the GAME'S. The comment beside it asserts
-that "every real fade the game performs is untouched", and the only thing separating them is that
+**Why it is a bandage.** It cannot tell OUR fade from the GAME'S, as the comment beside it says;
+the only thing separating them is that
 50 ms window: a death, a zone transition or a save-warp that happens to land inside it is silently
 neutralised too, and the player sees a cut where the game meant a fade.
 

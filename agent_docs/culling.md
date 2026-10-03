@@ -28,7 +28,7 @@ without a protocol change.
 
 **Granularity is ALREADY the adapter's choice.** `area_id` is opaque to the core — compared by
 equality, never interpreted — so what an "area" *is* was never decided by the Go side. Pseudoregalia
-reports the UE Level's full name (`Plugin.cpp:12011`), TEVI reports its area enum
+reports the UE Level's full name (`game_thread_tick` in `Plugin.cpp`), TEVI reports its area enum
 (`Update` in `Plugin.cs`). Moving Pseudoregalia from zone to room granularity is **not** a core or relay
 change; it is that adapter reporting a finer string, and the shipped `own_area_only` filter starts
 culling per room the same day. Nothing in `core` or `relay` learns anything about the game.
