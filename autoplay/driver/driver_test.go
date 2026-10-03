@@ -206,7 +206,6 @@ func TestCallFailsWhenTheDriverLeaves(t *testing.T) {
 	}
 	waitConnected(t, h, false)
 
-	// The slot is free again: a new driver is welcomed.
 	again := dial(t, h, goodHello())
 	if e := again.read(); e.Type != "welcome" {
 		t.Fatalf("reconnect got %q, want welcome", e.Type)

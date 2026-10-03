@@ -1,6 +1,6 @@
 -- The autoplay module for vanilla Pokémon Crystal V1.0 (a dev tool, never shipped). Addresses come from our pokecrystal
 -- build, whose .gbc hashes identical to the ROM; what each byte means was measured on the running game, and a byte
--- whose meaning is not measured goes out raw under `extras`, never named.
+-- whose meaning is not measured goes out raw (a `_raw` field), never named.
 
 -- The library the driver hands every game module: `text`, `route` and `select`.
 local lib = ...
@@ -78,7 +78,6 @@ local W_OBJECTS, OBJ_SIZE, OBJ_COUNT = flat(0xD4D6), 0x28, 13
 local W_MAP_OBJECTS, MAP_OBJ_SIZE, W_EVENT_FLAGS = flat(0xD71E), 0x10, flat(0xDA72)
 local MAPOBJ_TYPE_TRAINER = 2
 
--- A map object's trainer reading, or nil when its record is not a trainer's.
 local function trainerOf(mapObject)
 	if mapObject > 15 then return nil end
 	local r = memory.read_bytes_as_array(W_MAP_OBJECTS + mapObject * MAP_OBJ_SIZE, MAP_OBJ_SIZE, "WRAM")
@@ -151,7 +150,6 @@ local function readLocalMap(warps, objects, signs)
 	local marks = {}
 	for _, s in ipairs(signs) do marks[s.x * 256 + s.y] = "S" end
 	for _, w in ipairs(warps) do marks[w.x * 256 + w.y] = "W" end
-	-- An unbeaten trainer's line: its range of tiles the way it faces now.
 	for _, o in ipairs(objects) do
 		local t = o.trainer
 		if t and not t.beaten and o.facing then
@@ -240,7 +238,7 @@ local function isLetter(b) return (b >= 0x80 and b <= 0x99) or (b >= 0xA0 and b 
 
 -- Which font is loaded, by an FNV-1a checksum of each id range's tiles in VRAM bank 0, since a picture can be drawn
 -- with the letters' tiles; 0x60-0x7F name different glyphs in a message box and in a battle. Two reads of 928 and 512
--- bytes, so only observe and select read it, never the per-frame watch.
+-- bytes, so game.watch, which runs on every frame, never reads it; observe and the programs do.
 local FONT_LETTERS, FONT_LOW_BOX, FONT_LOW_BATTLE = 0xABC168AD, 0x463433A3, 0x0E4FC271
 local LOW_NAMES = {
 	[FONT_LOW_BOX] = {
@@ -416,8 +414,7 @@ local function readScreenText(t, dialogue, menuRows, low)
 	return out
 end
 
--- The PACK's item list, whole, when the menu on screen is it, and the pockets' contents (defined with the pockets,
--- below).
+-- Defined further down, beside what they read; readTextAndMenu and game.observe use them first.
 local itemPocketMenu, readBag, readParty, partyMenu, readBadges, movementName
 
 -- The message and the menu on screen together: a menu drawn inside the message box's frame (the battle's action
@@ -511,7 +508,6 @@ local function speciesName(id)
 	return romNames.species[id]
 end
 
--- A move's entry: its type, power, accuracy byte and the PP drawn as its maximum.
 local function moveData(id)
 	local m = romNames.moveData[id]
 	if m then return m end
@@ -617,7 +613,6 @@ local game = {
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "walk", "goto", "select", "advance_text", "battle",
 		"cheat:warp", "cheat:give_item", "cheat:set_flag", "cheat:heal", "cheat:set_badge", "cheat:set_move", "cheat:set_status" },
-	-- Down moves a menu's cursor one item a press, and A chooses.
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
 	protected_slots = { 1 },
 	shots = "crystal",
@@ -669,7 +664,6 @@ function game.observe(asked)
 		local modeRaw = u8(W_BATTLEMODE)
 		battle = { asking = battleAskingFor(m), kind = BATTLE_KINDS[modeRaw], battlers = {} }
 		battle.battlers[#battle.battlers + 1] = readBattler(W_BATTLE_MON, W_BATTLE_MON_NICK, "player")
-		-- In a trainer battle the opponent's block holds the last battle's Pokémon until the first is sent out.
 		local otMon = u8(W_CUR_OT_MON)
 		if modeRaw ~= BATTLE_MODE_TRAINER or otMon ~= OT_MON_NONE_YET then
 			battle.battlers[#battle.battlers + 1] = readBattler(W_ENEMY_MON, W_ENEMY_MON_NICK, "opponent")
@@ -681,7 +675,6 @@ function game.observe(asked)
 		-- An empty Lua table goes out as {}, not []: leave the list out until a battler is there.
 		if #battle.battlers == 0 then battle.battlers = nil end
 	end
-	-- What the save has: the party and money as `battle`'s ended report reads them, and the measured pockets.
 	local party, money, bag, badges
 	if asked and isVanilla then
 		local r = battleEndedReport()
@@ -726,9 +719,9 @@ end
 -- and a reason. A cheat changes the world by other means than play; the core marks the segment reached.
 game.cheats = {}
 
--- warp {map = "G.N", x, y}: the writes probes/goto_map.lua makes; without hMapEntryMethod the game reloads the map it
--- is on. Refused while a script has the controls, since written then the load does not run. Done once the game has left
--- the overworld and runs the target map again.
+-- warp {map = "G.N", x, y}: the writes the Crystal adapter's probes/goto_map.lua makes; without hMapEntryMethod the
+-- game reloads the map it is on. Refused while a script has the controls, since written then the load does not run.
+-- Done once the game has left the overworld and runs the target map again.
 local W_DEFAULT_SPAWNPOINT, H_MAP_ENTRY_METHOD, MAPSETUP_WARP = flat(0xD001), 0xFF9F, 0xF1
 function game.cheats.warp(args)
 	local map = type(args.map) == "string" and args.map or ""
@@ -823,7 +816,7 @@ local POCKETS = {
 	[0x02] = { name = "key_items", addr = flat(0xD8BC), slots = 25, cur = 2, ptr = 0xD8BC, size = 1 },
 	[0x03] = { name = "balls", addr = flat(0xD8D7), slots = 12, cur = 1, ptr = 0xD8D7, size = 2 },
 }
--- The TM/HM pocket: a count per TM or HM, the Kth of the 57 ids the attribute table files under 04 at D859 + K.
+-- The TM/HM pocket: from D859, a count per TM or HM, in the order of the 57 ids the attribute table files under 04.
 local TM_POCKET = { name = "tms_hms", addr = flat(0xD859), slots = 57, cur = 3 }
 local tmIds
 local function tmIdList()
@@ -1180,12 +1173,11 @@ function game.cheats.give_item(args)
 	}
 end
 
--- Programs: run once a frame by the driver, each returning (pad or nil, finished, result, error).
+-- Programs: each takes its args and returns a function the driver runs once a frame, or nil and a reason.
 game.programs = {}
 
--- A step begins on the frame the player object's +0x10/+0x11 move to the next tile and ends 14 frames later, when
--- wXCoord/wYCoord catch up; released mid-step, it finishes. So `walk` holds the direction until the last tile's step
--- begins, then waits for rest; after a door the game walks the player off it by itself.
+-- A step begins on the frame the player object's +0x10/+0x11 move to the next tile and ends when wXCoord/wYCoord catch
+-- up; let go mid-step, it finishes. So `walk` holds the direction until the last tile's step begins, then lets go.
 local W_PLAYERMOVEMENT, W_PLAYERSTATE = flat(0xC2DF), flat(0xD95D)
 local MOVEMENT_REST, MOVEMENT_REFUSED = 62, 80
 -- wPlayerState: on foot, the BICYCLE and surfing each step the way a step on foot does (the bike faster), so `walk` and
@@ -1276,7 +1268,6 @@ function game.programs.walk(p)
 		if readMenu(t, false) then return finish("menu_open") end
 		-- A script taking over (255): held input does nothing from then on.
 		if u8(W_SCRIPT_RUNNING) == SCRIPT_TOOK_OVER then return finish("script_started", { map = mapName() }) end
-		-- A trainer seeing the player: wScriptRunning 1, two frames after the step ends.
 		if u8(W_SCRIPT_RUNNING) == SCRIPT_SEEN_BY_TRAINER then
 			return finish("spotted", { map = mapName(), trainer = { map_object = memory.read_u8(H_LAST_TALKED, "System Bus"),
 				tiles_away = u8(W_SEEN_TRAINER_DISTANCE) } })
@@ -1434,8 +1425,7 @@ local function routeGrid(fromX, fromY, toX, toY)
 				if WARP_ENTRY[c] == nil then return nil end
 				return true, false, seen[y * mapW + x]
 			end
-			-- Surfing, the route stays on the water (0x29), and land is open only as the target: a step ashore ends the
-			-- surf.
+			-- Surfing, only water (0x29) is open, and land only as the target: a step ashore ends the surf.
 			if surfing then
 				if c == WATER then return true, false, seen[y * mapW + x] end
 				if not (x == toX and y == toY) then return nil end
@@ -1453,8 +1443,7 @@ local routeHooks = {
 		return mapName(), x, y
 	end,
 	inOverworld = inOverworld,
-	-- `walk`'s early stops, in its order: a message or a menu on screen, a script taking the controls, a trainer's
-	-- sight.
+	-- `walk`'s early stops, in its order: a message or menu up, a script taking the controls, a trainer's sight.
 	watch = function()
 		return function()
 			local t = readTilemap()
@@ -1484,7 +1473,7 @@ local routeHooks = {
 	atRest = atRest,
 	refused = function() return u8(W_PLAYERMOVEMENT) == MOVEMENT_REFUSED end,
 	idle = function() return u8(W_PLAYERMOVEMENT) == MOVEMENT_REST end,
-	-- On foot, with nothing held but the direction: Crystal has no running shoes.
+	-- Only the direction is held, whatever the player rides: Crystal has no running shoes.
 	ride = function() return {} end,
 	routeGrid = routeGrid,
 	warps = readWarps,
@@ -1496,7 +1485,6 @@ local routeHooks = {
 -- goto {x, y, cross_grass}: to a tile on this map, on foot, on the BICYCLE or surfing.
 game.programs["goto"] = function(p)
 	if not isVanilla then return nil, "goto is measured on the vanilla V1.0 ROM only" end
-	-- Another map's tables are not read here yet.
 	if p.map ~= nil and p.map ~= mapName() then return nil, "goto to another map is not built for Crystal yet" end
 	if not MOVEMENT_STATES[u8(W_PLAYERSTATE)] then
 		return nil, string.format("goto is measured on foot and on the BICYCLE only; wPlayerState reads %d", u8(W_PLAYERSTATE))
@@ -1593,8 +1581,7 @@ local textHooks = {
 				q.kind = "next_pokemon"
 			end
 		end
-		-- The party list in a battle ("Which PKMN?"), read as the POKéMON menu is: a Pokémon is chosen by name with
-		-- select.
+		-- The party list in a battle ("Which PKMN?"), read as the POKéMON menu is: select chooses a Pokémon by name.
 		local party = partyMenu(m, t, low)
 		if party then q.kind, q.menu = "party", { items = party.items, cursor = party.cursor } end
 		return q
@@ -1604,7 +1591,6 @@ local textHooks = {
 		if slot == nil then return nil, "no move has measured PP left" end
 		return slot, name
 	end,
-	-- Policy "effective": the type table, the same-type bonus and the stats the damage uses (strongestMoveSlot, above).
 	effectiveMove = function()
 		local slot, name, detail = strongestMoveSlot(true)
 		if slot == nil then return nil, "no move has measured PP left" end
@@ -1613,7 +1599,6 @@ local textHooks = {
 	endedReport = battleEndedReport,
 }
 
--- battle and advance_text: the shared machine's (`lib.text`), with Crystal's hooks.
 game.programs.battle = function(p)
 	if not isVanilla then return nil, "battle is measured on the vanilla V1.0 ROM only" end
 	return lib.text.battle(textHooks, p)
@@ -1639,8 +1624,7 @@ function game.diffKeys(o)
 	}
 end
 
--- Read every frame for events: a map or mode change, and a message box or menu opening or closing. It also keeps
--- the text tracker the dialogue's state is read from.
+-- Read every frame: each key's change is an event, and it keeps the text tracker the dialogue's state is read from.
 function game.watch()
 	local out = {
 		map = mapName(),

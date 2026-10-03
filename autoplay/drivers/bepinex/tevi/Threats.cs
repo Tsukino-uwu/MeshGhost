@@ -15,8 +15,7 @@ namespace MeshGhostAutoplay.Tevi
     // An exploding character's blast is born with no box and grows a frame or two later, too late to step out of, so a
     // type seen to explode is itself a threat of its blast's size, learned from an EXPLODE bullet seen to grow. An orb
     // goes off only on touch, so a still or moving one is only its touch distance, except where its path meets another
-    // character or it hops straight up from rest: there it is its whole blast. A box belonging to a character stops at
-    // walls, as the character does.
+    // character or it hops straight up from rest: there it is its whole blast.
     public static class Threats
     {
         public const string HarmonyId = "dev.meshghost.autoplay.threats";
@@ -162,8 +161,8 @@ namespace MeshGhostAutoplay.Tevi
             public int AppearIn; // frames until it exists: 0 for a live box, the learned delay for a tell (Tells.cs)
         }
 
-        // How a shot's heading has turned relative to the player, frame by frame: turning toward her for HomingFrames
-        // frames in a row, it homes, which a straight line never predicts.
+        // How a shot's heading has turned relative to the player: a count up one each frame it turns toward her and
+        // down two each frame it does not; at HomingFrames it homes, which a straight line never predicts.
         private const int HomingFrames = 6;
         private static readonly Dictionary<int, int> TurningToward = new Dictionary<int, int>();
 
@@ -223,7 +222,6 @@ namespace MeshGhostAutoplay.Tevi
                 // Only an explosion teaches a blast: an ordinary attack can also be born with no box and grow.
                 if (BornEmpty.Remove(i) && b.owner != null && b.type.ToString().Contains("EXPLODE"))
                 {
-                    // A blast: born with no box, grown now. Its owner's type explodes this big.
                     string owner = b.owner.type.ToString();
                     if (!BlastSize.TryGetValue(owner, out Vector2 known) || known.x * known.y < w * h) BlastSize[owner] = new Vector2(w, h);
                 }
@@ -245,6 +243,7 @@ namespace MeshGhostAutoplay.Tevi
                 }
                 if (fresh) TurningToward.Remove(i);
                 LastVelocity[i] = v;
+                // A box on its character (a body, a charge) stops at walls, as the character does.
                 if (b.owner.t != null && Mathf.Abs(b.owner.t.position.x - c.x) < 56f && v.x != 0f)
                 {
                     Dodge.WallLimits(b.owner.t.position, w / 2f, out float lo, out float hi);
@@ -253,9 +252,8 @@ namespace MeshGhostAutoplay.Tevi
                 }
                 list.Add(threat);
             }
-            // Attacks being wound up, from the tells learned so far.
             Tells.Predict(p, list);
-            // Characters that explode, as their blast (keyed apart from bullet slots by a negative id).
+            // Characters that explode, as their blast.
             CharacterManager cm = CharacterManager.Instance;
             if (cm != null && cm.characters != null)
             {

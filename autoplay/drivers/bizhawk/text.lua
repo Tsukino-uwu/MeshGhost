@@ -26,8 +26,8 @@
 --                                            `options`, one per move with `name`, `type`, `power`, `accuracy` and
 --                                            `same_type`, the move to learn last: kinds `learn_move` (the YES/NO),
 --                                            `stop_learning` (the YES/NO after NO) and `forget_move` (the list)
---   scenePlaying()     -> boolean            a scene plays by itself and takes no button but the questions above: no
---                                            press on a message, and it counts as change for up to SCENE_WAIT_FRAMES
+--   scenePlaying()     -> boolean            a scene plays by itself and takes no button but the questions above and a
+--                                            message's arrow, and it counts as change for up to SCENE_WAIT_FRAMES
 --   strongestMove()    -> slot, label | nil, reason
 --   effectiveMove()    -> slot, label, detail | nil, reason   the move weighed by type against the foe, and what each
 --                                            move weighed, for the log
@@ -39,9 +39,9 @@
 
 local M = {}
 
--- Run a frame at a time in the driver, pressing only when a measured state asks: after NUDGE_FRAMES with no change
--- they press A once, a press that changes nothing is let go and tried again later (a message can ignore A through
--- its jingle), and after NUDGES of either without a change they finish `stuck` with what they last saw.
+-- The programs press only when a measured state asks: after NUDGE_FRAMES with no change they press A once, a press
+-- that changes nothing is let go and tried again later (a message can ignore A through its jingle), and after NUDGES
+-- of either without a change they finish `stuck` with what they last saw.
 local NUDGE_FRAMES, NUDGES, QUIET_FRAMES, PRESS_FRAMES, LOG_MAX = 180, 3, 90, 30, 200
 -- A on a message is a tap, and a message that ends with no arrow waits FINISHED_WAIT first: a held A goes on to
 -- answer the menu that comes up as the text ends.
@@ -109,8 +109,8 @@ function M.machine(h, choose, stopWhen, answer)
 				return nil, false
 			end
 			held = held + 1
-			-- A tap lets go after TAP_FRAMES -- or, where the module can tell, once the game has seen it -- and
-			-- waits for its answer with nothing held.
+			-- A tap lets go after TAP_FRAMES, and where the module can tell, not before the game has seen it; then
+			-- it waits for its answer with nothing held.
 			if pressing.tap and held > TAP_FRAMES and held <= PRESS_FRAMES then
 				if not h.tapSeen or pressing.seen or h.tapSeen() then
 					pressing.seen = true
@@ -130,7 +130,6 @@ function M.machine(h, choose, stopWhen, answer)
 			return pressing.pad, false
 		end
 
-		-- A battle menu waiting: move its cursor to the choice, then confirm.
 		local asking, menu = nil, nil
 		if battle then asking, menu = h.battleMenu() end
 		-- A double battle's target step: Right steps the cursor through every battler, the player's own too.
@@ -169,7 +168,6 @@ function M.machine(h, choose, stopWhen, answer)
 					end }
 				return pressing.pad, false
 			end
-			-- What the choice weighed, where the policy says ("effective": each move's score).
 			local entry = { chose = label, from = asking }
 			for k, v in pairs(detail or {}) do entry[k] = v end
 			note(entry)

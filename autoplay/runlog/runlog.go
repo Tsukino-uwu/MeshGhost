@@ -2,9 +2,9 @@
 // walked or reached.
 //
 // The label is the play-game skill's rule turned into code: "walked to X" and "reached X" are different claims, and
-// only the first says anything about the game. A segment starts walked and becomes reached the moment any call that
-// changes the world by other means than play (a cheat, a restored snapshot) succeeds in it. Nobody has to remember to
-// say so.
+// only the first says anything about the game. A segment starts walked (reached, when a cheat is still in effect as it
+// begins) and becomes reached the moment any call that changes the world by other means than play (a cheat, a restored
+// snapshot) succeeds in it. Nobody has to remember to say so.
 //
 // The file is newline-delimited JSON under the runs folder, which is gitignored.
 package runlog

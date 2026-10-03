@@ -43,7 +43,7 @@ type Scenario struct {
 	Note   string `json:"note,omitempty"`
 	Repeat int    `json:"repeat,omitempty"`
 	// Setup makes the situation; Steps are what the scenario is about. The run log labels them as
-	// separate segments, so a cheat in Setup never makes the Steps read as reached.
+	// separate segments, so a cheat in Setup makes the Steps read as reached only while it is still in effect.
 	Setup []Step `json:"setup,omitempty"`
 	Steps []Step `json:"steps"`
 }

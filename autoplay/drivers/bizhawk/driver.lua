@@ -189,7 +189,6 @@ local function execCode(p)
 	return answer
 end
 
--- The answer to a press or a wait: how long, and what moved between before and after.
 local function heldFor(frames)
 	return function(after, _, _, before)
 		return { frames = frames, before = before, after = after, changed = changed(before, after) }

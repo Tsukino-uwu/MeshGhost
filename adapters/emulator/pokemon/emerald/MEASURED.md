@@ -1216,7 +1216,7 @@ the decomp's var list (VAR_REPEL_STEP_COUNT 0x4021, vars at SaveBlock1 +0x139C),
 ### Boulders and STRENGTH, hide flags, currents, waterfalls, cracked floors on the MACH BIKE, and DIVE (2026-09-24)
 
 **Vanilla ROM**, autoplay tools and `exec` reads through `mcpcall`, from states the route run saved on the way; used by
-the obstacle planner (`autoplay/drivers/bizhawk/route.lua`, OBSTACLES, and the Emerald module's THE ROOM).
+the obstacle planner (`autoplay/drivers/bizhawk/route.lua`'s `M.solve`, and the Emerald module's `routeHooks.room`).
 
 - **STRENGTH**: on 24.35 (5,8) facing the boulder at (5,7), A printed "It's a big boulder, but a POKéMON may be able to
   push it aside. / Would you like to use STRENGTH?"; YES, "SWAMPERT used STRENGTH! … made it possible to move boulders

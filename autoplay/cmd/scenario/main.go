@@ -171,7 +171,7 @@ func waitForDriver(ctx context.Context, hub *driver.Hub, wait time.Duration) boo
 	}
 }
 
-// loadAll loads every file named, and every *.json in every folder named, in name order.
+// loadAll loads the files named, in the order given, and every *.json in a folder named, in name order.
 func loadAll(args []string) ([]*scenario.Scenario, error) {
 	var files []string
 	for _, a := range args {

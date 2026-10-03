@@ -157,9 +157,10 @@ namespace MeshGhostAutoplay.Tevi
             return null;
         }
 
-        // A reflex's input, decided each frame for the next. Keep holds an action next frame, extending a hold that is
-        // on (one long hold, never a fresh press), false for an action the game lacks; Tap presses it for `frames` only
-        // when nothing holds it or ends next frame (each tap its own press), true when it began one.
+        // A reflex's input, decided each frame for the next. Keep holds an action next frame, extending a hold whose
+        // last frame is this one (one long hold, never a fresh press), false for an action the game lacks; Tap presses
+        // it for `frames` only when no hold of it is on, due or released this frame (each tap its own press), true when
+        // it began one.
         public static bool Keep(string name)
         {
             if (!TryAction(name, out int id, out float value)) return false;

@@ -180,7 +180,7 @@ func (f *fakeCaller) Call(_ context.Context, tool string, args map[string]any) (
 	return f.answer(tool, args)
 }
 
-// gameAnswers is a driver on fakegame whose walk answers spotted two tiles away, behind a server whose
+// gameAnswers is a driver on game whose walk answers spotted two tiles away, behind a server whose
 // segment tool labels a segment reached when a cheat ran in it.
 func gameAnswers(game string) func(string, map[string]any) (string, bool, error) {
 	cheated := false

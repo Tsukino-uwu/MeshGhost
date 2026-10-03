@@ -1,6 +1,7 @@
 -- `goto`, a planned route ridden to a tile, shared by the autoplay game modules (a dev tool, never shipped). This
--- decides the route and when to hold a direction, turn, let go and plan again; everything a game measured comes from
--- the module through the hooks below. A module offers it as `game.programs["goto"]`, calling `lib.route.go(hooks, p)`.
+-- decides the route and when to hold a direction, turn, let go and plan again; what a game measured comes from the
+-- module through the hooks below, except M.solve's bike speeds and its level rules for SURF and a push (Emerald's). A
+-- module offers it as `game.programs["goto"]`, calling `lib.route.go`, `reach` or `travel` with its hooks.
 --
 -- Hooks, per module (`h`):
 --   position() -> map, x, y: the map's name and the player's tile, which moves on the frame a step begins
@@ -10,16 +11,18 @@
 --   atRest() -> boolean: standing still, the last step finished
 --   refused() -> boolean: the step held for was refused (a bump), this frame
 --   idle() -> boolean: held input is doing nothing this frame (counts towards no_response)
---   ride(run) -> table, read before each plan: `buttons` held with the direction (B to run), and for a ride that
---     carries on once let go, `coast(tiles)` -> true to let go now with that many tiles left on the leg, and
---     `shortLeg`, the longest last leg reached by stopping at its corner first
+--   ride(run) -> table, read before each plan: `buttons` held with the direction (B to run); `mount`, a button pressed
+--     once per goto, at rest, before planning (a bike on SELECT); and for a ride that carries on once let go,
+--     `coast(tiles)` -> true to let go now with that many tiles left on the leg, and `shortLeg`, the longest last leg
+--     reached by stopping at its corner first
 --   routeGrid(fromX, fromY, toX, toY) -> grid, or nil and the reason:
 --     grid.width, grid.height: the map's own size in tiles; grid.where: appended to a refusal, or nil
 --     grid.tile(x, y) -> open, grass, trainer, oneWay, obstacle, timed, for a tile inside the map: nil when a step
---       onto it is not planned; `grass` where wild encounters happen; `trainer` the unbeaten trainer that looks at it
---       ({x, y} and `local_id` or `map_object`); optional: `oneWay`, a direction, the tile stepped onto only moving
---       that way and left the same way (a ledge hopped); `obstacle`, the action that clears it; `timed`, a turning
---       trainer's line ({trainer, way}). The target is asked for too, so a warp is open when it is the target
+--       onto it is not planned; `grass` where wild encounters happen; `trainer` the unbeaten trainer that looks at it,
+--       one table per trainer ({x, y} and `local_id` or `map_object`); optional: `oneWay`, a direction, the tile
+--       stepped onto only moving that way and left the same way (a ledge hopped); `obstacle`, the action that clears
+--       it; `timed`, a turning trainer's line ({trainer, way}). The target is asked for too, so a warp is open when it
+--       is the target
 --     optional: grid.elevation (the player's level now) and grid.elevationAt(x, y), used with h.elevationStep
 --   elevationStep(level, tileLevel, fromTileLevel) -> the level after the step, or nil when it is refused. Given, the
 --     plan carries the player's level in its state, and the cross-map flood does too, from h.playerElevation() on the
@@ -76,13 +79,13 @@ local TIMED_COST, TURN_LIMIT = 40, 3600
 -- A route never stands on one tile many times, but a tile that sends the player back (a slope) does: entering one tile
 -- more than ENTRY_LIMIT times ends `no_progress`, the start counting once. Across maps it ends the whole trip.
 local ENTRY_LIMIT = 3
--- Frames after a mount's press before planning again.
 local MOUNT_FRAMES = 60
 
 -- The legs from one tile to another, or nil and why. `closed` holds tiles refused on this goto, keyed y * width + x.
--- Also returns the tiles in a trainer's line the route crosses, and the width the keys use. With `crossNow`, a turning
--- trainer's line the route begins in is crossed (the wait for it is over); any other line ends the legs before it, and
--- `turn` (the fifth return) names the trainer, the tile to wait on and the ways that see the line's tiles ahead.
+-- Also returns each trainer whose line the route crosses, the width the keys use and the obstacle the legs end before.
+-- With `crossNow`, a turning trainer's line the route begins in is crossed (the wait for it is over); any other such
+-- line ends the legs before it, and `turn` (the fifth return) names the trainer, the tile to wait on and the ways that
+-- see the line's tiles ahead.
 function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass, crossNow, walls)
 	local grid, why = h.routeGrid(fromX, fromY, toX, toY)
 	if not grid then return nil, why end
@@ -104,7 +107,7 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass, crossNow, walls)
 	if not open(toX, toY) then
 		return nil, string.format("(%d,%d) is not an open tile%s", toX, toY, where)
 	end
-	-- Dijkstra over (tile, facing) with a binary heap.
+	-- Dijkstra over (tile, facing, level), a binary heap; the level is 0 without h.elevationStep and grid.elevationAt.
 	local order = { DIRECTIONS.up, DIRECTIONS.down, DIRECTIONS.left, DIRECTIONS.right }
 	local dist, prev, heap = {}, {}, {}
 	local function push(cost, key)
@@ -134,7 +137,6 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass, crossNow, walls)
 		end
 		return top
 	end
-	-- With levels (h.elevationStep and grid.elevationAt), a state is (tile, facing, level); without, the level stays 0.
 	local step, levelAt = h.elevationStep, grid.elevationAt
 	if not (step and levelAt) then step = nil end
 	local startLevel = step and (grid.elevation or 0) or 0
@@ -188,8 +190,7 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass, crossNow, walls)
 	local legs, x, y, inSight, named, obstacle, turn = {}, fromX, fromY, {}, {}, nil, nil
 	local allow = crossNow
 	for si, d in ipairs(steps) do
-		-- An obstacle cleared by an action (a rock to smash): the legs end in front of it, and the goto answers
-		-- `obstacle`.
+		-- An obstacle cleared by an action (a rock to smash): the legs end in front of it; the goto answers `obstacle`.
 		local _, _, _, _, what, timed = tile(x + d.dx, y + d.dy)
 		if what then
 			obstacle = { kind = what, x = x + d.dx, y = y + d.dy, from = { x = x, y = y }, facing = d.button }
@@ -226,9 +227,8 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass, crossNow, walls)
 end
 
 -- goto {x, y, run, cross_grass}: to a tile on this map by a planned route of straight legs, switching direction as the
--- step into the corner begins, so a held direction turns on arrival with no gap. A ride that coasts lets go on the last
--- leg by the module's `coast`, and a last leg of `shortLeg` tiles or fewer is reached by stopping at its corner first.
--- It stops for the module's `watch` reasons, and on a map change.
+-- step into the corner begins, so a held direction turns on arrival with no gap. It stops for the module's `watch`
+-- reasons, and on a map change.
 local BUSY_LIMIT = 900
 
 function M.go(h, p)
@@ -268,7 +268,6 @@ function M.go(h, p)
 		return false
 	end
 
-	-- The module says how each warp is entered (`enterWarp`); `entered` names the warp in the answer.
 	local enter, warpX, warpY, restBefore = nil, toX, toY, false
 	for _, w in ipairs(h.warps()) do
 		if w.x == toX and w.y == toY then
@@ -304,8 +303,7 @@ function M.go(h, p)
 		end
 		local stop, fields = stops()
 		if stop then return finish(stop, fields) end
-		-- A script holding the player (a floor switch stepped on): nothing held until it lets go, then planned again,
-		-- so a step refused meanwhile is not taken as a wall.
+		-- A script holding the player (a floor switch): planned again once it lets go, so a refusal is not a wall.
 		if h.busy and h.busy() then
 			busyFor = busyFor + 1
 			if busyFor > BUSY_LIMIT then return finish("busy") end
@@ -326,9 +324,7 @@ function M.go(h, p)
 				phase, frames = "enter", 0
 				return { [enter.button] = true }, false
 			end
-			-- A warp stepped onto ends the goto with map_changed; anything else still plans to stand on it.
 			ride = h.ride(run)
-			-- A ride the module says to get on first (a bike on SELECT): pressed once, at rest, then planned.
 			if ride.mount and not mounted then
 				mounted, phase, frames = true, "mount", 0
 				return { [ride.mount] = true }, false
@@ -383,7 +379,6 @@ function M.go(h, p)
 		end
 
 		if phase == "enter" then
-			-- Held into the warp until the map changes (checked above); a door that never opens stops it.
 			if frames > L.door then return finish("no_response", { entering = { x = warpX, y = warpY } }) end
 			return { [enter.button] = true }, false
 		end
@@ -451,9 +446,8 @@ end
 -- water surfed, currents slid on, a waterfall climbed or come down, ledges hopped, cracks crossed on a bike or fallen
 -- through). The state is where every boulder stands, which rocks are broken and whether STRENGTH is in use, so a push
 -- that blocks a later one is never planned; exact for a room just entered, since the game puts its boulders and rocks
--- back. What a push, a slide or a ride does is the module's measurement; the search follows it: a push moves the
--- boulder one tile onto open land of its own level, the player staying put; a current carries the player while the next
--- tile is water; a warp tile, or a crack or hole the module lists as a fall, ends the walk.
+-- back. A push moves the boulder one tile onto open land of its own level, the player staying put; a current carries
+-- the player while the next tile is water; a warp tile, or a crack or hole the module lists as a fall, ends the walk.
 -- h.room(map) -> room, with room.start the player's state when `map` is the one stood on:
 --   width, height; cell(x, y) -> kind, level, dir, grass: "land" (on foot), "ledge" (hopped moving `dir`), "water",
 --   "current" (carries `dir`), "waterfall" (climbed moving up, carried moving down), nil where nothing goes; objects
@@ -466,8 +460,8 @@ end
 -- cheapest.
 local SOLVE_STATES, SOLVE_SECONDS = 20000, 3
 local COST = { strength = 14, push = 2, smash = 16, surf = 12, climb = 12, ride = 10 }
--- The bike's speed as the k-th step held from rest begins (k = 1, 2, then 3 on), kept through a turn; let go, it coasts
--- that many tiles, one less each tile; a crack holds it at 2 or more.
+-- Emerald's MACH BIKE: its speed as the k-th step held from rest begins (k = 1, 2, then 3 on), kept through a turn; let
+-- go, it coasts that many tiles, one less each tile; a crack holds it at 2 or more.
 local BIKE_SPEED, RIDE_TILES = { 0, 1, 3 }, 60
 
 local function heapPush(heap, f, v)
@@ -512,7 +506,6 @@ function M.solve(h, room, start, toX, toY, crossGrass)
 	local order = { DIRECTIONS.up, DIRECTIONS.down, DIRECTIONS.left, DIRECTIONS.right }
 	local names = { "up", "down", "left", "right" }
 	local function inside(x, y) return x >= 0 and y >= 0 and x < W and y < H end
-	-- A walk's state is ((y * W + x) * 16 + level) * 2 + surf.
 	local function unpack(s)
 		local surf, rest = s % 2, s // 2
 		local level, p = rest % 16, rest // 16
@@ -521,9 +514,8 @@ function M.solve(h, room, start, toX, toY, crossGrass)
 	local function pack(x, y, level, surf) return ((y * W + x) * 16 + level) * 2 + surf end
 
 	-- Rides: every tile a bike ride from rest at (sx, sy) stops on, over cracks held at speed, with its legs for `ride`
-	-- (each leg's direction and the row or column where it ends) and its tiles. Breadth first over (tile, way, steps
-	-- held), never back the way it came. A ride onto a crack too slowly, or onto a hole, ends falling to the floor
-	-- below.
+	-- (each leg's direction and the row or column where it ends) and its tiles, breadth first over (tile, way, steps
+	-- held), never back the way it came; onto a crack too slowly, or onto a hole, it ends falling to the floor below.
 	local rideCache, runUps = {}, {}
 	local function runUp(x, y)
 		local key = y * W + x
@@ -563,7 +555,7 @@ function M.solve(h, room, start, toX, toY, crossGrass)
 			if h.elevationStep then nl = h.elevationStep(lv, tl, fromLevel) end
 			return nl
 		end
-		-- Queue entries: { x, y, di, k, lv, tiles, parent }; a stop is kept by the entry its last held step made.
+		-- A stop keeps the queue entry of its last held step, whose parents give its legs.
 		local function keep(x, y, lv, tiles, entry, fall)
 			local key = y * W + x
 			if not out[key] or out[key].tiles > tiles then out[key] = { x = x, y = y, level = lv, tiles = tiles, entry = entry, fall = fall } end
@@ -670,7 +662,6 @@ function M.solve(h, room, start, toX, toY, crossGrass)
 									ns, nc, act = pack(tx, ty, 0, 1), cost + 1 + COST.surf + extra, "surf"
 								end
 							elseif kind == "current" and surf == 1 then
-								-- Carried while the next tile is water; stops where it is not.
 								local px, py, len = tx, ty, 0
 								while len < 256 do
 									local k, _, cd = cell(px, py)
@@ -683,7 +674,6 @@ function M.solve(h, room, start, toX, toY, crossGrass)
 								end
 								ns, nc, act = pack(px, py, 0, 1), cost + 1 + len // 2, "slide"
 							elseif kind == "waterfall" and surf == 1 and name == "down" then
-								-- Down a waterfall: surfed onto from above, carried down to the water below.
 								local px, py = tx, ty
 								while py < H - 1 and cell(px, py) == "waterfall" do py = py + 1 end
 								local k = cell(px, py)
@@ -853,10 +843,10 @@ function M.solve(h, room, start, toX, toY, crossGrass)
 end
 
 -- reach {x, y, run, cross_grass}: to a tile on this map by M.solve's plan -- each walk between obstacles is M.go's,
--- with the tiles an action clears closed, and each action the module's program (`h.act(kind, act)`: face, A, YES, the
--- text). After each walk or action the player must stand where the plan said, or the room is planned again from the
--- game's own state (at most REACH_REPLANS times). Where the plan needs no action it is one M.go, the same as `goto`;
--- where the search finds nothing, M.go is asked anyway, so its answer names why.
+-- with the tiles an action clears closed, and each action the module's program (`h.act(kind, act)`). After each walk
+-- or action the player must stand where the plan said, or the room is planned again from the game's own state (at
+-- most REACH_REPLANS times). Where the plan needs no action it is one M.go, the same as `goto`; where the search finds
+-- nothing, M.go is asked anyway, so its answer names why.
 local REACH_REPLANS = 16
 
 function M.reach(h, p)
@@ -902,15 +892,13 @@ function M.reach(h, p)
 				if a.k ~= "step" then needs = true end
 			end
 			if not needs then
-				-- Nothing to clear (or nothing found): the plain goto.
 				local why2
 				inner, why2 = M.go(h, p)
 				if not inner then return finish("unreachable", { reason = why2 or why }) end
 				phase = "last"
 				return nil, false
 			end
-			-- Steps folded into walks; before a push or a smash the walk is on foot (a boulder is not pushed from a
-			-- bike).
+			-- Steps fold into walks; a walk before a push or a smash is on foot (a boulder is not pushed from a bike).
 			acts = {}
 			for _, a in ipairs(path) do
 				local prev = acts[#acts]
@@ -1047,8 +1035,8 @@ function M.travel(h, p)
 		end
 		return out
 	end
-	-- The steps from (map, x, y) to the target, fewest maps first, or nil: each { exit, key, sides }, `sides` the
-	-- edge's side tiles that lead on.
+	-- The steps from (map, x, y) to the target, fewest maps first, or nil: each { exit, key, sides, spot }, `sides` the
+	-- edge's side tiles that lead on, `spot` the tile a dive or surfacing starts from.
 	local function route(fromMap, fx, fy)
 		local startInfo = h.mapExits(fromMap)
 		local parts = { { map = fromMap, info = startInfo, sx = fx, sy = fy, reached = flood(fromMap, startInfo, fx, fy,
@@ -1077,10 +1065,8 @@ function M.travel(h, p)
 					local arrive = there.warps[e.to_warp + 1]
 					if arrive and rx >= 0 and ry >= 0 and s.reached[ry * w + rx] then seeds[1] = { x = arrive.x, y = arrive.y } end
 				elseif there and e.kind == "fall" then
-					-- A cracked floor: the same tile on the floor below (the module's `falls`).
 					if s.reached[e.y * w + e.x] then seeds[1] = { x = e.x, y = e.y } end
 				elseif there and e.arrive and h.surfaceSpot then
-					-- Surfacing to a fixed landing (the module's measured one): from the nearest spot reached here.
 					local best
 					for key in pairs(s.reached) do
 						local x, y = key % w, key // w
@@ -1090,8 +1076,7 @@ function M.travel(h, p)
 					if best then seeds[1] = { x = e.arrive.x, y = e.arrive.y, spot = { x = best.x, y = best.y } } end
 				elseif there and (e.kind == "dive" or e.kind == "emerge") and h.deepWater then
 					-- Dive: from deep water reached here onto the same tile below, where it is open; surfacing from a
-					-- tile reached below onto deep water above. Each seed is tried; one already inside a part is
-					-- skipped.
+					-- tile reached below onto deep water above.
 					for key in pairs(s.reached) do
 						local x, y = key % w, key // w
 						local ok
@@ -1394,7 +1379,6 @@ function M.search(h, p)
 	return function()
 		total = total + 1
 		if phase == "replay" then
-			-- Each move held until the player stands on another tile at rest, or its frames run out.
 			local _, x, y = h.position()
 			if not h.inOverworld() then return finish("left_overworld", { path = found, walked = ri }) end
 			if replay and (x ~= replay.x or y ~= replay.y) and h.atRest() then replay = nil end
@@ -1420,7 +1404,7 @@ function M.search(h, p)
 			phase, frames = "step", 0
 			return nil, false
 		end
-		-- phase "step": hold the direction until the tile changes at rest, or it is refused or times out.
+		-- phase "step"
 		frames = frames + 1
 		local _, x, y = h.position()
 		local moved = (x ~= node.x or y ~= node.y)

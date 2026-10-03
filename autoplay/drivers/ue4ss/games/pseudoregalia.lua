@@ -422,7 +422,6 @@ function M.observe(full)
 				p.velocity = { x = v.X, y = v.Y, z = v.Z }
 			end)
 			pcall(function() p.class = pawn:GetClass():GetFName():ToString() end)
-			-- What she has: the pawn's own obtained/has flags, read by name.
 			pcall(function()
 				local have = {}
 				for _, n in ipairs(ABILITY_FLAGS) do
@@ -468,7 +467,7 @@ function M.observe(full)
 	return o
 end
 
--- What a press's before and after are compared on.
+-- What a program's before and after are compared on.
 function M.diffKeys(o)
 	local k = { mode = o.mode, map = o.location and o.location.map }
 	if o.location and o.location.x then
@@ -697,8 +696,8 @@ function M.programs.snapshot(p)
 	local path = p.path
 	return function(count)
 		local now = readAll(AUTOPLAY_FILE)
-		-- The save is synchronous: wait a few frames for the OS anyway, and after 30 accept an unchanged file (nothing
-		-- changed since the last save).
+		-- The save is synchronous; the file is still polled until it differs, and after 30 frames an unchanged one is
+		-- accepted (nothing changed since the last save).
 		if not now or (now == before and count < 30) then return false end
 		local ok, err = writeAll(path, now)
 		if not ok then return true, nil, "cannot write " .. path .. ": " .. tostring(err) end
@@ -860,7 +859,7 @@ local LEAP_UP = { [2] = 200, [3] = 200, [4] = 200, [5] = 200 }
 -- Further, a leap lands only by catching the ledge.
 for k = 6, 12 do LEAP_UP[k] = 280 end
 local LEAP_CELLS = 12
-local EXPAND_PER_FRAME = 60 -- a ceiling; the trace budget below is what bounds a frame
+local EXPAND_PER_FRAME = 60 -- a ceiling; the trace and time budgets below are what bound a frame
 
 -- The planner's traces this frame: the search stops for the frame at TRACE_BUDGET, or planning costs frame rate.
 local TRACE_BUDGET = 200
@@ -1058,7 +1057,7 @@ local function nearTrail(grid, x, y, z)
 	return false
 end
 
-M.hops_for = function(map) return hopsFor(map) end -- for exec, to check what the search is offered
+M.hops_for = function(map) return hopsFor(map) end -- newPlan, above, reaches these two through M; exec can too
 M.trail_for = function(map) return trailFor(map) end
 M.near_trail = nearTrail
 
@@ -1247,8 +1246,8 @@ local function planStep(P)
 										local top = math.max(ca, cb) + 40
 										if not sweep(P.pawn, ax, ay, ca + 2, ax, ay, top) and not sweep(P.pawn, ax, ay, top, bx, by, top) then
 											local dist = math.sqrt(dx * dx + dy * dy) * CELL
-											-- Past 250 each unit costs double, so a shorter straight leap wins:
-											-- long leaps fall short.
+											-- Past 250 each unit costs three times as much, so a shorter straight leap
+											-- wins: long leaps fall short.
 											local cost = P.g[cur.k] + dist + 100 + math.max(0, dist - 250) * 2 + LAND_EDGE_COST * edgeCells(P, nix, niy, nz)
 											cost = cost + enemyCost(P, nix * CELL, niy * CELL, nz)
 											if P.g[nk] == nil or cost < P.g[nk] then
@@ -1901,7 +1900,7 @@ function M.reflexes.fight(a)
 		if o.player.hp and lastHp and o.player.hp < lastHp then hits = hits + 1 end
 		lastHp = o.player.hp
 		if stopHp and o.player.hp and o.player.hp < stopHp then return true, { outcome = "low_hp", hp = o.player.hp, hits_taken = hits, swings = swings } end
-		local actor = entry and actorOf(entry) -- found again each frame: a kept object outlives the wall it broke
+		local actor = entry and actorOf(entry) -- found again each frame: a kept object can outlive its actor
 		if not actor then
 			return true, { outcome = "defeated", enemy = targetName, swings = swings, hits_taken = hits, hp = o.player.hp }
 		end

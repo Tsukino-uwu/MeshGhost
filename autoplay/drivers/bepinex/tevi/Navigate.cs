@@ -13,7 +13,7 @@ namespace MeshGhostAutoplay.Tevi
     public static class Navigate
     {
         private const int UpCost = 20; // a row of a jump's rise, above two steps (9 each): walk higher before jumping
-        // a full jump carries about 5 tiles across (46 frames at 6.33)
+        // JumpCols: a full jump carries about 5 tiles across (46 frames at 6.33)
         private const int JumpRows = 3, JumpCols = 5, FallRows = 24, Replan = 20, Margin = 60, MaxNodes = 20000;
         private const float JumpAim = 14f, Run = 6.33f;
 
@@ -90,8 +90,6 @@ namespace MeshGhostAutoplay.Tevi
             nextSide:;
             }
             // Jumps: up 0..JumpRows rows, across 0..JumpCols columns (0 across only when going up, through a platform).
-            // Each row of rise is priced above two steps (UpCost), so the route walks as high as it can first and jumps
-            // from the spot that leaves the least to climb.
             for (int up = 0; up <= JumpRows; up++)
             {
                 // straight up from the take-off tile, one row above the target row for her head
@@ -222,7 +220,7 @@ namespace MeshGhostAutoplay.Tevi
         }
 
         // {x, y} in world units, or {tile_x, tile_y}. Ends `arrived`, `no_route`, `stuck` (no progress for 120 frames),
-        // `mode_changed`, `damage_taken` (the caller decides) or `timeout`.
+        // `mode_changed`, `damage_taken` (with `stop_on_damage`), `timeout` or `lost`.
         public static Func<JToken> Goto(JObject args, int frameLimit, Func<CharacterBase> player, Func<string> mode, Func<bool, JObject> observe)
         {
             if (!Load()) throw new Exception("no area grid loaded");
@@ -250,7 +248,7 @@ namespace MeshGhostAutoplay.Tevi
             int step = 0, jumpFrom = -1, jumpRows = 0, jumpTarget = -1, hits = 0, dodges = 0, lastHp = me.health;
             bool steerEarly = false;
             int lastStomp = -1000;
-            // frames standing over a planned fall that does not happen: a duct cover the grid does not show
+            // when she began standing over a planned fall that does not happen: a duct cover the grid does not show
             int overDropSince = -1;
             bool dodge = (bool?)args["dodge"] ?? true, stopOnDamage = (bool?)args["stop_on_damage"] ?? false;
             // the route times its own quickdrops; step in only for a close hit

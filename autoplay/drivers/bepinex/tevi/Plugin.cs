@@ -12,8 +12,8 @@ namespace MeshGhostAutoplay.Tevi
 {
     // autoplay's TEVI driver: a dev tool that writes input and game state, never shipped. A BepInEx plugin of its own,
     // loaded by ScriptEngine from a developer install's BepInEx\scripts\, never inside MeshGhostTevi.dll; it carries
-    // out the core's commands over protocol 1 (Link.cs). Its config there, meshghost-autoplay.txt, names `port` (no
-    // file: it connects nowhere) and `repo` (for screenshots, states and the log).
+    // out the core's commands over protocol 1 (Link.cs). Its config there, meshghost-autoplay.txt, names `port` and
+    // `repo` (for screenshots, states and the log); without either it connects nowhere.
     [BepInPlugin("dev.meshghost.autoplay.tevi", "MeshGhost Autoplay TEVI driver", "0.1.0")]
     public class Plugin : BaseUnityPlugin
     {
@@ -183,8 +183,9 @@ namespace MeshGhostAutoplay.Tevi
             return randomizerField != null ? (bool?)(bool)randomizerField.GetValue(null) : null;
         }
 
-        // The dev cheats (adapters/tevi/devtools/MeshGhostTeviDevCheats) hold HP, MP, charge and crystals every frame
-        // while loaded, each unless its toggle file says =0: a run segment with any of them on is not walked.
+        // The dev cheats (adapters/tevi/devtools/MeshGhostTeviDevCheats) hold HP, MP, charge and crystals and clear the
+        // orb swap's locks every frame while loaded, each unless its toggle file says =0: a run segment begun with any
+        // of them on is not labelled walked.
         private JArray Persisting()
         {
             var out_ = new JArray();
@@ -497,10 +498,10 @@ namespace MeshGhostAutoplay.Tevi
             return new JObject { ["kind"] = kind };
         }
 
-        // The message that slides in at the bottom left (a new ability and how to use it): while its timer runs, the
-        // whole message it is printing, markup taken out.
         private static readonly System.Text.RegularExpressions.Regex Markup = new System.Text.RegularExpressions.Regex("<[^>]*>");
 
+        // The message that slides in at the bottom left (a new ability and how to use it): while its timer runs, the
+        // whole message it is printing, markup taken out.
         private static JObject Popup()
         {
             HUDPopupMessage hud = HUDPopupMessage.Instance;
@@ -822,8 +823,8 @@ namespace MeshGhostAutoplay.Tevi
 
         // Through a conversation line by line, the way a player reads it: Confirm tapped once a line has stood TapEvery
         // frames unchanged (the first tap on a line still printing finishes it), each line and item box logged. Ends
-        // `closed`, `window_open` when paused with no conversation (a tutorial window), or `stuck` after StuckTaps taps
-        // with no change; a long line can stand through 6 taps.
+        // `closed` (`no_text` if nothing was read), `window_open` when paused with no conversation (a tutorial window),
+        // or `stuck` after StuckTaps taps with no change; a long line can stand through 6 taps.
         private const int TapEvery = 30, SettleFrames = 90, StuckTaps = 12, AdvanceFrameLimit = 3 * 60 * 60;
 
         private Func<JToken> AdvanceTextJob()
@@ -902,7 +903,7 @@ namespace MeshGhostAutoplay.Tevi
             return file;
         }
 
-        // A snapshot's own file, which the core names: only under this repo's autoplay/states/<game>/.
+        // A snapshot's own file, which the core names: only a file directly in this repo's autoplay/states/<game>/.
         private string StatePath(JObject p)
         {
             string path = ((string)p["path"] ?? "").Replace('\\', '/');

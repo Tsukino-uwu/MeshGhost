@@ -37,7 +37,7 @@ func TestLoopWatchLeavesAloneWhatDiffers(t *testing.T) {
 			t.Fatalf("trainer %d marked a loop: %+v", i+1, n)
 		}
 	}
-	// Positions read to a fraction compare as whole tiles; other arguments are another call.
+	// Other arguments at the same place are another call.
 	for i := 0; i < 4; i++ {
 		if n := w.note("walk", map[string]any{"tiles": i}, "done", answerAt("done", 3.2, 4)); n != nil {
 			t.Fatalf("walk %d marked a loop: %+v", i+1, n)

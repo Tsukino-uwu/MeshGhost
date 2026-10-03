@@ -25,7 +25,7 @@ end
 
 local json = dofile(ROOT .. "/autoplay/drivers/bizhawk/json.lua")
 
--- lua54.dll first, by full path, so the socket DLL binds to the Lua the game already has loaded.
+-- lua54.dll first, by full path: the socket DLL imports it by name, and Windows does not search the DLL's own folder.
 local LIB = (ROOT .. "/adapters/pseudoregalia/probes/probe_socket/Scripts/lib/x64/"):gsub("/", "\\")
 pcall(function() package.loadlib(LIB .. "lua54.dll", "autoplay_force_preload") end)
 local openSocket, socketErr = package.loadlib(LIB .. "socket-windows-5-4.dll", "luaopen_socket_core")

@@ -580,6 +580,10 @@ Each fact below sat in a code comment beside the code that uses it (at `f64560cc
 
 - A birth arrives up to a send interval late, so spawn replays the missed steps or the bullet starts behind and dies short. A sanity bound (0.5s), never reached at a sane send rate.
 
+**`autoplay/drivers/bepinex/tevi/Reflexes.cs`** (written in `4135c24c`, dropped from the code by the first pass without being filed, recovered by the second pass on 2026-10-03), checked against adapters/tevi/MEASURED.md, "Jump arcs by hold, the quickdrop, the player's hurtbox and her ground swing" and "2026-10-02 — Facts the code comments carried, moved here word for word" (the quickdrop as Down held and Jump pressed; nothing on how long the direction is held before a direction swing's Attack). The code's `DirLead` is 2 frames with the Attack frame included, one fewer ahead of Attack than the probe held.
+
+- A direction swing: the direction is held first and the swing pressed once it has been held DirLead frames (the probe held Down 2 frames before Attack, 2026-09-23); a quickdrop needs Jump, so Down alone is safe to hold in the air.
+
 ## Not measured yet
 
 ### Not measured yet — backup slots and the chapter-reset slot

@@ -12,12 +12,13 @@ namespace MeshGhostAutoplay.Tevi
     // While armed, every save file the game or a mod opens is opened in autoplay/states/tevi/shadow/ instead, copied
     // fresh from the real folder as the guard arms, and the autosave is skipped. A shadow, not a refusal: a new game
     // reads back the slot pointer it just wrote, so a refused write loads another slot. Easy Save resolves every
-    // relative save path through ES3Settings.FullPath, where a postfix redirects it; ES3IO's moves, writes and deletes
-    // refuse a path left in the real folder. Without a repo there is no shadow and the guard only refuses.
+    // relative save path through ES3Settings.FullPath, where a postfix redirects it; ES3IO's writes and deletes, and
+    // the destination of its moves and copies, refuse a path left in the real folder. Without a repo there is no
+    // shadow and the guard only refuses.
     //
-    // It arms when the driver first welcomes a core and stays armed until the game exits, so a driver with no core
-    // leaves ordinary play alone. Patched once per process and never removed, its state in the AppDomain, it survives a
-    // hot reload without a gap; a change to this file needs a game restart.
+    // It arms when a core first welcomes the driver and stays armed until the game exits, so a driver with no core
+    // leaves ordinary play alone. Patched once per process and never removed, with its state in the AppDomain, so it
+    // survives a hot reload without a gap; a change to this file needs a game restart.
     public static class SaveGuard
     {
         public const string HarmonyId = "dev.meshghost.autoplay.saveguard.shadow";
@@ -72,8 +73,8 @@ namespace MeshGhostAutoplay.Tevi
 
         private static string RealRoot => AppDomain.CurrentDomain.GetData(KeyRoot) as string ?? "";
 
-        // Copies the real save folder into a fresh shadow, then arms. The logs Unity keeps there are left out: they are
-        // not saves, and one is tens of megabytes.
+        // Copies the real save folder into a fresh shadow, then arms. The logs Unity keeps there and Steam's .vdf are
+        // left out: they are not saves, and a log is tens of megabytes.
         public static string Arm()
         {
             if (Armed) return "save guard: already armed";

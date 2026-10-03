@@ -103,7 +103,7 @@ namespace MeshGhostAutoplay.Tevi
             return new JObject { ["held"] = Held, ["step_left"] = stepLeft, ["time_scale_raw"] = Math.Round(Time.timeScale, 3), ["fast"] = Fast, ["fps"] = Math.Round(measuredFps, 1), ["target_frame_rate_raw"] = Application.targetFrameRate, ["capture_delta_raw"] = Math.Round(Time.captureDeltaTime, 5) };
         }
 
-        // {action, frames}: hold and release answer at once; step answers once its frames have passed, holding again.
+        // {action, frames, on}: release answers at once, hold and fast a frame later, step once its frames have run.
         public static Func<JToken> Job(JObject p, Func<bool, JObject> observe)
         {
             string action = (string)p["action"] ?? "";

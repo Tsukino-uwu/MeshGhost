@@ -3,7 +3,7 @@
 -- a probe showed, and a byte whose meaning is not measured, such as a facing or an action code, goes out raw. The text
 -- hooks and the readers built on measured meanings run on that ROM only.
 
--- The shared library the driver hands every game module (`text`, `route`).
+-- The shared library the driver hands every game module: `text`, `route`, and `select` once the driver defines it.
 local lib = ...
 
 local BUS = "System Bus"
@@ -27,7 +27,7 @@ local romHash = (function()
 end)()
 local isVanilla = romHash == VANILLA_SHA1
 
--- Execute hooks at the entry of the build's routines, each called with a window id in R0 (AddTextPrinter: a template).
+-- Execute hooks at the build's routine entries; the window ones take the window id in R0, AddTextPrinter a template.
 local ADDTEXTPRINTER, FILLWINDOWPIXELBUFFER, REMOVEWINDOW, CLEARWINDOWTILEMAP, MENU_MOVECURSOR =
 	0x0800467c, 0x08003c48, 0x08003574, 0x080038a4, 0x081984d8
 -- InitWindows: a new screen rewrites the window table without removing the old windows, and reuses their ids.
@@ -101,7 +101,6 @@ local function decode(bytes, from, to)
 	return table.concat(out)
 end
 
--- Bytes from a pointer up to the first FF, which is not kept; at most 1024.
 local function readString(at)
 	local out = {}
 	if at < 0x02000000 or at >= 0x0A000000 then return out end
@@ -146,7 +145,6 @@ function hooks.addTextPrinter()
 		end
 	end
 	if entry then list[#list + 1] = entry end
-	-- Speed 0 and 255 print at once (the START menu's items and cursor); anything else runs a printer.
 	if speed ~= 0 and speed ~= 255 then
 		dialogue = { window = w, bytes = bytes, start = ptr }
 		instantPrinted[w] = nil
@@ -176,7 +174,6 @@ end
 function hooks.menuGridCursor()
 	menuWindow, menuGrid = r8(SMENU + 5), true
 end
--- A new screen's windows: nothing printed or opened before belongs to any window id now.
 function hooks.initWindows()
 	shown, dialogue, menuWindow, instantPrinted = {}, nil, nil, {}
 end
@@ -207,7 +204,6 @@ local function windowOnScreen(w)
 	return nil
 end
 
--- A string's lines, each with its y: a newline goes LINE_ADVANCE lower, a next-box byte back to the string's own y.
 local function linesOf(e, out)
 	local y, from = e.y, 1
 	local b = e.bytes
@@ -286,7 +282,7 @@ local function recoverDialogue()
 			for _, buf in ipairs(TEXT_BUFFERS) do
 				if ptr >= buf.at and ptr <= buf.at + buf.size then
 					bytes = readString(buf.at)
-					-- The pointer must lie inside the string read from the buffer's start, a finished one at its end.
+					-- The pointer lies inside the string read from the buffer's start; a finished one just past its FF.
 					if ptr <= buf.at + #bytes + 1 and (active or ptr == buf.at + #bytes + 1) then start = buf.at end
 				end
 			end
@@ -316,7 +312,6 @@ local function readDialogue()
 	local p = STEXTPRINTERS + dialogue.window * PRINTER_SIZE
 	local active, stateRaw = r8(p + 0x1B) == 1, r8(p + 0x1C)
 	local b = dialogue.bytes
-	-- Boxes split at each next-box byte; the one shown is the printer's, or the last once it has reached the end.
 	local boxes, from = {}, 1
 	for i = 1, #b + 1 do
 		if b[i] == nil or b[i] == NEXT_BOX then
@@ -597,7 +592,6 @@ local function sightTiles(trainers, mapW, mapH)
 	return seen, timed
 end
 
--- Rows of characters centred on the player, and a legend for the symbols that appear.
 local function readLocalMap(warps, objects)
 	local obj = playerObject()
 	local px, py = r16(obj + 0x10), r16(obj + 0x12)
@@ -721,7 +715,7 @@ local MOVE_DESCRIPTIONS = 0x0861c524
 
 -- The type chart as Cmd_typecalc applies it: triples (move type, defending type, multiplier in tenths) to FF, those
 -- after FE included; x1.5 when the move's type is one of the attacker's, then each entry naming it and one of the
--- target's two types, once when both read the same. One table, as the module is at Lua's local ceiling.
+-- target's two types, once when both read the same.
 local TYPE_CHART = { at = 0x0831ace8, size = 0x150, sameTypeBonus = 1.5, entries = nil }
 
 -- A type's name as the game draws it, or nil. Type 0 is a real type (NORMAL), so this reads index 0 too, unlike nameAt.
@@ -738,7 +732,6 @@ function TYPE_CHART.name(t)
 	return decode(b, 1, last)
 end
 
--- The multiplier a move of `moveType` meets against a target of types t1 and t2, as Cmd_typecalc applied it.
 function TYPE_CHART.multiplier(moveType, t1, t2)
 	if not TYPE_CHART.entries then
 		local b, entries = memory.read_bytes_as_array(TYPE_CHART.at, TYPE_CHART.size, BUS), {}
@@ -904,7 +897,7 @@ local KEYBOARD_CHARS, KEYBOARD_READY = 0x0858be40, 2
 local PAGE_BLOCK, PAGE_COLUMNS = { [0] = 2, [1] = 1, [2] = 0 }, { [0] = 6, [1] = 8, [2] = 8 }
 local PAGE_NAMES, OK_ROW = { [0] = "symbols", [1] = "capitals", [2] = "small" }, 2
 
-local keyboardKeys = nil -- per page, rows of { byte, glyph }
+local keyboardKeys = nil
 local function keysOf(page)
 	if not keyboardKeys then
 		keyboardKeys = {}
@@ -925,7 +918,6 @@ local function keysOf(page)
 	return keyboardKeys[page]
 end
 
--- The keyboard's state, or nil when no naming screen is up.
 local function keyboardState()
 	local cb = r32(GMAIN_CB2) & 0xFFFFFFFE
 	if cb ~= CB2_NAMING_SCREEN then return nil end
@@ -964,12 +956,11 @@ end
 
 -- The wall clock: under CB2_WallClock, task 0's routine is the step (setting, the YES/NO, closing, or viewing a clock
 -- already set) and its s16 data words from +8 the time: +4 the hours 0-23, +6 the minutes, +8 the direction held (2
--- Right, 1 Left), +10 the period (1 PM), +12 how long it was held. One table, as the module is at Lua's local ceiling.
+-- Right, 1 Left), +10 the period (1 PM), +12 how long it was held.
 local CLOCK = { cb2 = 0x08134c9c, setting = 0x08134ce8, asking = 0x08134e30, periods = { [0] = "AM", [1] = "PM" },
 	states = { [0x08134ce8] = "setting", [0x08134dc4] = "confirming", [0x08134e30] = "confirming",
 		[0x08134ea4] = "closing", [0x08134ee8] = "closing", [0x08134f10] = "viewing", [0x08134f40] = "viewing" } }
 
--- The clock being set, or nil: its task's routine and data words.
 local function clockState()
 	if (r32(GMAIN_CB2) & 0xFFFFFFFE) ~= CLOCK.cb2 then return nil end
 	for n = 0, NUM_TASKS - 1 do
@@ -993,7 +984,7 @@ end
 
 -- The starter bag: under CB2_StarterChoose, task 0's data word 0 is the ball (0 left, 1 bottom, 2 right), and
 -- sStarterMon names the species. A move runs two other routines for 2 frames, already holding the new word, so they
--- read as the menu too. One table, as the module is at Lua's local ceiling.
+-- read as the menu too.
 local STARTER = { cb2 = 0x081341e0, species = 0x085b1df8,
 	choosing = { [0x0813425c] = true, [0x08134640] = true, [0x08134668] = true } }
 
@@ -1014,7 +1005,6 @@ function STARTER.menu()
 	return nil
 end
 
--- What the save has: the party, the bag, money and badges. Nil until the save blocks are in place.
 local function readSave()
 	local sb1, sb2 = r32(SB1PTR), r32(SB2PTR)
 	if not inEwram(sb1) or not inEwram(sb2) then return nil end
@@ -1041,7 +1031,7 @@ local LEVEL_UP_BOX_WAITING = { [6] = "page 1", [8] = "page 2" }
 -- gAnimScriptActive reads 01 while a move's animation plays, and an A pressed inside one changes nothing. Bit n of
 -- gBattleControllerExecFlags is set while battler n's controller is at work, until its routine is back at the one it
 -- idles in: the game at work, unless the routine waits for a button (a message on its arrow, the menus, the target). A
--- wait not measured yet counts as work too, nudged after text.lua's longer wait. One table, at the local ceiling.
+-- wait not measured yet counts as work too, nudged after text.lua's SCRIPT_WAIT_FRAMES.
 local BATTLE_BUSY = { anim = 0x020383fd, execFlags = 0x02024068,
 	inputWaits = { [0x080597b4] = true, [CHOOSE_ACTION] = true, [CHOOSE_MOVE] = true, [0x08057824] = true } }
 
@@ -1065,7 +1055,6 @@ local LEARN = { stateAt = 0x02024474 + 0x1F, cursorAt = 0x02024332 + 1, commands
 	-- Cmd_trygivecaughtmonnick: the nickname question after a catch, waiting while gBattleCommunication +0 reads 1.
 	nicknameCmd = 0x08056bec }
 
--- The evolution scene's task data, or nil.
 function LEARN.evolution()
 	local cb = r32(GMAIN_CB2) & 0xFFFFFFFE
 	if cb ~= LEARN.evoCB2 and cb ~= LEARN.evoLoadCB2 then return nil end
@@ -1079,7 +1068,6 @@ function LEARN.evolution()
 	return nil
 end
 
--- The options a learn-a-move question weighs: party slot `slot`'s moves in order, then `newMove`.
 function LEARN.options(slot, newMove)
 	local mon = (readParty() or {})[slot + 1]
 	if not mon or not mon.moves then return nil end
@@ -1217,7 +1205,6 @@ local function readBattle()
 				break
 			end
 		end
-		-- `side` names positions 0 (the player's) and 1 (the opponent's) only.
 		local pos = positions[i + 1]
 		local types = { TYPE_CHART.name(b[0x22]) or string.format("type %d", b[0x22]) }
 		if b[0x23] ~= b[0x22] then types[2] = TYPE_CHART.name(b[0x23]) or string.format("type %d", b[0x23]) end
@@ -1267,8 +1254,7 @@ function game.build()
 	return string.format("gamecode %08X", r32(0x080000AC))
 end
 
--- Installs the text hooks, on the measured ROM only, and returns what happened for the driver's log. Any execute hook
--- halves the emulator's top speed, however many there are, so AUTOPLAY_TEXT=0 leaves them out.
+-- Any execute hook halves the emulator's top speed, however many there are, so AUTOPLAY_TEXT=0 leaves them out.
 function game.start()
 	if (AUTOPLAY_TEXT or os.getenv("AUTOPLAY_TEXT")) == "0" then
 		return "AUTOPLAY_TEXT=0: no text hooks"
@@ -1324,7 +1310,6 @@ function game.observe(asked)
 		end
 	end
 	if battle then m = battleMenu() end
-	-- A learn-a-move question: its YES/NO or its list as the menu, with its kind and what each option weighs.
 	local question = isVanilla and LEARN.question() or nil
 	if question then
 		m = { kind = question.kind, text = question.text, items = question.menu.items, cursor = question.menu.cursor,
@@ -1386,8 +1371,8 @@ local function inOverworld()
 	return cb == CB2_OVERWORLD or cb == CB2_OVERWORLD + 1
 end
 
--- Cheats: each takes its args and returns a plan, { untilFn = function(observation) -> done, limit = frames }, or nil
--- and a reason. A cheat changes the world by other means than play; the core marks the segment reached.
+-- Cheats: each takes its args and returns a plan, { untilFn = function(observation) -> done, limit = frames, report },
+-- or nil and a reason. A cheat changes the world by other means than play; the core marks the segment reached.
 game.cheats = {}
 
 -- warp {map = "G.N", x, y}: the game's own map load, written as cmd_drive.lua's `warp` writes it. Refused outside
@@ -1555,7 +1540,6 @@ function NOCLIP.forget()
 	NOCLIP.tiles, NOCLIP.elevations, NOCLIP.where = {}, {}, nil
 end
 
--- Puts back what is still as noclip left it, and returns how many tiles and characters that was.
 function NOCLIP.putBack()
 	local tiles, characters = 0, 0
 	for addr, t in pairs(NOCLIP.tiles) do
@@ -1664,7 +1648,6 @@ end
 
 -- The menu alone, for a program that looks every frame (select).
 function game.menu()
-	-- A learn-a-move question is a menu too, for `select`.
 	local q = isVanilla and LEARN.question() or nil
 	if q then return { kind = q.kind, items = q.menu.items, cursor = q.menu.cursor } end
 	if isVanilla and inBattle() then return battleMenu() end
@@ -1694,7 +1677,7 @@ local function atRest()
 end
 
 -- A bump leaves the coordinates, the previous coordinate already equal to them, the avatar's +2 at 2 and byte 0's top
--- bit clear; +2 reads 0 while nothing is under way (1 turning, or a door opening). One table, at the local ceiling.
+-- bit clear; +2 reads 0 while nothing is under way (1 turning, or a door opening).
 local STEP = {}
 function STEP.refused()
 	local b = memory.read_bytes_as_array(playerObject(), 0x18, BUS)
@@ -1703,9 +1686,8 @@ function STEP.refused()
 end
 function STEP.idle() return r8(GPLAYERAVATAR + 2) == 0 end
 
--- Why a step was refused, from what describeTile read on the tile: `npc_in_way`, `one_way_edge`, `missing_ability`
--- (with the ability), `solid`, `off_map`, or `unknown` (another elevation, not measured). A ledge reads collision set
--- and hops its one way; 0x39 and 0x3A are taken as the same family, not walked.
+-- Why a step was refused, from what describeTile read; `unknown` is another elevation, not measured. A ledge reads
+-- collision set and hops its one way; 0x39 and 0x3A are taken as the same family, not walked.
 STEP.LEDGES = { [0x38] = "right", [0x39] = "left", [0x3A] = "up", [0x3B] = "down" }
 function STEP.cause(t)
 	if t.outside_map then return "off_map" end
@@ -1770,10 +1752,10 @@ local function approachWatch()
 end
 
 -- walk {direction, tiles, run}: held from the first tile to the last, as a player walks. A step begins the frame the
--- coordinates change and finishes if released, so the direction is let go as the last begins. Only frames with the
--- avatar's +2 at 0 count towards giving up (1 is a turn or a door opening), and toward a warp DOOR_LIMIT, since a door
--- facing the player opens with every byte at rest. `ran` says whether 0x80 was seen (not without the running shoes). On
--- the Mach Bike it lets go once one more tile would coast past the target, and walks any still short from rest.
+-- coordinates change and finishes if released, so the direction is let go as the last begins. It gives up after
+-- IDLE_LIMIT frames with the avatar's +2 at 0 (1 is a turn or a door opening) or PRESS_LIMIT in all, toward a warp
+-- DOOR_LIMIT, since a door facing the player opens with every byte at rest. `ran`: 0x80 seen (never without the
+-- running shoes). On the Mach Bike it lets go once one more tile would coast past, and walks any still short from rest.
 function game.programs.walk(p)
 	local d = DIRECTIONS[type(p.direction) == "string" and p.direction:lower() or ""]
 	local tiles = math.tointeger(p.tiles)
@@ -1879,8 +1861,6 @@ function game.programs.walk(p)
 	end
 end
 
--- goto: the planner and the ride are shared (route.lua); the hooks below give it Emerald's reads. On the Mach Bike a
--- last leg of 3 tiles or fewer stops at its corner first: after a turn at speed the first tile coasts three.
 -- The direction a warp you stand on is entered by, by its behaviour.
 local WARP_PRESS = { [0x62] = "right", [0x64] = "up", [0x65] = "down" }
 
@@ -1916,8 +1896,8 @@ local function routeGrid(fromX, fromY, toX, toY)
 			if m.name == "SURF" then surfs = true end
 		end
 	end
-	-- Surfing (avatar bit 0x08), water is open and so is the step onto land; on land with SURF known, water is an
-	-- obstacle `clear_obstacle` answers. Water reads level 0 in the plan, so both steps pass the level rule.
+	-- Surfing (avatar bit 0x08), water is open and reads level 0, so it and the step onto land pass the level rule; on
+	-- land with SURF known, water is an obstacle `clear_obstacle` answers.
 	local surfing = (r8(GPLAYERAVATAR) & 0x08) ~= 0
 	for _, o in ipairs(objects) do
 		blocked[o.y * mapW + o.x] = (smashes and o.graphics_id == 86) and "smash" or "character"
@@ -1946,7 +1926,7 @@ local function routeGrid(fromX, fromY, toX, toY)
 			local i = ((x + MAP_OFFSET) + gw * (y + MAP_OFFSET)) * 2 + 1
 			local v = grid[i] | (grid[i + 1] << 8)
 			local behaviour = behaviourOf(v & 0x3FF)
-			-- Water at elevation 1 is not walked onto; a step's level is elevationStep's.
+			-- Water at elevation 1 is not walked onto.
 			if STEP.SURF[behaviour] and (v >> 12) == 1 then
 				if surfing then return true, false, seen[y * mapW + x], nil, nil, timed[y * mapW + x] end
 				if surfs then return true, false, seen[y * mapW + x], nil, "surf", timed[y * mapW + x] end
@@ -1971,7 +1951,6 @@ local routeHooks = {
 		return string.format("%d.%d", r8(sb1 + 4), r8(sb1 + 5)), r16(sb1), r16(sb1 + 2)
 	end,
 	inOverworld = inOverworld,
-	-- `walk`'s early stops: a trainer coming, a message or a menu on screen.
 	watch = function()
 		local spotted = approachWatch()
 		return function()
@@ -2013,6 +1992,7 @@ local routeHooks = {
 			end
 		end
 		if STEP.longGrass then mount = mach end
+		-- shortLeg: after a turn at speed the Mach Bike's first tile coasts three.
 		return { buttons = { B = (run and onFoot) or nil }, coast = mach and STEP.machCoasts or nil, shortLeg = mach and 3 or nil,
 			mount = mount and "Select" or nil }
 	end,
@@ -2098,7 +2078,6 @@ routeHooks.mapExits = function(name)
 		local e = STEP.EMERGE[name]
 		exits[#exits + 1] = { kind = "emerge", to = e.to, arrive = { x = e.x, y = e.y }, key = "emerge to " .. e.to }
 	end
-	-- A cracked floor on a map whose floor below is measured: an exit landing on the same tile there.
 	for _, f in ipairs(routeHooks.falls(name)) do exits[#exits + 1] = f end
 	routeHooks.maps[name] = { width = w, height = h, exits = exits, warps = warps }
 	return routeHooks.maps[name]
@@ -2124,9 +2103,7 @@ routeHooks.mapTileRaw = function(name, x, y)
 	local attrs = inRom(ts) and r32(ts + 0x10) or 0
 	return (v >> 10) & 3, v >> 12, inRom(attrs) and (r16(attrs + id * 2) & 0xFF) or -1
 end
--- Levels: a step is taken when the player's level is 0 or the tile's is 0, 15 or the same, and the level then becomes
--- the tile's unless the tile stepped from or onto is 15 (the 0s walked; the rest from IsElevationMismatchAt and
--- ObjectEventUpdateElevation as the map).
+-- Levels: the 0 rules were walked; the rest is IsElevationMismatchAt and ObjectEventUpdateElevation read as the map.
 routeHooks.elevationStep = function(level, tileLevel, fromLevel)
 	if not tileLevel then return nil end
 	if level ~= 0 and tileLevel ~= 0 and tileLevel ~= 15 and tileLevel ~= level then return nil end
@@ -2134,7 +2111,6 @@ routeHooks.elevationStep = function(level, tileLevel, fromLevel)
 	return tileLevel
 end
 routeHooks.playerElevation = function() return r8(playerObject() + 0x0B) & 0x0F end
--- Deep water: a tile a dive is planned from, or surfacing onto.
 routeHooks.deepWater = function(name, x, y)
 	local c, e, b = routeHooks.mapTileRaw(name, x, y)
 	return c == 0 and e == 1 and b == 0x12
@@ -2144,7 +2120,6 @@ routeHooks.surfaceSpot = function(name, x, y)
 	local c, _, b = routeHooks.mapTileRaw(name, x, y)
 	return c == 0 and b == 0x12
 end
--- The cracked floors of a map whose floor below is measured, as exits: { kind = "fall", x, y, to, key }.
 routeHooks.falls = function(name)
 	local below, out = STEP.FALLS[name], {}
 	if not below then return out end
@@ -2160,13 +2135,10 @@ routeHooks.falls = function(name)
 	end
 	return out
 end
--- A tile of any map for the plan across maps: a ledge one way; collision set, a mud slope and water closed on foot;
--- otherwise its elevation.
 routeHooks.mapTile = function(name, x, y)
 	local collision, elevation, behaviour = routeHooks.mapTileRaw(name, x, y)
 	if not collision then return nil end
 	if STEP.LEDGES[behaviour] then return elevation, STEP.LEDGES[behaviour] end
-	-- Water: open to the plan across maps when the party knows SURF, at level 0.
 	if collision == 0 and elevation == 1 and STEP.SURF[behaviour] and routeHooks.surfs then return 0 end
 	-- Currents and a waterfall: open to this plan, which is the optimistic one; the room's plan decides.
 	if collision == 0 and (STEP.CURRENTS[behaviour] or behaviour == STEP.WATERFALL) and routeHooks.surfs then return 0 end
@@ -2263,7 +2235,6 @@ game.programs.clear_obstacle = function()
 			return game.programs.talk({ local_id = o.local_id })
 		end
 	end
-	-- Water beside the player: face it, A, and its question.
 	local dirs = { up = { 0, -1 }, down = { 0, 1 }, left = { -1, 0 }, right = { 1, 0 } }
 	local order = { routeHooks.facing(), "up", "down", "left", "right" }
 	for _, name in ipairs(order) do
@@ -2278,7 +2249,6 @@ game.programs.clear_obstacle = function()
 					if frames > 60 then return nil, true, nil, "could not face the water " .. name end
 					return { [({ up = "Up", down = "Down", left = "Left", right = "Right" })[name]] = true }, false
 				end
-				-- One tapped A, then the text machine reads to the YES/NO.
 				if not tapped then
 					tapped = frames
 					return { A = true }, false
@@ -2301,7 +2271,7 @@ end
 -- search {x, y}: a way found by trying steps in the game (route.lua).
 game.programs.search = function(p) return lib.route.search(routeHooks, p) end
 
--- goto {x, y, run, cross_grass}: to a tile on this map by a planned route (route.lua).
+-- goto {x, y, map, run, cross_grass}: to a tile on this map, or on `map`, by a planned route (route.lua).
 game.programs["goto"] = function(p)
 	if not isVanilla then return nil, "goto is measured on the vanilla ROM only" end
 	-- The plan across maps opens water where SURF is known.
@@ -2315,9 +2285,6 @@ game.programs["goto"] = function(p)
 	return lib.route.reach(routeHooks, p)
 end
 
--- Text and battles as one call: the shared machine (text.lua) decides when to press; these hooks are Emerald's reads.
-
--- The state a text or battle program watches for progress, as one string.
 local function progressSignature()
 	local d = (#hookNames > 0) and readDialogue() or nil
 	-- The printer's pointer moves with every character, so a box still printing is progress; the player's coordinates
@@ -2336,7 +2303,6 @@ local function progressSignature()
 	return table.concat(parts, "|"), d
 end
 
--- The usable move (PP left) with the most power times accuracy, as a 0-3 slot; the first with PP if none does damage.
 local function strongestMoveSlot()
 	local b = memory.read_bytes_as_array(BATTLE_MONS, BATTLE_MON_SIZE, BUS)
 	local best, bestScore
@@ -2431,7 +2397,6 @@ local textHooks = {
 	signature = progressSignature,
 	readDialogue = readDialogue,
 	inBattle = inBattle,
-	-- Both battle menus are grids of two columns, their cursors at ACTION_CURSOR and MOVE_CURSOR.
 	battleMenu = function()
 		local asking, battler = battleAsking()
 		if not asking then return nil end
@@ -2453,11 +2418,9 @@ local textHooks = {
 		local at = r8(LEVEL_UP_BOX_STATE)
 		return LEVEL_UP_BOX_WAITING[at], at
 	end,
-	-- A move's animation, or a battler's controller at work.
 	animationPlaying = BATTLE_BUSY.playing,
-	-- The learn-a-move questions and the move list, and the evolution scene playing by itself.
 	battleQuestion = LEARN.question,
-	-- Battler 0's HP and max HP (BATTLE_MONS +0x28, +0x2C; the player's in every single battle measured).
+	-- Battler 0 is the player's in every single battle measured.
 	ownHp = function() return r16(BATTLE_MONS + 0x28), r16(BATTLE_MONS + 0x2C) end,
 	scenePlaying = function() return LEARN.evolution() ~= nil end,
 	readKeyboard = readKeyboard,
@@ -2483,16 +2446,12 @@ local textHooks = {
 	end,
 }
 
--- battle {policy = "strongest" | "effective" | "run"}: plays a battle to its end, a trainer's words included: the most
--- power times accuracy, that weighed by the type chart and the same-type bonus, or RUN.
 game.programs.battle = function(p)
 	if not isVanilla then return nil, "battle is measured on the vanilla ROM only" end
 	if #hookNames == 0 then return nil, "battle reads messages through the text hooks, which are off (AUTOPLAY_TEXT=0)" end
 	return lib.text.battle(textHooks, p)
 end
 
--- advance_text: presses through the message on screen, box by box, and stops when it closes and stays closed, when a
--- menu opens (answer it with select), or when a battle begins (hand it to battle).
 game.programs.advance_text = function()
 	if not isVanilla then return nil, "advance_text is measured on the vanilla ROM only" end
 	if #hookNames == 0 then return nil, "advance_text reads messages through the text hooks, which are off (AUTOPLAY_TEXT=0)" end
@@ -2553,7 +2512,6 @@ local function chain(steps, finish)
 		return nil, false
 	end
 end
--- A tap: held 3 frames, let go 6.
 local function tap(button)
 	return function()
 		local n = 0
@@ -2564,7 +2522,6 @@ local function tap(button)
 		end
 	end
 end
--- Nothing pressed until pred() holds, at most limit frames.
 local function waitFor(pred, limit, what)
 	return function()
 		local n = 0
@@ -2591,7 +2548,6 @@ end
 local function fieldClear()
 	return inOverworld() and r8(SCRIPT_CONTEXT_STATUS) == SCRIPT_CONTEXT_OFF and readDialogue() == nil and game.menu() == nil
 end
--- B until the field is clear again.
 local function closeAll()
 	return function()
 		local n = 0
@@ -2766,7 +2722,6 @@ local function flyCursorTo(x, y, soft)
 		end
 	end
 end
--- START, POKéMON, the first Pokémon knowing FLY by Down, A, FLY: the fly map up.
 local function openFlyMap()
 	local slot
 	for i, mon in ipairs(readParty() or {}) do
@@ -2923,7 +2878,6 @@ local function ride(p)
 	end, nil, 1800
 end
 
--- reflex {kind, args}: the field errands above, each a program by kind.
 -- Field moves for the room's plan, each ending with the field clear and the player at rest. surf, smash and climb: face
 -- the tile (a step does not enter it), one A, the text to its YES/NO, YES, the text to its end. push: STRENGTH's
 -- question first while flag 0x889 is clear, then the direction held until the boulder leaves its tile, and nothing
@@ -2994,7 +2948,6 @@ routeHooks.act = function(kind, a)
 			waitFor(function() return (routeHooks.position()) ~= from and inOverworld() end, 600, "the " .. kind) })
 	end
 	if kind == "ride" then
-		-- On the MACH BIKE (SELECT, then held until the avatar reads it), then `ride`'s legs.
 		local steps = {}
 		if (r8(GPLAYERAVATAR) & MACH_BIKE_FLAG) == 0 then
 			steps[1] = tap("Select")
@@ -3062,6 +3015,7 @@ local function partyFieldMove(p)
 	}, function() return { move = move, slot = slot, said = said } end), nil, 1200
 end
 
+-- reflex {kind, args}: the field errands above, each a program by kind.
 local ERRANDS = { use_item = useItem, fly = fly, fly_scan = flyScan, swap = swap, ride = ride, field_move = partyFieldMove }
 return function(p)
 	local make = ERRANDS[p.kind]
@@ -3090,7 +3044,6 @@ game.programs.type_text = function(p)
 	if #chars == 0 or #chars > k.max then
 		return nil, string.format("text must be 1 to %d characters on this keyboard, got %d", k.max, #chars)
 	end
-	-- Where a character's key is on a page, or nil.
 	local function keyOn(page, ch)
 		for r, row in ipairs(keysOf(page)) do
 			for c, key in ipairs(row) do
@@ -3324,7 +3277,7 @@ function game.watch()
 			or (isVanilla and (cb2 == BATTLE_MAIN_CB2 or cb2 == BATTLE_MAIN_CB2 + 1) and "battle") or "not_overworld",
 		dialogue = (dialogue and windowOnScreen(dialogue.window)) and "open" or "closed",
 		menu = (menuWindow and windowOnScreen(menuWindow)) and "open" or "closed",
-		-- battle_input_changed: the battle starts or stops waiting for an action or a move.
+		-- battle_input_changed: the battle starts or stops waiting for an action, a move or a target.
 		battle_input = isVanilla and (cb2 == BATTLE_MAIN_CB2 or cb2 == BATTLE_MAIN_CB2 + 1) and battleAsking() or "none",
 	}
 end

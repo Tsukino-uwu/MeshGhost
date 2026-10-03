@@ -1783,3 +1783,21 @@ them: the driver package said to read no payload field but `persisting` (the ser
 `changed` and a screenshot's `path`), `goto`'s jumped rises and its end list, `walk`/`goto` said to be on foot only on
 Crystal (every movement state, surfing included), and the TEVI dodge said to weigh nine moves on the ground (eleven).
 `autoplay/README.md` still says a 27-by-17-tile `local_map`; the code reads 101 by 51.
+
+## 2026-10-03 — A5's second pass: autoplay's comments read against the code
+
+Every comment left in autoplay was read beside its code (`private/a5`'s `p2-autoplay` batch: 26 files edited, Go 8, Lua
+8, C# 10). Code unchanged: Go tokens minus comments identical to the parent (17,987 tokens) and gofmt clean, `luac -l -l`
+listings identical (8 files), C# tokens identical (10 files) and the TEVI driver DLL built from the parent and from this
+tree byte-identical; `go vet` and `go test -count=1 ./...` green in `autoplay/`. Fixed to the code, among them: TEVI's
+`goto` and `fight` also end `lost`, `goto` also `damage_taken` with `stop_on_damage`; a resting blastorb is jumped at a
+run, never shot; the recorder keeps every live box not hers, hurting or not; Emerald's `battle_input` also waits on a
+target; the UE4SS bootstrap reads its config in the mod's folder, beside `Scripts\`. `autoplay/README.md`,
+`code-map.md` and Emerald's `MEASURED.md` follow. One fact the first pass dropped without filing (`DirLead`, the probe's
+2-frame lead, 2026-09-23) is in TEVI's `MEASURED.md`. Found and not changed (code, for the user): TEVI's `Keep`
+re-reports Down each airborne frame; `DirLead` leads Attack by 1 frame where the probe held 2; `SaveGuard` checks only
+a move's destination; Emerald's `strongestMoveSlot` reads battler 0 (wrong in doubles) and `readBattle` sides 0-1 only;
+Crystal's sight tiles dedupe; refusal strings omit surfing; the UE4SS connect can block 20 ms; Pseudoregalia's
+`advance_text` reuses a 90-frame-old UObject. Open for the user: the camera's pitch sign, where Pseudoregalia's
+`MEASURED.md` (a positive `IA_Look` Y raises pitch) disagrees with the code and `phases/autoplay/pseudoregalia.md` (Y
+lowers it).

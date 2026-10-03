@@ -6,10 +6,10 @@ using Newtonsoft.Json.Linq;
 
 namespace MeshGhostAutoplay
 {
-    // Skips every call that unlocks an achievement or sends stats (the Steam libraries' and the game's own the plugin
-    // names) from the moment the driver loads: an unlock before a core connects would already be on the account. A
-    // skipped call returns its type's default, as if the platform refused it. Patched once per process and never
-    // removed, the count in the AppDomain, it survives a hot reload.
+    // Skips every call that unlocks an achievement or sends stats (the Steam libraries', and the game's own methods
+    // the plugin names) from the moment the driver loads: an unlock before a core connects would already be on the
+    // account. A skipped call returns its type's default, as if the platform refused it. Patched once per process and
+    // never removed, with the count in the AppDomain, so it survives a hot reload.
     public static class AchievementGuard
     {
         public const string HarmonyId = "dev.meshghost.autoplay.achievementguard";

@@ -1,5 +1,5 @@
 -- autoplay's UE4SS bootstrap, a dev tool that never ships: the one file copied into the game's
--- ue4ss\Mods\MeshGhostAutoplay\Scripts. It reads meshghost-autoplay.txt beside the mod (repo=, port=, game=) and loads
+-- ue4ss\Mods\MeshGhostAutoplay\Scripts. It reads meshghost-autoplay.txt beside Scripts (repo=, port=, game=) and loads
 -- the driver from the repo, so an edit is live on the mod's next restart; with no config file nothing loads.
 
 local src = debug.getinfo(1, "S").source

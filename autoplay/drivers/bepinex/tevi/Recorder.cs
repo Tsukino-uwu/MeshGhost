@@ -10,15 +10,15 @@ namespace MeshGhostAutoplay.Tevi
     // The flight recorder: the last Capacity frames of game time, recorded whether or not a core is connected, read by
     // `recent` after an event to see what led to it. Only frames where game time moved are kept, so a held clock, a
     // menu or a conversation leaves the buffer holding what happened. A row: the player, the driver's held input (not
-    // the real controller's), the nearest characters with their state, the nearest boxes that can hurt her and the
-    // lasers; types named once. It reports its own cost.
+    // the real controller's), the nearest characters with their state, the nearest live boxes not hers and the lasers;
+    // types named once. It reports its own cost.
     public static class Recorder
     {
         // 60 seconds; one `recent` reads at most 600 of them, reaching back with until_frame
         public const int Capacity = 3600;
         private const int MaxEnemies = 4, MaxBoxes = 8, MaxLasers = 32;
 
-        // The link caps a line at 64 KB: an answer past this is thinned (every doubled) until it fits.
+        // The link caps a line at 64 KB: an answer past this is thinned, every doubled until it fits or is at least 60.
         private const int AnswerBudget = 48000;
 
         private struct Enemy

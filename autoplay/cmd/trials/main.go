@@ -8,9 +8,10 @@
 // `fight`, the reflex call made in chunks until it ends; `on_paused`, the calls that clear a window the game opens
 // mid-fight, repeated until the game is back in play (a TEVI tutorial window takes no Confirm until it has stood a
 // while in real time); `fast`, the fight chunks run with the clock's fast action on (setup and windows run at the
-// game's own pace: TEVI's dialogue takes no Confirm while fast); `max_frames`, the game time a try may take. -set
-// overrides one of the fight's args (the value is JSON, else a string), so a rule switched per call is tried without a
-// rebuild. Each try goes to runs/trials/<time>.ndjson with its chunks, and the last line is the summary.
+// game's own pace: TEVI's dialogue takes no Confirm while fast); `max_frames`, the game time a try may take;
+// `timeline`, whether a try keeps the target's changes frame by frame. -set overrides one of the fight's args (the
+// value is JSON, else a string), so a rule switched per call is tried without a rebuild. Each try goes to
+// runs/trials/<time>.ndjson with its chunks, and the last line is the summary.
 //
 // Run from autoplay/. Like mcpcall, it starts its own core; the driver must be on -listen's port.
 package main
@@ -62,7 +63,7 @@ type try struct {
 	Damage   float64          `json:"damage"`
 	HitList  []hit            `json:"hit_list"`
 	Unlocks  []string         `json:"unlocks,omitempty"`  // popup_shown title and text: a new move announced mid-fight
-	Timeline []map[string]any `json:"timeline,omitempty"` // the target's changes, frame by frame, from the flight recorder
+	Timeline []map[string]any `json:"timeline,omitempty"` // the target's changes per frame, from the flight recorder
 	BossHP   any              `json:"boss_hp_end"`
 	MaxCombo int              `json:"max_combo"`   // the highest combo count a chunk reported
 	Drops    int              `json:"combo_drops"` // times the combo count fell, over the chunks
@@ -451,7 +452,7 @@ func newestEvent(ctx context.Context, s *mcp.ClientSession) float64 {
 	return f
 }
 
-// hitsSince reads the damage_taken events since a sequence number, and the titles of the popups shown.
+// hitsSince reads the damage_taken events since a sequence number, and each popup shown as its title and text.
 func hitsSince(ctx context.Context, s *mcp.ClientSession, since float64) ([]hit, []string) {
 	hits := []hit{}
 	var unlocks []string
@@ -479,7 +480,7 @@ func hitsSince(ctx context.Context, s *mcp.ClientSession, since float64) ([]hit,
 	return hits, unlocks
 }
 
-// hitOf reads a damage_taken payload: the kind at the top level or under "kind", the fields beside it or under "data".
+// hitOf reads a damage_taken payload: its kind under "kind" or "type", its fields beside it or under "data".
 func hitOf(p map[string]any) (hit, bool) {
 	kind, _ := p["kind"].(string)
 	if kind == "" {

@@ -59,7 +59,7 @@ func TestParseRefuses(t *testing.T) {
 func TestCheckAllNamesTheGoalAfterTheLastOneMet(t *testing.T) {
 	g := mustParse(t, storyGoals)
 
-	// Two badges, and no longer in Dewford: the goal checked by place fails, and the next goal is still the third.
+	// Two badges and no longer in Dewford: the goal checked by place fails, yet the next goal is the third badge.
 	results, next := g.CheckAll(state(t, `{"location": {"map": "9.11"}, "badges": [1, 2], "badge_count": 2}`))
 	if next != 3 || g.Goals[next].ID != "dynamo_badge" {
 		t.Fatalf("next = %d, want 3 (dynamo_badge)", next)
@@ -71,12 +71,10 @@ func TestCheckAllNamesTheGoalAfterTheLastOneMet(t *testing.T) {
 		t.Fatalf("the unmet goal's reasons = %q", results[3].Failed)
 	}
 
-	// A new game: nothing met, the first goal is next.
 	if _, next := g.CheckAll(state(t, `{"location": {"map": "0.9"}, "badges": [], "badge_count": 0}`)); next != 0 {
 		t.Fatalf("next on a new game = %d, want 0", next)
 	}
 
-	// Every badge: the last goal met, nothing next.
 	if _, next := g.CheckAll(state(t, `{"location": {"map": "10.0"}, "badges": [1, 2, 3], "badge_count": 3}`)); next != -1 {
 		t.Fatalf("next with the last goal met = %d, want -1", next)
 	}

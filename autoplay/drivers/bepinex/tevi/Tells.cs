@@ -90,9 +90,9 @@ namespace MeshGhostAutoplay.Tevi
         }
 
         private static readonly Dictionary<int, Seen> States = new Dictionary<int, Seen>(); // by character instance id
-        // live slots already sampled
+        // live slots already looked at once grown, sampled or not
         private static readonly Dictionary<int, int> BulletBorn = new Dictionary<int, int>();
-        // born last frame, waiting for velocity
+        // sampled, waiting up to VelocityFrames for their velocity
         private static readonly Dictionary<int, Sample> Pending = new Dictionary<int, Sample>();
         private static readonly Dictionary<int, Vector2> PendingCentre = new Dictionary<int, Vector2>();
         private static readonly Dictionary<int, int> PendingBorn = new Dictionary<int, int>();
@@ -227,7 +227,7 @@ namespace MeshGhostAutoplay.Tevi
                     Dy = centre.y - b.owner.t.position.y,
                     W = w,
                     H = h,
-                    Vx = facing, // replaced by the turned velocity next frame
+                    Vx = facing, // replaced by the turned velocity after VelocityFrames
                     Type = type,
                 };
                 string key = b.owner.type + "|" + s.State;
